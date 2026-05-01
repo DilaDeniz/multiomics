@@ -3,6 +3,7 @@ use ndarray::{Array1, Array2};
 use genomics_core::GenomicsSummary;
 use transcriptomics_core::TranscriptomicsSummary;
 use epigenomics_core::EpigenomicsSummary;
+use biomics_core::statistics::spearman_r;
 
 /// Build a feature vector from genomics data.
 ///
@@ -109,6 +110,24 @@ pub fn pearson_correlation_matrix(data: &Array2<f64>) -> anyhow::Result<Array2<f
             let row_i = data.row(i).to_owned();
             let row_j = data.row(j).to_owned();
             corr[[i, j]] = pearson_r(&row_i, &row_j);
+        }
+    }
+    Ok(corr)
+}
+
+/// Compute an N×N Spearman rank correlation matrix for rows of `data`.
+///
+/// Returns `Array2<f64>` of shape `(n_rows, n_rows)` where `result[[i, j]]`
+/// is the Spearman r between row i and row j. More robust than Pearson for
+/// non-Gaussian or monotone-but-nonlinear relationships.
+pub fn spearman_correlation_matrix(data: &Array2<f64>) -> anyhow::Result<Array2<f64>> {
+    let n = data.nrows();
+    let mut corr = Array2::<f64>::zeros((n, n));
+    for i in 0..n {
+        for j in 0..n {
+            let row_i: Vec<f64> = data.row(i).iter().copied().collect();
+            let row_j: Vec<f64> = data.row(j).iter().copied().collect();
+            corr[[i, j]] = spearman_r(&row_i, &row_j);
         }
     }
     Ok(corr)

@@ -17,4 +17,5 @@ serde_json           = { workspace = true }
 ndarray              = { workspace = true }
 linfa                = { workspace = true }
 linfa-reduction      = { workspace = true }
+ahash                = { workspace = true }
 log                  = { workspace = true }

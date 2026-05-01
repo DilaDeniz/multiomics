@@ -40,6 +40,7 @@ fn generate_html(
     let variant_chart = html_variant_density_chart(genomics);
     let expression_chart = html_expression_chart(transcr);
     let methylation_chart = html_methylation_chart(epigen);
+    let volcano_chart = html_volcano_chart(transcr);
     let heatmap = html_correlation_heatmap(integration);
     let pca_chart = html_pca_chart(integration);
     let insights_section = html_insights(&integration.insights);
@@ -68,6 +69,7 @@ fn generate_html(
     <h2>Per-Chromosome Methylation Profile</h2>
     {methylation_chart}
   </section>
+  {volcano_section}
   <div class="row-2">
     <section class="section">
       <h2>Cross-Modality Correlation</h2>
@@ -98,6 +100,11 @@ fn generate_html(
         variant_chart = variant_chart,
         expression_chart = expression_chart,
         methylation_chart = methylation_chart,
+        volcano_section = if volcano_chart.is_empty() {
+            String::new()
+        } else {
+            format!("<section class=\"section\"><h2>🌋 Differential Expression Volcano Plot</h2>{}</section>", volcano_chart)
+        },
         heatmap = heatmap,
         pca_chart = pca_chart,
         insights_section = insights_section,
@@ -267,6 +274,51 @@ window._methylationData = {{
     )
 }
 
+/// Emit volcano plot data as a `<canvas>` + inline JSON.
+///
+/// Points are colored: red = significant (padj < 0.05 AND |log2FC| ≥ 1),
+/// grey = not significant. Returns empty string when no DE data available.
+fn html_volcano_chart(t: &TranscriptomicsSummary) -> String {
+    let de = match t.diff_expr.as_ref() {
+        Some(d) if !d.is_empty() => d,
+        _ => return String::new(),
+    };
+
+    // Limit to at most 5000 points for reasonable page size
+    let points: Vec<String> = de
+        .iter()
+        .take(5000)
+        .filter(|r| !r.log2_fold_change.is_nan())
+        .map(|r| {
+            let neg_log10_padj = if r.padj.is_nan() || r.padj <= 0.0 {
+                r.log2_fold_change.abs() // fallback: use |lfc| as pseudo-significance
+            } else {
+                -r.padj.log10()
+            };
+            let sig = (!r.padj.is_nan() && r.padj < 0.05 && r.log2_fold_change.abs() >= 1.0) as u8;
+            format!(
+                "{{x:{:.3},y:{:.3},s:{},g:\"{}\"}}",
+                r.log2_fold_change,
+                neg_log10_padj,
+                sig,
+                escape_js(&r.gene_id)
+            )
+        })
+        .collect();
+
+    if points.is_empty() {
+        return String::new();
+    }
+
+    format!(
+        r#"<canvas id="volcanoChart" style="max-height:400px"></canvas>
+<script>
+window._volcanoData = [{}];
+</script>"#,
+        points.join(",")
+    )
+}
+
 fn html_correlation_heatmap(integration: &IntegrationSummary) -> String {
     let labels = ["Genomics", "Transcriptomics", "Epigenomics"];
     let corr = &integration.correlation_matrix;
@@ -345,19 +397,30 @@ fn html_pathway_table(integration: &IntegrationSummary) -> String {
         return String::new();
     }
     let mut html = String::from(
-        r#"<section class="section"><h2>🔗 Pathway Enrichment</h2>
+        r#"<section class="section"><h2>🔗 Pathway Enrichment (Fisher's Exact Test + BH FDR)</h2>
 <table><thead><tr>
-  <th>Pathway ID</th><th>Pathway Name</th>
-  <th>Overlap</th><th>Pathway Size</th><th>Score</th>
+  <th>Pathway</th><th>Name</th>
+  <th>Overlap</th><th>Size</th><th>p-value</th><th>padj</th><th>Score</th>
 </tr></thead><tbody>"#,
     );
     for r in integration.top_pathways.iter().take(20) {
+        let sig_style = if !r.padj.is_nan() && r.padj < 0.05 {
+            " style=\"color:#3fb950;font-weight:600\""
+        } else {
+            ""
+        };
+        let pval_str = if r.p_value.is_nan() { "N/A".into() } else { format!("{:.2e}", r.p_value) };
+        let padj_str = if r.padj.is_nan() { "N/A".into() } else { format!("{:.2e}", r.padj) };
         html.push_str(&format!(
-            "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{:.4}</td></tr>",
+            "<tr><td>{}</td><td{}>{}</td><td>{}</td><td>{}</td><td>{}</td><td{}>{}</td><td>{:.4}</td></tr>",
             escape_html(&r.pathway_id),
+            sig_style,
             escape_html(&r.pathway_name),
             r.overlap,
             r.pathway_size,
+            pval_str,
+            sig_style,
+            padj_str,
             r.score
         ));
     }
@@ -438,6 +501,46 @@ document.addEventListener('DOMContentLoaded', function() {
                    y: { title: { display: true, text: 'PC2 (' + pd.ev1.toFixed(1) + '%)',
                                  color: '#8b949e' }, ticks: { color: '#8b949e' } }
                  } }
+    });
+  }
+
+  // Volcano plot
+  var vp = window._volcanoData;
+  if (vp && vp.length > 0 && document.getElementById('volcanoChart')) {
+    var sig = vp.filter(function(p) { return p.s === 1; });
+    var ns  = vp.filter(function(p) { return p.s === 0; });
+    new Chart(document.getElementById('volcanoChart'), {
+      type: 'scatter',
+      data: {
+        datasets: [
+          { label: 'Not significant', data: ns.map(function(p){return{x:p.x,y:p.y};}),
+            backgroundColor: 'rgba(139,148,158,0.35)', pointRadius: 2, pointHoverRadius: 4 },
+          { label: 'Significant (padj<0.05, |log₂FC|≥1)',
+            data: sig.map(function(p){return{x:p.x,y:p.y};}),
+            backgroundColor: 'rgba(248,81,73,0.75)', pointRadius: 3, pointHoverRadius: 5 }
+        ]
+      },
+      options: {
+        plugins: {
+          legend: { labels: { color: '#c9d1d9' } },
+          tooltip: {
+            callbacks: {
+              label: function(ctx) {
+                var d = ctx.raw;
+                return (vp[ctx.dataIndex] || {}).g || (d.x.toFixed(2) + ', ' + d.y.toFixed(2));
+              }
+            }
+          }
+        },
+        scales: {
+          x: { title: { display: true, text: 'log₂ Fold Change', color: '#8b949e' },
+               ticks: { color: '#8b949e' },
+               grid: { color: '#21262d' } },
+          y: { title: { display: true, text: '-log₁₀(padj)', color: '#8b949e' },
+               ticks: { color: '#8b949e' },
+               grid: { color: '#21262d' } }
+        }
+      }
     });
   }
 });

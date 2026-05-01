@@ -24,6 +24,9 @@ pub struct CpGIsland {
     pub length: u64,
     pub gc_percent: f64,
     pub mean_methylation: f64,
+    /// Observed-to-expected CpG ratio (CpO/E). Values ≥ 0.6 define CpG islands
+    /// under the Gardiner-Garden & Frommer (1987) criterion.
+    pub cpoe: f64,
 }
 
 /// Per-chromosome methylation statistics.

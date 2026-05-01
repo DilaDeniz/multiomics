@@ -243,23 +243,32 @@ fn check_expression_breadth(t: &TranscriptomicsSummary, out: &mut Vec<Insight>) 
 
 fn check_differential_expression(t: &TranscriptomicsSummary, out: &mut Vec<Insight>) {
     if let Some(ref de) = t.diff_expr {
-        let sig = de.iter().filter(|r| r.log2_fold_change.abs() >= 2.0).count();
+        // Use padj < 0.05 & |log2FC| >= 1 when statistical testing was possible;
+        // fall back to |log2FC| >= 2 threshold for n < 4 sample data.
+        let has_padj = de.iter().any(|r| !r.padj.is_nan());
+        let sig = if has_padj {
+            de.iter().filter(|r| !r.padj.is_nan() && r.padj < 0.05 && r.log2_fold_change.abs() >= 1.0).count()
+        } else {
+            de.iter().filter(|r| r.log2_fold_change.abs() >= 2.0).count()
+        };
+
+        let criterion = if has_padj { "padj < 0.05 AND |log₂FC| ≥ 1" } else { "|log₂FC| ≥ 2" };
+
         if sig > 500 {
             out.push(Insight::crit(
                 InsightModality::Transcriptomics,
                 format!(
-                    "{} genes with |log₂FC| ≥ 2 between samples. Large-scale transcriptional \
+                    "{} genes pass the DE threshold ({}) — large-scale transcriptional \
                      reprogramming detected.",
-                    sig
+                    sig, criterion
                 ),
             ));
         } else if sig > 0 {
             out.push(Insight::info(
                 InsightModality::Transcriptomics,
                 format!(
-                    "{} significantly differentially expressed genes (|log₂FC| ≥ 2) between the \
-                     two samples.",
-                    sig
+                    "{} statistically significant DE genes ({}) identified.",
+                    sig, criterion
                 ),
             ));
         }
@@ -394,14 +403,38 @@ fn check_cross_modality_correlation(corr: &[[f64; 3]; 3], out: &mut Vec<Insight>
 
 fn check_pathway_enrichment(enrichment: &[EnrichmentResult], out: &mut Vec<Insight>) {
     if let Some(top) = enrichment.first() {
-        out.push(Insight::info(
-            InsightModality::Integration,
-            format!(
-                "Top enriched pathway: '{}' (score = {:.3}, {} overlapping genes). \
+        let stat_str = if !top.padj.is_nan() {
+            format!("padj = {:.2e}", top.padj)
+        } else {
+            format!("score = {:.3}", top.score)
+        };
+        let level = if !top.padj.is_nan() && top.padj < 0.05 {
+            InsightLevel::Warning
+        } else {
+            InsightLevel::Info
+        };
+        out.push(Insight {
+            level,
+            modality: InsightModality::Integration,
+            message: format!(
+                "Top enriched pathway: '{}' ({}, {} / {} pathway genes in query). \
                  This pathway may be functionally altered across modalities.",
-                top.pathway_name, top.score, top.overlap
+                top.pathway_name, stat_str, top.overlap, top.pathway_size
             ),
-        ));
+        });
+
+        // Count significantly enriched pathways
+        let n_sig = enrichment.iter().filter(|r| !r.padj.is_nan() && r.padj < 0.05).count();
+        if n_sig > 3 {
+            out.push(Insight::warn(
+                InsightModality::Integration,
+                format!(
+                    "{} pathways are significantly enriched (padj < 0.05) in the multi-omic gene \
+                     query, suggesting broad pathway dysregulation.",
+                    n_sig
+                ),
+            ));
+        }
     }
 }
 

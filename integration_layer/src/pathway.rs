@@ -1,4 +1,7 @@
+use ahash::AHashSet;
 use serde::{Deserialize, Serialize};
+
+use biomics_core::statistics::{benjamini_hochberg, hypergeometric_pvalue};
 
 /// A KEGG pathway with its associated gene set for enrichment testing.
 pub struct KeggPathway {
@@ -254,6 +257,138 @@ pub static KEGG_PATHWAYS: &[KeggPathway] = &[
         name: "Central carbon metabolism in cancer",
         genes: &["HK2", "PKM", "LDHA", "PFKM", "G6PD", "GLS", "FASN", "IDH1", "IDH2", "SDHA", "FH", "EGFR", "MYC", "HIF1A", "KRAS"],
     },
+    // ── Epigenetic regulation ─────────────────────────────────────────────────
+    KeggPathway {
+        id: "epi_dnmt",
+        name: "DNA methylation (DNMT)",
+        genes: &["DNMT1", "DNMT3A", "DNMT3B", "DNMT3L", "TET1", "TET2", "TET3", "UHRF1", "MBD1", "MBD2", "MBD4", "MECP2"],
+    },
+    KeggPathway {
+        id: "epi_histone_me",
+        name: "Histone methylation",
+        genes: &["EZH2", "EZH1", "SUZ12", "EED", "SMYD2", "NSD1", "NSD2", "NSD3", "KMT2A", "KMT2B", "KMT2C", "KMT2D", "SETD2", "KDM1A", "KDM5C", "KDM6A"],
+    },
+    KeggPathway {
+        id: "epi_histone_ac",
+        name: "Histone acetylation (HAT/HDAC)",
+        genes: &["HDAC1", "HDAC2", "HDAC3", "HDAC4", "HDAC5", "HDAC6", "HDAC7", "HDAC8", "EP300", "CREBBP", "KAT2A", "KAT2B", "SIRT1", "SIRT2", "SIRT3"],
+    },
+    KeggPathway {
+        id: "epi_swi_snf",
+        name: "SWI/SNF chromatin remodeling",
+        genes: &["SMARCA4", "SMARCA2", "SMARCB1", "SMARCC1", "SMARCC2", "SMARCD1", "SMARCE1", "ARID1A", "ARID1B", "ARID2", "PBRM1", "BRD7", "BRD9"],
+    },
+    KeggPathway {
+        id: "epi_polycomb",
+        name: "Polycomb repressive complex",
+        genes: &["EZH2", "EED", "SUZ12", "BMI1", "RING1", "RNF2", "RYBP", "CBX2", "CBX4", "CBX6", "CBX7", "CBX8", "JARID2", "PHF1", "PHF19"],
+    },
+    // ── Immune checkpoints ───────────────────────────────────────────────────
+    KeggPathway {
+        id: "imm_checkpoint",
+        name: "Immune checkpoint signaling",
+        genes: &["CD274", "PDCD1", "PDCD1LG2", "CTLA4", "CD80", "CD86", "LAG3", "TIM3", "HAVCR2", "TIGIT", "BTLA", "VSIR", "IDO1", "CD47", "SIRPA"],
+    },
+    KeggPathway {
+        id: "imm_tcell_exhaust",
+        name: "T cell exhaustion",
+        genes: &["PDCD1", "HAVCR2", "LAG3", "TIGIT", "CTLA4", "TOX", "NR4A1", "NR4A2", "NR4A3", "EOMES", "TBX21", "PRDM1", "BATF", "IRF4"],
+    },
+    KeggPathway {
+        id: "imm_innate",
+        name: "Innate immune sensing",
+        genes: &["STING1", "CGAS", "IRF3", "IRF7", "TBK1", "MAVS", "DDX58", "IFIH1", "NLRP3", "PYCARD", "CASP1", "IL1B", "IL18", "HMGB1"],
+    },
+    KeggPathway {
+        id: "imm_nk_cell",
+        name: "NK cell cytotoxicity",
+        genes: &["NCR1", "NCR2", "NCR3", "KLRK1", "KIR2DL1", "KIR3DL1", "FCGR3A", "PRF1", "GZMA", "GZMB", "GZMK", "IFNG", "TNF", "FASL"],
+    },
+    // ── DNA damage response ──────────────────────────────────────────────────
+    KeggPathway {
+        id: "ddr_atr",
+        name: "ATR-mediated DNA damage response",
+        genes: &["ATR", "ATRIP", "TOPBP1", "CLSPN", "CHEK1", "RAD9A", "RAD1", "HUS1", "RPA1", "RPA2", "RPA3", "RAD17", "RHINO"],
+    },
+    KeggPathway {
+        id: "ddr_base_excision",
+        name: "Base excision repair",
+        genes: &["OGG1", "MUTYH", "UNG", "SMUG1", "MBD4", "APEX1", "POLB", "XRCC1", "LIG3", "PARP1", "PARP2", "NEIL1", "NEIL2", "NEIL3"],
+    },
+    KeggPathway {
+        id: "ddr_nucleotide_excision",
+        name: "Nucleotide excision repair",
+        genes: &["XPC", "RAD23B", "CETN2", "DDB1", "DDB2", "XPA", "RPA1", "ERCC1", "ERCC2", "ERCC3", "ERCC4", "ERCC5", "PCNA", "RFC1", "LIG1"],
+    },
+    KeggPathway {
+        id: "ddr_fanconi",
+        name: "Fanconi anemia / BRCA pathway",
+        genes: &["FANCA", "FANCC", "FANCD2", "FANCE", "FANCF", "FANCG", "FANCI", "FANCJ", "FANCL", "FANCM", "BRCA1", "BRCA2", "PALB2", "RAD51", "USP1"],
+    },
+    // ── Metabolic reprogramming ──────────────────────────────────────────────
+    KeggPathway {
+        id: "met_warburg",
+        name: "Warburg effect / aerobic glycolysis",
+        genes: &["HK1", "HK2", "PFKFB3", "PFKFB4", "PKM", "LDHA", "LDHB", "PDK1", "PDK2", "HIF1A", "MYC", "SLC2A1", "SLC2A3", "MCT4"],
+    },
+    KeggPathway {
+        id: "met_glutamine",
+        name: "Glutamine metabolism",
+        genes: &["GLS", "GLS2", "GLUD1", "GOT1", "GOT2", "ASNS", "ASPA", "SLC1A5", "SLC38A1", "SLC38A2", "PPAT", "MYC", "MTOR"],
+    },
+    KeggPathway {
+        id: "met_lipid",
+        name: "Lipid biosynthesis",
+        genes: &["FASN", "ACACA", "ACACB", "ACLY", "ACSS2", "SREBF1", "SREBF2", "HMGCR", "SQLE", "DHCR24", "LDLR", "PPARG", "PPARA"],
+    },
+    KeggPathway {
+        id: "met_one_carbon",
+        name: "One-carbon / folate metabolism",
+        genes: &["MTHFR", "MTR", "MTRR", "DHFR", "TYMS", "SHMT1", "SHMT2", "MTHFD1", "MTHFD2", "ALDH1L1", "ALDH1L2", "MAT1A", "MAT2A", "DNMT1"],
+    },
+    // ── RNA biology / splicing ───────────────────────────────────────────────
+    KeggPathway {
+        id: "rna_splicing",
+        name: "RNA splicing (spliceosome mutations)",
+        genes: &["SF3B1", "U2AF1", "SRSF2", "ZRSR2", "SF3A1", "SF3A2", "SF3A3", "PRPF8", "PRPF3", "PRPF31", "U2AF2", "RBM10", "RBM5", "HNRNPK"],
+    },
+    KeggPathway {
+        id: "rna_m6a",
+        name: "m6A RNA methylation",
+        genes: &["METTL3", "METTL14", "WTAP", "ALKBH5", "FTO", "YTHDF1", "YTHDF2", "YTHDF3", "YTHDC1", "YTHDC2", "IGF2BP1", "IGF2BP2", "IGF2BP3"],
+    },
+    // ── Developmental / stem cell ────────────────────────────────────────────
+    KeggPathway {
+        id: "stem_wnt_stem",
+        name: "Wnt-driven stem cell self-renewal",
+        genes: &["CTNNB1", "LGR5", "AXIN2", "CD44", "PROM1", "ALDH1A1", "SOX2", "OCT4", "NANOG", "KLF4", "MYC", "SOX9", "ASCL2", "EphB2"],
+    },
+    KeggPathway {
+        id: "stem_emt",
+        name: "Epithelial-mesenchymal transition (EMT)",
+        genes: &["CDH1", "VIM", "FN1", "SNAI1", "SNAI2", "ZEB1", "ZEB2", "TWIST1", "TWIST2", "MMP2", "MMP9", "TGFB1", "SMAD2", "SMAD3", "WNT5A"],
+    },
+    // ── Signaling: additional ─────────────────────────────────────────────────
+    KeggPathway {
+        id: "sig_ros",
+        name: "Reactive oxygen species / oxidative stress",
+        genes: &["SOD1", "SOD2", "CAT", "GPX1", "GPX4", "PRDX1", "PRDX2", "TXNRD1", "NQO1", "NFE2L2", "KEAP1", "HMOX1", "SRXN1", "PARK7"],
+    },
+    KeggPathway {
+        id: "sig_hippo_cancer",
+        name: "Hippo pathway in cancer",
+        genes: &["YAP1", "WWTR1", "TEAD1", "TEAD2", "TEAD3", "TEAD4", "LATS1", "LATS2", "MST1", "MST2", "NF2", "FAT1", "FAT4", "RASSF1", "RASSF2"],
+    },
+    KeggPathway {
+        id: "sig_erbb_resistance",
+        name: "EGFR/ErbB resistance mechanisms",
+        genes: &["EGFR", "KRAS", "BRAF", "MEK1", "PIK3CA", "PTEN", "AKT1", "MET", "ERBB2", "ERBB3", "HGF", "IGF1R", "AXL", "FGFR1"],
+    },
+    KeggPathway {
+        id: "sig_tert",
+        name: "Telomere maintenance / TERT",
+        genes: &["TERT", "TERC", "DKC1", "NOP10", "NHP2", "GAR1", "TINF2", "ACD", "TERF1", "TERF2", "POT1", "TPP1", "RAP1", "RTEL1"],
+    },
 ];
 
 /// Result of pathway enrichment analysis for a single pathway.
@@ -267,14 +402,21 @@ pub struct EnrichmentResult {
     pub query_size: usize,
     /// Jaccard-like enrichment score: overlap / sqrt(pathway_size × query_size).
     pub score: f64,
+    /// One-sided hypergeometric p-value (Fisher's exact test upper tail).
+    pub p_value: f64,
+    /// Benjamini-Hochberg FDR-adjusted p-value.
+    pub padj: f64,
 }
 
-/// Run enrichment of `query_genes` against the static KEGG table.
+/// Run enrichment of `query_genes` against the static KEGG pathway table.
 ///
-/// Only returns pathways with `overlap >= min_overlap`.
-/// Results are sorted by score, descending.
+/// ## Method
+/// Fisher's exact test (one-sided hypergeometric) with Benjamini-Hochberg FDR
+/// correction. Background gene universe = union of all genes in KEGG_PATHWAYS.
+/// Only pathways with `overlap >= min_overlap` are returned.
+/// Results are sorted by `padj` ascending.
 pub fn enrichment_analysis(query_genes: &[String], min_overlap: usize) -> Vec<EnrichmentResult> {
-    let query_set: std::collections::HashSet<String> = query_genes
+    let query_set: AHashSet<String> = query_genes
         .iter()
         .map(|g| g.to_uppercase())
         .collect();
@@ -283,10 +425,17 @@ pub fn enrichment_analysis(query_genes: &[String], min_overlap: usize) -> Vec<En
         return Vec::new();
     }
 
+    // Build background universe: all unique genes across all pathways
+    let background: AHashSet<String> = KEGG_PATHWAYS
+        .iter()
+        .flat_map(|p| p.genes.iter().map(|g| g.to_uppercase()))
+        .collect();
+    let bg_size = background.len();
+
     let mut results: Vec<EnrichmentResult> = KEGG_PATHWAYS
         .iter()
         .filter_map(|pathway| {
-            let pathway_genes: std::collections::HashSet<String> = pathway
+            let pathway_genes: AHashSet<String> = pathway
                 .genes
                 .iter()
                 .map(|g| g.to_uppercase())
@@ -300,6 +449,9 @@ pub fn enrichment_analysis(query_genes: &[String], min_overlap: usize) -> Vec<En
             let score = overlap as f64
                 / ((pathway.genes.len() as f64) * (query_set.len() as f64)).sqrt();
 
+            // Fisher's exact test: P(X >= overlap | query_size, pathway_size, bg_size)
+            let p_value = hypergeometric_pvalue(overlap, query_set.len(), pathway.genes.len(), bg_size);
+
             Some(EnrichmentResult {
                 pathway_id: pathway.id.to_string(),
                 pathway_name: pathway.name.to_string(),
@@ -307,12 +459,26 @@ pub fn enrichment_analysis(query_genes: &[String], min_overlap: usize) -> Vec<En
                 pathway_size: pathway.genes.len(),
                 query_size: query_set.len(),
                 score,
+                p_value,
+                padj: f64::NAN, // filled below
             })
         })
         .collect();
 
+    if results.is_empty() {
+        return Vec::new();
+    }
+
+    // Apply Benjamini-Hochberg FDR correction across all results
+    let pvals: Vec<f64> = results.iter().map(|r| r.p_value).collect();
+    let padj_vals = benjamini_hochberg(&pvals);
+    for (r, padj) in results.iter_mut().zip(padj_vals) {
+        r.padj = padj;
+    }
+
+    // Sort by padj ascending (most significant first)
     results.sort_unstable_by(|a, b| {
-        b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal)
+        a.padj.partial_cmp(&b.padj).unwrap_or(std::cmp::Ordering::Equal)
     });
 
     results

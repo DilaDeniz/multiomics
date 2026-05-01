@@ -1,6 +1,8 @@
 [build]
+# Set target-cpu=native or target-cpu=x86-64-v4 for production deployments with AVX-512.
+# Using x86-64-v3 (AVX2) as default to avoid SIGILL in container environments.
 rustflags = [
-    "-C", "target-cpu=native",
+    "-C", "target-cpu=x86-64-v3",
     "-C", "force-frame-pointers=no",
 ]
 

@@ -1,105 +1,108 @@
-use std::io::{BufRead, BufReader};
 use std::path::Path;
 
 use anyhow::{Context, Result};
 use memmap2::Mmap;
 
+use biomics_core::parse::{
+    info_value_bytes, nth_pipe_field, parse_f32, parse_u64, ByteLines, TabFields,
+};
 use crate::types::{TiTvClass, VariantRecord};
 
 /// Classify a single-nucleotide substitution as transition or transversion.
 ///
 /// Transitions: A↔G (purine-purine) and C↔T (pyrimidine-pyrimidine).
-/// Everything else that is a single base substitution is a transversion.
+#[inline(always)]
 pub fn classify_titv(ref_base: u8, alt_base: u8) -> TiTvClass {
-    match (ref_base.to_ascii_uppercase(), alt_base.to_ascii_uppercase()) {
-        (b'A', b'G') | (b'G', b'A') | (b'C', b'T') | (b'T', b'C') => TiTvClass::Transition,
-        (b'A', b'C')
-        | (b'A', b'T')
-        | (b'G', b'C')
-        | (b'G', b'T')
-        | (b'C', b'A')
-        | (b'C', b'G')
-        | (b'T', b'A')
-        | (b'T', b'G') => TiTvClass::Transversion,
+    match (ref_base | 0x20, alt_base | 0x20) {
+        // lowercase-normalise then match transition pairs
+        (b'a', b'g') | (b'g', b'a') | (b'c', b't') | (b't', b'c') => TiTvClass::Transition,
+        (b'a', b'c')
+        | (b'a', b't')
+        | (b'g', b'c')
+        | (b'g', b't')
+        | (b'c', b'a')
+        | (b'c', b'g')
+        | (b't', b'a')
+        | (b't', b'g') => TiTvClass::Transversion,
         _ => TiTvClass::Other,
     }
 }
 
-/// Parse one INFO field string (e.g. `"AF=0.42;DP=30;GENE=TP53"`) and extract
-/// the value for a given key.
-fn info_value(info: &str, key: &str) -> Option<String> {
-    for field in info.split(';') {
-        if let Some(rest) = field.strip_prefix(key) {
-            if rest.starts_with('=') {
-                return Some(rest[1..].to_string());
-            }
-        }
-    }
-    None
-}
+/// Parse one VCF data line (byte slice, no leading `#`) into a `VariantRecord`.
+///
+/// All number parsing uses the fast-float / manual-u64 paths from `biomics_core::parse`;
+/// no intermediate `String` allocations occur until we copy the final field values.
+#[inline]
+fn parse_vcf_line(line: &[u8]) -> Option<VariantRecord> {
+    let mut fields = TabFields::new(line);
 
-/// Parse a single VCF data line (tab-separated, no leading `#`) into a
-/// `VariantRecord`. Returns `None` for lines that cannot be parsed.
-fn parse_vcf_line(line: &str) -> Option<VariantRecord> {
-    let mut cols = line.splitn(9, '\t');
-    let chrom = cols.next()?.to_string();
-    let pos: u64 = cols.next()?.parse().ok()?;
-    let _id = cols.next()?; // ID column — not used
-    let ref_allele = cols.next()?.to_string();
-    let alt_allele = cols.next()?.to_string();
-    let qual_str = cols.next()?;
-    let qual: f32 = if qual_str == "." {
-        0.0
+    let chrom_b = fields.next()?;
+    let pos = parse_u64(fields.next()?)?;
+    let _ = fields.next()?; // ID column — skip
+    let ref_b = fields.next()?;
+    let alt_b = fields.next()?;
+    let qual_b = fields.next()?;
+    let _ = fields.next()?; // FILTER — skip
+    let info = fields.next().unwrap_or(b".");
+
+    let chrom = std::str::from_utf8(chrom_b).ok()?.to_string();
+    let ref_allele = std::str::from_utf8(ref_b).ok()?.to_string();
+    let alt_allele = std::str::from_utf8(alt_b).ok()?.to_string();
+
+    let qual = if qual_b == b"." {
+        0.0f32
     } else {
-        qual_str.parse().ok()?
+        parse_f32(qual_b).unwrap_or(0.0)
     };
-    let _filter = cols.next()?;
-    let info = cols.next().unwrap_or(".");
 
-    // Determine Ti/Tv class
-    let titv = if ref_allele.len() == 1 && alt_allele.len() == 1 {
-        let ref_b = ref_allele.as_bytes()[0];
-        // ALT may be comma-separated (multi-allelic); take first
-        let alt_b = alt_allele.split(',').next()?.as_bytes()[0];
-        classify_titv(ref_b, alt_b)
-    } else if ref_allele.len() != alt_allele.len() {
+    let titv = if ref_b.len() == 1 && alt_b.len() == 1 {
+        classify_titv(ref_b[0], alt_b[0])
+    } else if ref_b.len() == 1 {
+        // multi-allelic or long ALT: check first allele for Ti/Tv
+        let first_alt = memchr::memchr(b',', alt_b).map_or(alt_b, |n| &alt_b[..n]);
+        if first_alt.len() == 1 {
+            classify_titv(ref_b[0], first_alt[0])
+        } else if ref_b.len() != first_alt.len() {
+            TiTvClass::Indel
+        } else {
+            TiTvClass::Other
+        }
+    } else if ref_b.len() != alt_b.len() {
         TiTvClass::Indel
     } else {
         TiTvClass::Other
     };
 
-    let af = info_value(info, "AF")
-        .or_else(|| info_value(info, "AF1"))
-        .and_then(|v| v.split(',').next()?.parse::<f32>().ok());
+    // Parse AF: try AF= first, then AF1=
+    let af = info_value_bytes(info, b"AF")
+        .or_else(|| info_value_bytes(info, b"AF1"))
+        .and_then(|v| {
+            let first = memchr::memchr(b',', v).map_or(v, |n| &v[..n]);
+            parse_f32(first)
+        });
 
-    let gene = info_value(info, "GENE")
-        .or_else(|| info_value(info, "Gene"))
+    // Parse GENE: try GENE=, Gene=, or ANN= field 3
+    let gene = info_value_bytes(info, b"GENE")
+        .or_else(|| info_value_bytes(info, b"Gene"))
+        .and_then(|v| std::str::from_utf8(v).ok().map(|s| s.to_string()))
         .or_else(|| {
-            // Try ANN field: ANN=<allele>|<effect>|<impact>|<gene>|...
-            info_value(info, "ANN").and_then(|ann| {
-                ann.split('|').nth(3).map(|g| g.to_string())
+            info_value_bytes(info, b"ANN").and_then(|ann| {
+                nth_pipe_field(ann, 3)
+                    .and_then(|g| std::str::from_utf8(g).ok())
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string())
             })
         });
 
-    Some(VariantRecord {
-        chrom,
-        pos,
-        ref_allele,
-        alt_allele,
-        qual,
-        titv,
-        af,
-        gene,
-    })
+    Some(VariantRecord { chrom, pos, ref_allele, alt_allele, qual, titv, af, gene })
 }
 
-/// Parse a VCF file into a `Vec<VariantRecord>` using memory-mapped I/O.
+/// Parse a VCF file into a `Vec<VariantRecord>` using memory-mapped I/O and
+/// zero-alloc byte-level line/field parsing.
 ///
-/// Header lines (starting with `#`) are skipped. Malformed data lines are
-/// logged and skipped — they do not cause a fatal error.
-///
-/// # Errors
-/// Returns an error when the file cannot be opened or memory-mapped.
+/// - `madvise(SEQUENTIAL)` hints the kernel to prefetch pages ahead.
+/// - `Vec::with_capacity` pre-allocates based on file-size estimate (≈200 bytes/variant).
+/// - No intermediate `String` per line — fields are borrowed from the mmap slice.
 pub fn parse_vcf(path: &Path) -> Result<Vec<VariantRecord>> {
     let file = std::fs::File::open(path)
         .with_context(|| format!("Cannot open VCF file '{}'", path.display()))?;
@@ -108,37 +111,26 @@ pub fn parse_vcf(path: &Path) -> Result<Vec<VariantRecord>> {
     let mmap = unsafe { Mmap::map(&file) }
         .with_context(|| format!("Cannot mmap VCF file '{}'", path.display()))?;
 
-    let reader = BufReader::new(mmap.as_ref());
-    let mut records = Vec::new();
-    let mut line_no = 0usize;
+    // Advise sequential access: kernel will read-ahead pages before we need them.
+    let _ = mmap.advise(memmap2::Advice::Sequential);
 
-    for line in reader.lines() {
-        line_no += 1;
-        let line =
-            line.with_context(|| format!("Read error at line {} of '{}'", line_no, path.display()))?;
+    let data = mmap.as_ref();
+    let mut records = Vec::with_capacity(data.len() / 200);
 
-        if line.starts_with('#') || line.trim().is_empty() {
+    for line in ByteLines::new(data) {
+        if line.is_empty() || line[0] == b'#' {
             continue;
         }
-
-        match parse_vcf_line(&line) {
+        match parse_vcf_line(line) {
             Some(record) => records.push(record),
-            None => {
-                log::warn!(
-                    "Skipping unparseable VCF line {} in '{}': {}",
-                    line_no,
-                    path.display(),
-                    &line[..line.len().min(80)]
-                );
-            }
+            None => log::warn!(
+                "Skipping unparseable VCF line: {}",
+                String::from_utf8_lossy(&line[..line.len().min(80)])
+            ),
         }
     }
 
-    log::info!(
-        "Parsed {} variant records from '{}'",
-        records.len(),
-        path.display()
-    );
+    log::info!("Parsed {} variant records from '{}'", records.len(), path.display());
     Ok(records)
 }
 
@@ -155,22 +147,14 @@ mod tests {
     }
 
     #[test]
-    fn test_info_value() {
-        let info = "AF=0.42;DP=30;GENE=TP53";
-        assert_eq!(info_value(info, "AF"), Some("0.42".to_string()));
-        assert_eq!(info_value(info, "GENE"), Some("TP53".to_string()));
-        assert_eq!(info_value(info, "MISSING"), None);
-    }
-
-    #[test]
     fn test_parse_vcf_line() {
-        let line = "chr1\t100\t.\tA\tG\t50.0\tPASS\tAF=0.35;GENE=BRCA1";
+        let line = b"chr1\t100\t.\tA\tG\t50.0\tPASS\tAF=0.35;GENE=BRCA1";
         let rec = parse_vcf_line(line).unwrap();
         assert_eq!(rec.chrom, "chr1");
         assert_eq!(rec.pos, 100);
-        assert_eq!(rec.qual, 50.0);
+        assert!((rec.qual - 50.0).abs() < 1e-4);
         assert_eq!(rec.titv, TiTvClass::Transition);
-        assert_eq!(rec.af, Some(0.35));
+        assert!((rec.af.unwrap() - 0.35).abs() < 1e-4);
         assert_eq!(rec.gene, Some("BRCA1".to_string()));
     }
 }

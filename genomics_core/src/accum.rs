@@ -1,8 +1,25 @@
-use std::collections::{HashMap, HashSet};
+use ahash::{AHashMap, AHashSet};
 
 use biomics_core::BatchAccum;
 
 use crate::types::{ChromDensity, GenomicsSummary, TiTvClass, VariantRecord};
+
+/// Compact position key: FNV-1a hash of (chrom, pos).
+///
+/// Using `AHashSet<u64>` instead of `AHashSet<(String, u64)>` eliminates one
+/// String heap-allocation per variant during the parallel fold.
+#[inline(always)]
+fn position_key(chrom: &str, pos: u64) -> u64 {
+    // FNV-1a over chrom bytes, then mix pos
+    let mut h: u64 = 14_695_981_039_346_656_037;
+    for b in chrom.bytes() {
+        h ^= b as u64;
+        h = h.wrapping_mul(1_099_511_628_211);
+    }
+    h ^= pos;
+    h = h.wrapping_mul(1_099_511_628_211);
+    h ^ (h >> 17)
+}
 
 /// Lock-free accumulator for genomic variant statistics.
 ///
@@ -14,15 +31,16 @@ pub struct GenomicsAccum {
     pub indels: u64,
     pub transitions: u64,
     pub transversions: u64,
-    pub per_chrom: HashMap<String, ChromDensity>,
+    pub per_chrom: AHashMap<String, ChromDensity>,
     pub high_impact: Vec<VariantRecord>,
     /// 20-bin allele frequency histogram over [0.0, 1.0).
     pub af_histogram: [u64; 20],
-    /// (chrom, pos) pairs seen — used for unique position counting.
-    pub positions: HashSet<(String, u64)>,
+    /// FNV-1a(chrom, pos) keys — avoids (String, u64) allocation per record.
+    pub positions: AHashSet<u64>,
 }
 
 impl Default for GenomicsAccum {
+    #[inline]
     fn default() -> Self {
         Self {
             total: 0,
@@ -30,10 +48,10 @@ impl Default for GenomicsAccum {
             indels: 0,
             transitions: 0,
             transversions: 0,
-            per_chrom: HashMap::new(),
+            per_chrom: AHashMap::new(),
             high_impact: Vec::new(),
             af_histogram: [0u64; 20],
-            positions: HashSet::new(),
+            positions: AHashSet::new(),
         }
     }
 }
@@ -42,6 +60,7 @@ impl BatchAccum for GenomicsAccum {
     type Record = VariantRecord;
     type Summary = GenomicsSummary;
 
+    #[inline(always)]
     fn process(&mut self, r: &VariantRecord) -> anyhow::Result<()> {
         self.total += 1;
 
@@ -75,11 +94,12 @@ impl BatchAccum for GenomicsAccum {
             self.af_histogram[bin] += 1;
         }
 
-        self.positions.insert((r.chrom.clone(), r.pos));
+        self.positions.insert(position_key(&r.chrom, r.pos));
 
         Ok(())
     }
 
+    #[inline(always)]
     fn merge(&mut self, other: Self) {
         self.total += other.total;
         self.snps += other.snps;
@@ -123,7 +143,7 @@ impl BatchAccum for GenomicsAccum {
             snp_count: self.snps,
             indel_count: self.indels,
             titv_ratio,
-            per_chrom: self.per_chrom,
+            per_chrom: self.per_chrom.into_iter().collect(),
             high_impact: self.high_impact,
             af_histogram: self.af_histogram.to_vec(),
             unique_positions: self.positions.len() as u64,

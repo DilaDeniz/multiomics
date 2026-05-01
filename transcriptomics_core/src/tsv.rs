@@ -1,89 +1,77 @@
-use std::io::{BufRead, BufReader};
 use std::path::Path;
 
 use anyhow::{bail, Context, Result};
+use memmap2::Mmap;
 
+use biomics_core::parse::{parse_f64, trim_bytes, ByteLines, TabFields};
 use crate::types::GeneRecord;
 
-/// Parse a genes-by-samples expression matrix TSV file.
+/// Parse a genes-by-samples expression matrix TSV file using memory-mapped
+/// zero-allocation byte-level parsing.
 ///
 /// Expected format:
 /// ```text
 /// gene_id\tsample1\tsample2\t...
 /// GAPDH\t1234.5\t987.6\t...
 /// ```
-/// The first column is gene identifier; subsequent columns are TPM values.
 ///
-/// Returns both the parsed records and the ordered sample names extracted
-/// from the header row.
-///
-/// # Errors
-/// Returns an error when the file cannot be opened, the header is missing,
-/// or a data row has fewer columns than the header.
+/// Returns both the parsed records and the ordered sample names from the header.
 pub fn parse_tsv(path: &Path) -> Result<(Vec<GeneRecord>, Vec<String>)> {
     let file = std::fs::File::open(path)
         .with_context(|| format!("Cannot open expression matrix TSV '{}'", path.display()))?;
 
-    let reader = BufReader::new(file);
-    let mut lines = reader.lines();
+    // SAFETY: the file is not modified while this process holds the Mmap.
+    let mmap = unsafe { Mmap::map(&file) }
+        .with_context(|| format!("Cannot mmap TSV file '{}'", path.display()))?;
 
-    // Read and parse header
-    let header_line = lines
+    let _ = mmap.advise(memmap2::Advice::Sequential);
+
+    let data = mmap.as_ref();
+    let mut lines = ByteLines::new(data);
+
+    // ── Header ────────────────────────────────────────────────────────────────
+    let header = lines
         .next()
-        .with_context(|| {
-            format!(
-                "Expression matrix TSV '{}' is empty",
-                path.display()
-            )
-        })?
-        .with_context(|| format!("Read error in '{}'", path.display()))?;
+        .with_context(|| format!("Expression matrix TSV '{}' is empty", path.display()))?;
 
-    let header_cols: Vec<&str> = header_line.split('\t').collect();
-    if header_cols.len() < 2 {
+    let header_fields: Vec<&[u8]> = TabFields::new(header).collect();
+    if header_fields.len() < 2 {
         bail!(
             "Expression matrix TSV '{}' must have at least one sample column (found {})",
             path.display(),
-            header_cols.len()
+            header_fields.len()
         );
     }
 
-    // First column is gene_id label; the rest are sample names
-    let sample_names: Vec<String> = header_cols[1..].iter().map(|s| s.trim().to_string()).collect();
+    let sample_names: Vec<String> = header_fields[1..]
+        .iter()
+        .map(|f| String::from_utf8_lossy(trim_bytes(f)).into_owned())
+        .collect();
     let n_samples = sample_names.len();
 
-    let mut records = Vec::new();
-    let mut line_no = 1usize;
+    // ── Data rows ─────────────────────────────────────────────────────────────
+    // Estimate: ~50 bytes per row average (short gene IDs + float values)
+    let mut records = Vec::with_capacity(data.len() / 50);
 
     for line in lines {
-        line_no += 1;
-        let line =
-            line.with_context(|| format!("Read error at line {} of '{}'", line_no, path.display()))?;
-
-        if line.trim().is_empty() {
+        let line = trim_bytes(line);
+        if line.is_empty() {
             continue;
         }
 
-        let cols: Vec<&str> = line.splitn(n_samples + 2, '\t').collect();
-        if cols.len() < 2 {
-            log::warn!(
-                "Skipping line {} in '{}': too few columns",
-                line_no,
-                path.display()
-            );
-            continue;
-        }
+        let mut fields = TabFields::new(line);
+        let gene_id_bytes = match fields.next() {
+            Some(b) if !b.is_empty() => b,
+            _ => continue,
+        };
+        let gene_id = String::from_utf8_lossy(trim_bytes(gene_id_bytes)).into_owned();
 
-        let gene_id = cols[0].trim().to_string();
         let mut samples = Vec::with_capacity(n_samples);
-        for i in 1..=n_samples {
-            let val_str = cols.get(i).unwrap_or(&"0").trim();
-            let val: f64 = val_str.parse().unwrap_or_else(|_| {
-                log::warn!(
-                    "Cannot parse TPM '{}' at line {} col {} of '{}', using 0",
-                    val_str, line_no, i, path.display()
-                );
-                0.0
-            });
+        for _ in 0..n_samples {
+            let val = fields
+                .next()
+                .and_then(|b| parse_f64(trim_bytes(b)))
+                .unwrap_or(0.0);
             samples.push(val);
         }
 

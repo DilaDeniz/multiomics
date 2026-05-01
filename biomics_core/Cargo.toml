@@ -11,3 +11,5 @@ rayon             = { workspace = true }
 crossbeam-channel = { workspace = true }
 serde             = { workspace = true }
 log               = { workspace = true }
+memchr            = { workspace = true }
+fast-float        = { workspace = true }

@@ -26,3 +26,4 @@ crossterm            = { workspace = true }
 chrono               = { workspace = true }
 log                  = { workspace = true }
 env_logger           = { workspace = true }
+mimalloc             = { workspace = true }

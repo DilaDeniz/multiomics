@@ -187,8 +187,7 @@ fn render_insights_panel(frame: &mut Frame, area: Rect, state: &AppState) {
             state
                 .insights_live
                 .iter()
-                .enumerate()
-                .map(|(_, msg)| {
+                .map(|msg| {
                     let color = if msg.starts_with("[CRIT]") {
                         Color::Red
                     } else if msg.starts_with("[WARN]") {

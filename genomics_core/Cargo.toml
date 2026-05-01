@@ -14,3 +14,5 @@ serde             = { workspace = true }
 memmap2           = { workspace = true }
 needletail        = { workspace = true }
 log               = { workspace = true }
+ahash             = { workspace = true }
+memchr            = { workspace = true }

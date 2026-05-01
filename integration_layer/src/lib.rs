@@ -93,17 +93,17 @@ pub fn run_integration(
     // Convert correlation matrix to fixed-size array for insight engine
     let corr_arr: [[f64; 3]; 3] = [
         [
-            correlation_matrix.get(0).and_then(|r| r.get(0)).copied().unwrap_or(1.0),
-            correlation_matrix.get(0).and_then(|r| r.get(1)).copied().unwrap_or(0.0),
-            correlation_matrix.get(0).and_then(|r| r.get(2)).copied().unwrap_or(0.0),
+            correlation_matrix.first().and_then(|r| r.first()).copied().unwrap_or(1.0),
+            correlation_matrix.first().and_then(|r| r.get(1)).copied().unwrap_or(0.0),
+            correlation_matrix.first().and_then(|r| r.get(2)).copied().unwrap_or(0.0),
         ],
         [
-            correlation_matrix.get(1).and_then(|r| r.get(0)).copied().unwrap_or(0.0),
+            correlation_matrix.get(1).and_then(|r| r.first()).copied().unwrap_or(0.0),
             correlation_matrix.get(1).and_then(|r| r.get(1)).copied().unwrap_or(1.0),
             correlation_matrix.get(1).and_then(|r| r.get(2)).copied().unwrap_or(0.0),
         ],
         [
-            correlation_matrix.get(2).and_then(|r| r.get(0)).copied().unwrap_or(0.0),
+            correlation_matrix.get(2).and_then(|r| r.first()).copied().unwrap_or(0.0),
             correlation_matrix.get(2).and_then(|r| r.get(1)).copied().unwrap_or(0.0),
             correlation_matrix.get(2).and_then(|r| r.get(2)).copied().unwrap_or(1.0),
         ],

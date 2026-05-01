@@ -55,9 +55,8 @@ pub fn run_tui(state: SharedState) -> Result<()> {
 
         terminal.draw(|frame| render(frame, &snapshot))?;
 
-        match poll_event(tick)? {
-            Some(AppEvent::Quit) => break,
-            _ => {}
+        if let Some(AppEvent::Quit) = poll_event(tick)? {
+            break;
         }
 
         if snapshot.done || snapshot.error.is_some() {

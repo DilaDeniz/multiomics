@@ -9,6 +9,11 @@ use clap::Parser;
 use args::Cli;
 use tui::new_shared_state;
 
+// Replace the default system allocator with mimalloc.
+// Benchmarks on allocation-heavy workloads show 20-40% wall-clock improvement.
+#[global_allocator]
+static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 fn main() -> Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
         .format_timestamp_millis()
@@ -16,27 +21,20 @@ fn main() -> Result<()> {
 
     let cli = Cli::parse();
 
-    // Validate required input files exist before doing any work
     for (label, path) in [
         ("--genomics", &cli.genomics),
         ("--transcriptomics", &cli.transcriptomics),
         ("--epigenomics", &cli.epigenomics),
     ] {
         if !path.exists() {
-            anyhow::bail!(
-                "Input file for {} not found: '{}'",
-                label,
-                path.display()
-            );
+            anyhow::bail!("Input file for {} not found: '{}'", label, path.display());
         }
     }
 
     if cli.json {
-        // JSON-only mode: run pipeline directly on main thread, no TUI
         runner::run_pipeline(&cli, None)?;
         eprintln!("Done. Output written to '{}'", cli.output.display());
     } else {
-        // TUI mode: pipeline on a background thread, TUI renders on main thread
         let state = new_shared_state();
         let state_pipeline = state.clone();
         let cli_clone = cli.clone();
@@ -54,10 +52,8 @@ fn main() -> Result<()> {
             }
         });
 
-        // Block main thread on TUI render loop
         tui::run_tui(state)?;
 
-        // Wait for pipeline to finish
         if let Err(e) = pipeline_handle.join() {
             log::error!("Pipeline thread panicked: {:?}", e);
         }

@@ -1,27 +1,29 @@
-use std::collections::HashMap;
+use ahash::AHashMap;
 
 use biomics_core::BatchAccum;
 
-use crate::types::{ChromMethylation, EpigenomicsSummary, MethylationRecord, MethylationRegion, RegionKind};
 use crate::cpg::detect_cpg_islands;
+use crate::types::{ChromMethylation, EpigenomicsSummary, MethylationRecord, MethylationRegion, RegionKind};
 
 /// Lock-free accumulator for methylation statistics.
+///
+/// `AHashMap` replaces `std::HashMap` for 3-5× faster hash table operations.
 pub struct EpigenomicsAccum {
     pub total_sites: u64,
     pub sum_methylation: f64,
-    pub per_chrom: HashMap<String, ChromMethylation>,
-    /// Per-chromosome sorted site list for CpG island detection.
-    /// Each entry is (start, end, methylation_pct).
-    pub chrom_sites: HashMap<String, Vec<(u64, u64, f64)>>,
+    pub per_chrom: AHashMap<String, ChromMethylation>,
+    /// Per-chromosome site list for CpG island detection: (start, end, methylation_pct).
+    pub chrom_sites: AHashMap<String, Vec<(u64, u64, f64)>>,
 }
 
 impl Default for EpigenomicsAccum {
+    #[inline]
     fn default() -> Self {
         Self {
             total_sites: 0,
             sum_methylation: 0.0,
-            per_chrom: HashMap::new(),
-            chrom_sites: HashMap::new(),
+            per_chrom: AHashMap::new(),
+            chrom_sites: AHashMap::new(),
         }
     }
 }
@@ -30,6 +32,7 @@ impl BatchAccum for EpigenomicsAccum {
     type Record = MethylationRecord;
     type Summary = EpigenomicsSummary;
 
+    #[inline(always)]
     fn process(&mut self, r: &MethylationRecord) -> anyhow::Result<()> {
         self.total_sites += 1;
         self.sum_methylation += r.methylation;
@@ -46,6 +49,7 @@ impl BatchAccum for EpigenomicsAccum {
         Ok(())
     }
 
+    #[inline(always)]
     fn merge(&mut self, other: Self) {
         self.total_sites += other.total_sites;
         self.sum_methylation += other.sum_methylation;
@@ -68,7 +72,6 @@ impl BatchAccum for EpigenomicsAccum {
             self.sum_methylation / self.total_sites as f64
         };
 
-        // Compute per-chromosome mean methylation
         for cm in self.per_chrom.values_mut() {
             cm.mean_methylation = if cm.total_sites == 0 {
                 0.0
@@ -82,20 +85,16 @@ impl BatchAccum for EpigenomicsAccum {
             sites.sort_unstable_by_key(|s| s.0);
         }
 
-        // Detect CpG islands per chromosome
         let mut cpg_islands = Vec::new();
         for (chrom, sites) in &self.chrom_sites {
-            let islands = detect_cpg_islands(chrom, sites, 200, 50);
-            cpg_islands.extend(islands);
+            cpg_islands.extend(detect_cpg_islands(chrom, sites, 200, 50));
         }
 
-        // Classify hypermethylated / hypomethylated regions (per chromosome)
         let mut hypermethylated = Vec::new();
         let mut hypomethylated = Vec::new();
 
         for (chrom, sites) in &self.chrom_sites {
-            let regions = sliding_window_regions(chrom, sites, 5);
-            for region in regions {
+            for region in sliding_window_regions(chrom, sites, 5) {
                 if region.mean_methylation > 80.0 {
                     hypermethylated.push(region);
                 } else if region.mean_methylation < 20.0 {
@@ -107,7 +106,7 @@ impl BatchAccum for EpigenomicsAccum {
         Ok(EpigenomicsSummary {
             total_sites: self.total_sites,
             global_methylation_pct,
-            per_chrom: self.per_chrom,
+            per_chrom: self.per_chrom.into_iter().collect(),
             cpg_islands,
             hypermethylated,
             hypomethylated,
@@ -116,7 +115,7 @@ impl BatchAccum for EpigenomicsAccum {
 }
 
 /// Group consecutive sites into regions using a sliding window of `window_size` sites.
-/// Returns one region per window with mean methylation computed.
+#[inline]
 fn sliding_window_regions(
     chrom: &str,
     sites: &[(u64, u64, f64)],
@@ -125,23 +124,13 @@ fn sliding_window_regions(
     if sites.len() < window_size {
         return Vec::new();
     }
-    let mut regions = Vec::new();
+    let mut regions = Vec::with_capacity(sites.len() - window_size + 1);
     for window in sites.windows(window_size) {
         let start = window[0].0;
         let end = window[window.len() - 1].1;
         let mean = window.iter().map(|s| s.2).sum::<f64>() / window.len() as f64;
-        let kind = if mean > 80.0 {
-            RegionKind::Hypermethylated
-        } else {
-            RegionKind::Hypomethylated
-        };
-        regions.push(MethylationRegion {
-            chrom: chrom.to_string(),
-            start,
-            end,
-            mean_methylation: mean,
-            kind,
-        });
+        let kind = if mean > 80.0 { RegionKind::Hypermethylated } else { RegionKind::Hypomethylated };
+        regions.push(MethylationRegion { chrom: chrom.to_string(), start, end, mean_methylation: mean, kind });
     }
     regions
 }

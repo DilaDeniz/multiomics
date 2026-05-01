@@ -1,0 +1,13 @@
+[build]
+rustflags = [
+    "-C", "target-cpu=native",
+    "-C", "force-frame-pointers=no",
+]
+
+[profile.release]
+# These mirror the workspace [profile.release] but are set here too for tools
+# invoked outside of cargo (e.g. flamegraph) that read config.toml directly.
+lto            = "fat"
+codegen-units  = 1
+opt-level      = 3
+panic          = "abort"

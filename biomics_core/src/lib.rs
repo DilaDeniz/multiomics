@@ -1,5 +1,6 @@
 pub mod accum;
 pub mod fold;
+pub mod parse;
 pub mod stats;
 pub mod types;
 

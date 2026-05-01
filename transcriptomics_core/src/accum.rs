@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use ahash::AHashMap;
 
 use biomics_core::BatchAccum;
 
@@ -9,23 +9,24 @@ use crate::types::{GeneRecord, GeneStats, TranscriptomicsSummary};
 /// During the parallel phase each worker accumulates running sums and
 /// sum-of-squares per gene. `merge` combines maps by addition. `finalize`
 /// derives mean and standard deviation from the combined sums.
+///
+/// `AHashMap` replaces `std::HashMap` for 3-5× faster hash table operations
+/// on short string keys.
 pub struct TranscriptomicsAccum {
-    /// gene_id → per-sample running sum of TPM values.
-    pub gene_sums: HashMap<String, Vec<f64>>,
-    /// gene_id → per-sample running sum of squared TPM values (for std).
-    pub gene_sq_sums: HashMap<String, Vec<f64>>,
-    /// gene_id → number of records contributing to the sums.
-    pub gene_counts: HashMap<String, u64>,
+    pub gene_sums: AHashMap<String, Vec<f64>>,
+    pub gene_sq_sums: AHashMap<String, Vec<f64>>,
+    pub gene_counts: AHashMap<String, u64>,
     pub total_genes_seen: u64,
     pub sample_count: usize,
 }
 
 impl Default for TranscriptomicsAccum {
+    #[inline]
     fn default() -> Self {
         Self {
-            gene_sums: HashMap::new(),
-            gene_sq_sums: HashMap::new(),
-            gene_counts: HashMap::new(),
+            gene_sums: AHashMap::new(),
+            gene_sq_sums: AHashMap::new(),
+            gene_counts: AHashMap::new(),
             total_genes_seen: 0,
             sample_count: 0,
         }
@@ -36,6 +37,7 @@ impl BatchAccum for TranscriptomicsAccum {
     type Record = GeneRecord;
     type Summary = TranscriptomicsSummary;
 
+    #[inline(always)]
     fn process(&mut self, r: &GeneRecord) -> anyhow::Result<()> {
         self.total_genes_seen += 1;
 
@@ -64,6 +66,7 @@ impl BatchAccum for TranscriptomicsAccum {
         Ok(())
     }
 
+    #[inline(always)]
     fn merge(&mut self, other: Self) {
         self.total_genes_seen += other.total_genes_seen;
         if self.sample_count == 0 {
@@ -100,10 +103,10 @@ impl BatchAccum for TranscriptomicsAccum {
     }
 
     fn finalize(self) -> anyhow::Result<TranscriptomicsSummary> {
-        let mut gene_stats = std::collections::HashMap::new();
+        let mut gene_stats = AHashMap::with_capacity(self.gene_sums.len());
         let mut expressed_genes = 0u64;
         let mut low_expression_genes = Vec::new();
-        let mut mean_tpm_by_gene: Vec<(String, f64)> = Vec::new();
+        let mut mean_tpm_by_gene: Vec<(String, f64)> = Vec::with_capacity(self.gene_sums.len());
 
         for (gene, sums) in &self.gene_sums {
             let count = *self.gene_counts.get(gene.as_str()).unwrap_or(&1) as f64;
@@ -117,19 +120,15 @@ impl BatchAccum for TranscriptomicsAccum {
             };
 
             let std = if let Some(sq) = sq_sums {
-                let variances: Vec<f64> = sq
+                let overall_var = sq
                     .iter()
                     .zip(sums.iter())
                     .map(|(&sq_s, &s)| {
                         let mean_val = s / count;
                         (sq_s / count - mean_val * mean_val).max(0.0)
                     })
-                    .collect();
-                let overall_var = if variances.is_empty() {
-                    0.0
-                } else {
-                    variances.iter().sum::<f64>() / variances.len() as f64
-                };
+                    .sum::<f64>()
+                    / sq.len().max(1) as f64;
                 overall_var.sqrt()
             } else {
                 0.0
@@ -137,14 +136,7 @@ impl BatchAccum for TranscriptomicsAccum {
 
             let max = means.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
 
-            gene_stats.insert(
-                gene.clone(),
-                GeneStats {
-                    mean: overall_mean,
-                    std,
-                    max,
-                },
-            );
+            gene_stats.insert(gene.clone(), GeneStats { mean: overall_mean, std, max });
 
             if overall_mean >= 1.0 {
                 expressed_genes += 1;
@@ -164,11 +156,11 @@ impl BatchAccum for TranscriptomicsAccum {
             total_genes: self.gene_sums.len() as u64,
             expressed_genes,
             low_expression_genes,
-            gene_stats,
+            gene_stats: gene_stats.into_iter().collect(),
             top_100_expressed,
-            diff_expr: None, // filled by finalize in diffexpr.rs after fold
+            diff_expr: None,
             sample_count: self.sample_count,
-            sample_names: Vec::new(), // filled by tsv.rs
+            sample_names: Vec::new(),
         })
     }
 }

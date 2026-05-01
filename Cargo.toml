@@ -33,3 +33,20 @@ crossterm         = "0.27"
 clap              = { version = "4", features = ["derive"] }
 log               = "0.4"
 env_logger        = "0.11"
+# Performance: fast hash, fast float parsing, byte-level search, fast allocator
+ahash             = "0.8"
+fast-float        = "0.2"
+memchr            = "2"
+mimalloc          = { version = "0.1", default-features = false }
+
+[profile.release]
+lto           = "fat"
+codegen-units = 1
+opt-level     = 3
+panic         = "abort"
+strip         = "symbols"
+
+[profile.bench]
+lto           = "thin"
+codegen-units = 4
+opt-level     = 3

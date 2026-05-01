@@ -1,9 +1,10 @@
 use std::sync::{Arc, Mutex};
 
 /// Current phase of the analysis pipeline.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 #[allow(dead_code)]
 pub enum Phase {
+    #[default]
     Idle,
     Genomics,
     Transcriptomics,
@@ -54,12 +55,6 @@ pub struct AppState {
 
     pub error: Option<String>,
     pub done: bool,
-}
-
-impl Default for Phase {
-    fn default() -> Self {
-        Phase::Idle
-    }
 }
 
 impl AppState {

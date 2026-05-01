@@ -1,0 +1,14 @@
+[package]
+name              = "transcriptomics_core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description       = "TSV expression matrix parsing and differential expression analysis"
+
+[dependencies]
+biomics_core      = { path = "../biomics_core" }
+anyhow            = { workspace = true }
+rayon             = { workspace = true }
+crossbeam-channel = { workspace = true }
+serde             = { workspace = true }
+log               = { workspace = true }

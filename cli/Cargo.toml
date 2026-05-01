@@ -1,0 +1,28 @@
+[package]
+name              = "bioomics"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description       = "BioMultiOmics — production multi-omics analysis CLI"
+
+[[bin]]
+name = "bioomics"
+path = "src/main.rs"
+
+[dependencies]
+biomics_core         = { path = "../biomics_core" }
+genomics_core        = { path = "../genomics_core" }
+transcriptomics_core = { path = "../transcriptomics_core" }
+epigenomics_core     = { path = "../epigenomics_core" }
+integration_layer    = { path = "../integration_layer" }
+anyhow               = { workspace = true }
+rayon                = { workspace = true }
+crossbeam-channel    = { workspace = true }
+serde                = { workspace = true }
+serde_json           = { workspace = true }
+clap                 = { workspace = true }
+ratatui              = { workspace = true }
+crossterm            = { workspace = true }
+chrono               = { workspace = true }
+log                  = { workspace = true }
+env_logger           = { workspace = true }

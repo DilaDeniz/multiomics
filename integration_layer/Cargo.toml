@@ -1,0 +1,20 @@
+[package]
+name              = "integration_layer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description       = "Cross-modality correlation, PCA, pathway enrichment, and insight engine"
+
+[dependencies]
+biomics_core         = { path = "../biomics_core" }
+genomics_core        = { path = "../genomics_core" }
+transcriptomics_core = { path = "../transcriptomics_core" }
+epigenomics_core     = { path = "../epigenomics_core" }
+anyhow               = { workspace = true }
+rayon                = { workspace = true }
+serde                = { workspace = true }
+serde_json           = { workspace = true }
+ndarray              = { workspace = true }
+linfa                = { workspace = true }
+linfa-reduction      = { workspace = true }
+log                  = { workspace = true }

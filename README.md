@@ -10,8 +10,6 @@ Ingest VCF · TSV · BED simultaneously → integrated insights, interactive TUI
 [![CI](https://github.com/diladeniz/multiomics/actions/workflows/ci.yml/badge.svg)](https://github.com/diladeniz/multiomics/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Rust 1.75+](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org)
-[![crates.io](https://img.shields.io/crates/v/bioomics.svg)](https://crates.io/crates/bioomics)
-[![docs.rs](https://docs.rs/bioomics/badge.svg)](https://docs.rs/bioomics)
 
 </div>
 
@@ -91,12 +89,6 @@ Most multi-omics pipelines are stitched together from separate Python/R scripts 
 ---
 
 ## Quick Start
-
-### Install from crates.io
-
-```bash
-cargo install bioomics
-```
 
 ### Build from source
 

@@ -1,0 +1,15 @@
+[package]
+name              = "biomics_core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description       = "Shared BatchAccum trait, lock-free fold, and statistics helpers"
+
+[dependencies]
+anyhow            = { workspace = true }
+rayon             = { workspace = true }
+crossbeam-channel = { workspace = true }
+serde             = { workspace = true }
+log               = { workspace = true }
+memchr            = { workspace = true }
+fast-float        = { workspace = true }

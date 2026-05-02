@@ -1,0 +1,15 @@
+[build]
+# Set target-cpu=native or target-cpu=x86-64-v4 for production deployments with AVX-512.
+# Using x86-64-v3 (AVX2) as default to avoid SIGILL in container environments.
+rustflags = [
+    "-C", "target-cpu=x86-64-v3",
+    "-C", "force-frame-pointers=no",
+]
+
+[profile.release]
+# These mirror the workspace [profile.release] but are set here too for tools
+# invoked outside of cargo (e.g. flamegraph) that read config.toml directly.
+lto            = "fat"
+codegen-units  = 1
+opt-level      = 3
+panic          = "abort"

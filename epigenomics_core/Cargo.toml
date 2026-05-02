@@ -1,0 +1,17 @@
+[package]
+name              = "epigenomics_core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description       = "BED methylation file parsing and CpG island detection"
+
+[dependencies]
+biomics_core      = { path = "../biomics_core" }
+anyhow            = { workspace = true }
+rayon             = { workspace = true }
+crossbeam-channel = { workspace = true }
+serde             = { workspace = true }
+memmap2           = { workspace = true }
+log               = { workspace = true }
+ahash             = { workspace = true }
+memchr            = { workspace = true }

@@ -1,0 +1,52 @@
+[workspace]
+resolver = "2"
+members = [
+    "biomics_core",
+    "genomics_core",
+    "transcriptomics_core",
+    "epigenomics_core",
+    "integration_layer",
+    "cli",
+]
+
+[workspace.package]
+version    = "0.1.0"
+edition    = "2021"
+license    = "Apache-2.0"
+authors    = ["BioMultiOmics Contributors"]
+repository = "https://github.com/diladeniz/multiomics"
+
+[workspace.dependencies]
+anyhow            = "1"
+rayon             = "1"
+crossbeam-channel = "0.5"
+serde             = { version = "1", features = ["derive"] }
+serde_json        = "1"
+chrono            = { version = "0.4", features = ["serde"] }
+ndarray           = "0.15"
+memmap2           = "0.9"
+needletail        = "0.5"
+linfa             = "0.7"
+linfa-reduction   = "0.7"
+ratatui           = "0.26"
+crossterm         = "0.27"
+clap              = { version = "4", features = ["derive"] }
+log               = "0.4"
+env_logger        = "0.11"
+# Performance: fast hash, fast float parsing, byte-level search, fast allocator
+ahash             = "0.8"
+fast-float        = "0.2"
+memchr            = "2"
+mimalloc          = { version = "0.1", default-features = false }
+
+[profile.release]
+lto           = "fat"
+codegen-units = 1
+opt-level     = 3
+panic         = "abort"
+strip         = "symbols"
+
+[profile.bench]
+lto           = "thin"
+codegen-units = 4
+opt-level     = 3

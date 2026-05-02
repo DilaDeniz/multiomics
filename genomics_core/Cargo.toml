@@ -1,0 +1,18 @@
+[package]
+name              = "genomics_core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description       = "VCF-based SNP/variant analysis with lock-free parallel processing"
+
+[dependencies]
+biomics_core      = { path = "../biomics_core" }
+anyhow            = { workspace = true }
+rayon             = { workspace = true }
+crossbeam-channel = { workspace = true }
+serde             = { workspace = true }
+memmap2           = { workspace = true }
+needletail        = { workspace = true }
+log               = { workspace = true }
+ahash             = { workspace = true }
+memchr            = { workspace = true }

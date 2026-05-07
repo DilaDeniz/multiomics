@@ -1,0 +1,53 @@
+{% set name = "BioMultiOmics" %}
+{% set version = "0.1.0" %}
+
+package:
+  name: {{ name|lower }}
+  version: {{ version }}
+
+source:
+  url: https://github.com/DilaDeniz/{{ name }}/archive/refs/tags/v{{ version }}.tar.gz
+  sha256: <FILL_IN_AFTER_TAGGING>
+
+build:
+  number: 0
+  skip: True  # [win]
+  run_exports:
+    - {{ pin_subpackage(name|lower, max_pin="x") }}
+
+requirements:
+  build:
+    - {{ compiler('rust') }}
+    - {{ compiler('c') }}    # mimalloc needs a C compiler
+
+test:
+  commands:
+    - bioomics --version | grep '{{ version }}'
+    - bioomics --genomics "${RECIPE_DIR}/test_data/minimal.vcf"
+               --transcriptomics "${RECIPE_DIR}/test_data/minimal.tsv"
+               --epigenomics "${RECIPE_DIR}/test_data/minimal.bed"
+               --output "${TMPDIR}/bioomics_test"
+               --json --no-ml
+
+about:
+  home: "https://github.com/DilaDeniz/{{ name }}"
+  license: Apache-2.0
+  license_file: LICENSE
+  summary: "Production-grade multi-omics analysis: VCF + TSV + BED → integrated HTML/JSON report."
+  description: |
+    BioMultiOmics is a high-performance multi-omics analysis tool written in Rust.
+    It ingests genomic variants (VCF), expression matrices (TSV), and methylation
+    data (BED) simultaneously using lock-free parallel processing, and produces
+    an integrated HTML report, MultiQC-compatible JSON, and a live terminal UI.
+    Features include Welch t-test + BH FDR differential expression, Fisher's exact
+    pathway enrichment against 75+ KEGG/custom pathways, CpG island detection,
+    Pearson/Spearman cross-modality correlation, and PCA.
+
+extra:
+  additional-platforms:
+    - linux-aarch64
+    - osx-arm64
+  recipe-maintainers:
+    - DilaDeniz
+  skip-lints:
+    - compiler_needs_stdlib_c

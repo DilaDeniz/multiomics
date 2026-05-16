@@ -1,0 +1,20 @@
+[package]
+name    = "pybioomics"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Python bindings for BioMultiOmics — fast multi-omics analysis"
+
+[lib]
+name       = "pybioomics"
+crate-type = ["cdylib"]
+
+[dependencies]
+biomics_core         = { path = "../biomics_core" }
+genomics_core        = { path = "../genomics_core" }
+transcriptomics_core = { path = "../transcriptomics_core" }
+epigenomics_core     = { path = "../epigenomics_core" }
+integration_layer    = { path = "../integration_layer" }
+pyo3       = { version = "0.21", features = ["extension-module", "abi3-py38"] }
+anyhow     = { workspace = true }
+serde_json = { workspace = true }

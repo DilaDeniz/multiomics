@@ -1,0 +1,31 @@
+Bootstrap: docker
+From: debian:bookworm-slim
+
+%labels
+    Author DilaDeniz
+    Version 0.1.0
+    Description BioMultiOmics — multi-omics analysis tool
+
+%post
+    apt-get update && apt-get install -y --no-install-recommends \
+        curl gcc libc6-dev pkg-config ca-certificates \
+        && rm -rf /var/lib/apt/lists/*
+
+    # Install Rust via rustup — stable toolchain, no interactive prompts.
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+    . "$HOME/.cargo/env"
+
+    # Build and install the bioomics CLI directly from the upstream repository.
+    # Target x86-64-v3 (AVX2) for cloud-instance compatibility.
+    cd /opt
+    RUSTFLAGS="-C target-cpu=x86-64-v3" cargo install \
+        --git https://github.com/DilaDeniz/BioMultiOmics --bin bioomics
+
+%environment
+    export PATH="$PATH:/usr/local/bin"
+
+%runscript
+    exec bioomics "$@"
+
+%test
+    bioomics --version

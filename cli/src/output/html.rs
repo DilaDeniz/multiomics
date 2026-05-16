@@ -8,6 +8,8 @@ use transcriptomics_core::TranscriptomicsSummary;
 use epigenomics_core::EpigenomicsSummary;
 use integration_layer::{Insight, InsightLevel, IntegrationSummary};
 
+use super::circos::generate_circos_svg;
+
 /// Generate a self-contained HTML report and write it to `{output_dir}/report.html`.
 ///
 /// The report embeds Chart.js from jsDelivr CDN for interactive charts.
@@ -37,6 +39,7 @@ fn generate_html(
 ) -> String {
     let head = html_head();
     let summary_cards = html_summary_cards(genomics, transcr, epigen);
+    let circos_svg = generate_circos_svg(genomics, epigen);
     let variant_chart = html_variant_density_chart(genomics);
     let expression_chart = html_expression_chart(transcr);
     let methylation_chart = html_methylation_chart(epigen);
@@ -57,10 +60,16 @@ fn generate_html(
     <p class="subtitle">Generated: {ts} &nbsp;|&nbsp; Tool version: {ver}</p>
   </header>
   {summary_cards}
-  <section class="section">
-    <h2>Genomic Variant Density by Chromosome</h2>
-    {variant_chart}
-  </section>
+  <div class="row-2">
+    <section class="section">
+      <h2>Genomic Overview</h2>
+      {circos_svg}
+    </section>
+    <section class="section">
+      <h2>Variant Density by Chromosome</h2>
+      {variant_chart}
+    </section>
+  </div>
   <section class="section">
     <h2>Top 20 Expressed Genes</h2>
     {expression_chart}
@@ -97,6 +106,7 @@ fn generate_html(
         ts = generated_at.format("%Y-%m-%d %H:%M:%S UTC"),
         ver = env!("CARGO_PKG_VERSION"),
         summary_cards = summary_cards,
+        circos_svg = circos_svg,
         variant_chart = variant_chart,
         expression_chart = expression_chart,
         methylation_chart = methylation_chart,

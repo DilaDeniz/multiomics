@@ -1,6 +1,8 @@
 pub mod accum;
 pub mod bed;
 pub mod cpg;
+#[cfg(feature = "longread")]
+pub mod longread;
 pub mod types;
 
 pub use accum::EpigenomicsAccum;
@@ -10,6 +12,8 @@ pub use types::{
     ChromMethylation, CpGIsland, EpigenomicsSummary, MethylationRecord, MethylationRegion,
     RegionKind,
 };
+#[cfg(feature = "longread")]
+pub use longread::{longread_to_methylation_records, parse_longread_methylation, LongReadMethCall};
 
 use anyhow::Result;
 use crossbeam_channel::Sender;

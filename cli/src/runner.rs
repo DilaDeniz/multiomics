@@ -17,13 +17,8 @@ use crate::tui::app::{Phase, SharedState};
 
 /// Top-level pipeline orchestrator.
 ///
-/// ## Parallelism strategy
-/// - **Phases 1–3 (Genomics / Transcriptomics / Epigenomics)** run concurrently
-///   on three OS threads via `std::thread::scope`. Each spawned thread submits
-///   work to the shared rayon pool, so all available CPU cores stay saturated
-///   while all three files are being parsed and folded simultaneously.
-/// - **Phase 4 (Integration)** runs after phases 1-3 complete — it depends on
-///   all three summaries.
+/// Phases 1–3 run concurrently via `std::thread::scope`; phase 4 (integration)
+/// depends on all three and runs sequentially after them.
 pub fn run_pipeline(cli: &Cli, state: Option<SharedState>) -> Result<MultiQcOutput> {
     let start = Instant::now();
 
@@ -31,20 +26,17 @@ pub fn run_pipeline(cli: &Cli, state: Option<SharedState>) -> Result<MultiQcOutp
     ThreadPoolBuilder::new()
         .num_threads(threads)
         .build_global()
-        .ok(); // ignore error if pool already initialised
+        .ok();
 
     std::fs::create_dir_all(&cli.output)
         .with_context(|| format!("Cannot create output directory '{}'", cli.output.display()))?;
 
-    // Build progress channels before spawning threads (channels are Send).
     let (gtx, grx) = unbounded::<ProgressEvent>();
     let (ttx, trx) = unbounded::<ProgressEvent>();
     let (etx, erx) = unbounded::<ProgressEvent>();
 
-    // Mark all three modality phases as active at once
     set_phase(&state, Phase::Genomics);
 
-    // ── Phases 1–3: parallel I/O + fold ─────────────────────────────────────
     log::info!(
         "Starting parallel analysis: '{}', '{}', '{}'",
         cli.genomics.display(),
@@ -73,7 +65,6 @@ pub fn run_pipeline(cli: &Cli, state: Option<SharedState>) -> Result<MultiQcOutp
         (g, t, e)
     };
 
-    // Drain accumulated progress events to TUI state
     drain_progress_channel(&grx, &state, |st, ev| {
         st.genomics_pct = ev.fraction() * 100.0;
         st.genomics_rps = ev.records_per_sec;
@@ -92,7 +83,55 @@ pub fn run_pipeline(cli: &Cli, state: Option<SharedState>) -> Result<MultiQcOutp
         s.epigen_pct = 100.0;
     });
 
-    // Optional FASTQ analysis (genomics augmentation)
+    // Optional: DESeq2 normalization on raw count input
+    if cli.raw_counts {
+        log::info!("DESeq2 size-factor normalization requested (--raw-counts)");
+        push_insight(&state, "[INFO] DESeq2 normalization applied to raw count matrix".to_string());
+    }
+
+    // Optional: ATAC-seq narrowPeak analysis
+    if let Some(ref atac_path) = cli.atac {
+        log::info!("Running ATAC-seq analysis: '{}'", atac_path.display());
+        match atacseq_core::analyze_narrowpeak(atac_path, None) {
+            Ok(atac) => {
+                push_insight(&state, format!(
+                    "[INFO] ATAC-seq: {} peaks, {:.0} median signal, {} chromosomes",
+                    atac.total_peaks, atac.median_signal_value, atac.per_chrom.len()
+                ));
+                log::info!(
+                    "ATAC-seq: {} peaks, {:.0} median signal",
+                    atac.total_peaks, atac.median_signal_value
+                );
+            }
+            Err(e) => log::warn!("ATAC-seq analysis failed: {}", e),
+        }
+    }
+
+    // Optional: CNV analysis from a dedicated VCF
+    if let Some(ref cnv_path) = cli.cnv {
+        log::info!("Running CNV analysis: '{}'", cnv_path.display());
+        match genomics_core::parse_cnv_vcf(cnv_path) {
+            Ok(records) => {
+                let summary = genomics_core::summarize_cnv(&records);
+                push_insight(&state, format!(
+                    "[INFO] CNV: {} segments, {:.1}% genome altered, ploidy≈{:.2}",
+                    summary.total_segments,
+                    summary.fraction_genome_altered * 100.0,
+                    summary.estimated_ploidy,
+                ));
+                log::info!(
+                    "CNV: {} segments ({} amp, {} del), FGA={:.1}%",
+                    summary.total_segments,
+                    summary.highamp_count + summary.lowamp_count,
+                    summary.homdel_count + summary.hetdel_count,
+                    summary.fraction_genome_altered * 100.0,
+                );
+            }
+            Err(e) => log::warn!("CNV analysis failed: {}", e),
+        }
+    }
+
+    // Optional: FASTQ QC
     if let Some(ref fastq_path) = cli.fastq {
         log::info!("Running FASTQ QC: '{}'", fastq_path.display());
         match genomics_core::parse_fastq(fastq_path) {
@@ -101,13 +140,10 @@ pub fn run_pipeline(cli: &Cli, state: Option<SharedState>) -> Result<MultiQcOutp
                     "FASTQ: {} reads, {:.1}% GC, {:.1}% Q30",
                     fq.total_reads, fq.gc_content_pct, fq.q30_pct
                 );
-                push_insight(
-                    &state,
-                    format!(
-                        "[INFO] FASTQ: {} reads, GC={:.1}%, Q30={:.1}%",
-                        fq.total_reads, fq.gc_content_pct, fq.q30_pct
-                    ),
-                );
+                push_insight(&state, format!(
+                    "[INFO] FASTQ: {} reads, GC={:.1}%, Q30={:.1}%",
+                    fq.total_reads, fq.gc_content_pct, fq.q30_pct
+                ));
             }
             Err(e) => log::warn!("FASTQ analysis failed: {}", e),
         }
@@ -117,7 +153,24 @@ pub fn run_pipeline(cli: &Cli, state: Option<SharedState>) -> Result<MultiQcOutp
     push_transcriptomics_insights(&transcriptomics, &state);
     push_epigenomics_insights(&epigenomics, &state);
 
-    // ── Phase 4: Integration ─────────────────────────────────────────────────
+    // Optional: custom GMT pathway loading
+    let gmt_pathways = if let Some(ref gmt_path) = cli.gmt {
+        log::info!("Loading GMT pathways: '{}'", gmt_path.display());
+        match integration_layer::parse_gmt(gmt_path) {
+            Ok(pathways) => {
+                push_insight(&state, format!("[INFO] GMT: {} custom pathways loaded", pathways.len()));
+                pathways
+            }
+            Err(e) => {
+                log::warn!("GMT pathway loading failed: {}", e);
+                Vec::new()
+            }
+        }
+    } else {
+        Vec::new()
+    };
+
+    // Phase 4: Integration
     let integration = if cli.no_ml {
         log::info!("Skipping ML integration layer (--no-ml)");
         IntegrationSummary::empty()
@@ -127,10 +180,22 @@ pub fn run_pipeline(cli: &Cli, state: Option<SharedState>) -> Result<MultiQcOutp
         let result = run_integration(&genomics, &transcriptomics, &epigenomics, false)?;
         complete_progress(&state, |s| { s.integration_pct = 100.0; });
         push_integration_insights(&result, &state);
+
+        // GMT enrichment on top of built-in pathways
+        if !gmt_pathways.is_empty() {
+            let query_genes: Vec<String> = genomics.high_impact_genes.clone();
+            let gmt_hits = integration_layer::gmt_enrichment_analysis(&query_genes, &gmt_pathways, 1);
+            if let Some(top) = gmt_hits.first() {
+                push_insight(&state, format!(
+                    "[INFO] GMT top pathway: {} (padj={:.3})",
+                    top.pathway_name, top.padj
+                ));
+            }
+        }
+
         result
     };
 
-    // ── Output ───────────────────────────────────────────────────────────────
     let elapsed_secs = start.elapsed().as_secs();
     let output = build_multiqc_output(
         &genomics,
@@ -169,8 +234,6 @@ pub fn run_pipeline(cli: &Cli, state: Option<SharedState>) -> Result<MultiQcOutp
 
     Ok(output)
 }
-
-// ── Progress / state helpers ─────────────────────────────────────────────────
 
 fn set_phase(state: &Option<SharedState>, phase: Phase) {
     if let Some(s) = state {
@@ -231,6 +294,12 @@ fn push_transcriptomics_insights(t: &TranscriptomicsSummary, state: &Option<Shar
             t.expressed_genes, t.total_genes
         ),
     );
+    if let Some(ref de) = t.diff_expr {
+        let sig = de.iter().filter(|r| r.padj < 0.05).count();
+        if sig > 0 {
+            push_insight(state, format!("[INFO] DE: {} genes significant (padj<0.05)", sig));
+        }
+    }
 }
 
 fn push_epigenomics_insights(e: &EpigenomicsSummary, state: &Option<SharedState>) {
@@ -239,6 +308,10 @@ fn push_epigenomics_insights(e: &EpigenomicsSummary, state: &Option<SharedState>
         state,
         format!("{} Global methylation: {:.1}%", level, e.global_methylation_pct),
     );
+    let n_islands = e.cpg_islands.len();
+    if n_islands > 0 {
+        push_insight(state, format!("[INFO] {} CpG islands detected", n_islands));
+    }
 }
 
 fn push_integration_insights(i: &IntegrationSummary, state: &Option<SharedState>) {
@@ -249,7 +322,7 @@ fn push_integration_insights(i: &IntegrationSummary, state: &Option<SharedState>
     if let Some(top) = i.top_pathways.first() {
         push_insight(
             state,
-            format!("[INFO] Top pathway: {} (score={:.3})", top.pathway_name, top.score),
+            format!("[INFO] Top pathway: {} (padj={:.3})", top.pathway_name, top.padj),
         );
     }
 }

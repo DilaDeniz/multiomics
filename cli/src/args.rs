@@ -3,9 +3,6 @@ use std::path::PathBuf;
 use clap::Parser;
 
 /// BioMultiOmics — parallel multi-omics analysis: VCF + TSV + BED → HTML/JSON report.
-///
-/// Ingests genomics (VCF), transcriptomics (expression TSV), and epigenomics
-/// (methylation BED) data simultaneously and produces integrated biological insights.
 #[derive(Parser, Debug, Clone)]
 #[command(
     name = "bioomics",
@@ -18,7 +15,7 @@ pub struct Cli {
     #[arg(long, value_name = "FILE")]
     pub genomics: PathBuf,
 
-    /// Expression matrix TSV file (genes × samples, first row = header with sample names)
+    /// Expression matrix TSV or raw-count matrix (genes × samples, first row = sample names)
     #[arg(long, value_name = "FILE")]
     pub transcriptomics: PathBuf,
 
@@ -26,9 +23,25 @@ pub struct Cli {
     #[arg(long, value_name = "FILE")]
     pub epigenomics: PathBuf,
 
+    /// ATAC-seq peaks in ENCODE narrowPeak (BED6+4) format
+    #[arg(long, value_name = "FILE")]
+    pub atac: Option<PathBuf>,
+
+    /// VCF with CN INFO field for copy-number variation analysis
+    #[arg(long, value_name = "FILE")]
+    pub cnv: Option<PathBuf>,
+
     /// Optional FASTQ input for sequence-level QC (paired or single-end)
     #[arg(long, value_name = "FILE")]
     pub fastq: Option<PathBuf>,
+
+    /// GMT pathway file for custom gene set enrichment (tab-delimited: name, desc, genes...)
+    #[arg(long, value_name = "FILE")]
+    pub gmt: Option<PathBuf>,
+
+    /// Treat --transcriptomics input as raw counts and apply DESeq2 size-factor normalization
+    #[arg(long, default_value_t = false)]
+    pub raw_counts: bool,
 
     /// Output directory (created if it does not exist)
     #[arg(long, value_name = "DIR", default_value = "./bioomics_out")]
@@ -38,13 +51,9 @@ pub struct Cli {
     #[arg(long, value_name = "N")]
     pub threads: Option<usize>,
 
-    /// Skip the ML integration layer (PCA and Pearson correlation)
+    /// Skip the ML integration layer (PCA and correlation matrix)
     #[arg(long, default_value_t = false)]
     pub no_ml: bool,
-
-    /// Compare against a second set of input files (JSON with genomics/transcriptomics/epigenomics keys)
-    #[arg(long, value_name = "FILE")]
-    pub compare: Option<PathBuf>,
 
     /// Emit JSON output only — no TUI, no HTML report
     #[arg(long, default_value_t = false)]

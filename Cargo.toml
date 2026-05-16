@@ -5,8 +5,10 @@ members = [
     "genomics_core",
     "transcriptomics_core",
     "epigenomics_core",
+    "atacseq_core",
     "integration_layer",
     "cli",
+    "pybioomics",
 ]
 
 [workspace.package]

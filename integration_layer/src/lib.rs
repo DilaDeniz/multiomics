@@ -1,8 +1,12 @@
 pub mod correlation;
+pub mod gmt;
+pub mod gsea;
 pub mod insights;
 pub mod pathway;
 pub mod pca;
 
+pub use gmt::{gmt_enrichment_analysis, parse_gmt, GmtPathway};
+pub use gsea::{gsea_preranked, GseaResult};
 pub use insights::{derive_insights, Insight, InsightLevel, InsightModality};
 pub use pathway::{enrichment_analysis, EnrichmentResult, KeggPathway, KEGG_PATHWAYS};
 pub use pca::{run_pca, PcaResult};

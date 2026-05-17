@@ -1,3 +1,4 @@
+pub mod circos;
 pub mod html;
 pub mod json;
 

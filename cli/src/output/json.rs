@@ -5,10 +5,10 @@ use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 
-use genomics_core::GenomicsSummary;
-use transcriptomics_core::TranscriptomicsSummary;
 use epigenomics_core::EpigenomicsSummary;
+use genomics_core::GenomicsSummary;
 use integration_layer::{EnrichmentResult, Insight, IntegrationSummary};
+use transcriptomics_core::TranscriptomicsSummary;
 
 /// MultiQC-compatible general stats for the top-level table.
 #[derive(Debug, Serialize)]
@@ -129,19 +129,35 @@ pub fn build_multiqc_output(
     let mut headers = HashMap::new();
     headers.insert(
         "total_variants".to_string(),
-        ColumnMeta { title: "Variants", format: "{:.0}", scale: "Blues" },
+        ColumnMeta {
+            title: "Variants",
+            format: "{:.0}",
+            scale: "Blues",
+        },
     );
     headers.insert(
         "titv_ratio".to_string(),
-        ColumnMeta { title: "Ti/Tv", format: "{:.2}", scale: "RdYlGn" },
+        ColumnMeta {
+            title: "Ti/Tv",
+            format: "{:.2}",
+            scale: "RdYlGn",
+        },
     );
     headers.insert(
         "expressed_genes".to_string(),
-        ColumnMeta { title: "Expressed Genes", format: "{:.0}", scale: "Greens" },
+        ColumnMeta {
+            title: "Expressed Genes",
+            format: "{:.0}",
+            scale: "Greens",
+        },
     );
     headers.insert(
         "global_methylation_pct".to_string(),
-        ColumnMeta { title: "Global Meth %", format: "{:.1}", scale: "Oranges" },
+        ColumnMeta {
+            title: "Global Meth %",
+            format: "{:.1}",
+            scale: "Oranges",
+        },
     );
 
     let per_chrom: HashMap<String, ChromStats> = genomics

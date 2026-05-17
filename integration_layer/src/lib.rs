@@ -1,8 +1,12 @@
 pub mod correlation;
+pub mod gmt;
+pub mod gsea;
 pub mod insights;
 pub mod pathway;
 pub mod pca;
 
+pub use gmt::{gmt_enrichment_analysis, parse_gmt, GmtPathway};
+pub use gsea::{gsea_preranked, GseaResult};
 pub use insights::{derive_insights, Insight, InsightLevel, InsightModality};
 pub use pathway::{enrichment_analysis, EnrichmentResult, KeggPathway, KEGG_PATHWAYS};
 pub use pca::{run_pca, PcaResult};
@@ -10,9 +14,9 @@ pub use pca::{run_pca, PcaResult};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
-use genomics_core::GenomicsSummary;
-use transcriptomics_core::{TranscriptomicsSummary, significant_de_genes};
 use epigenomics_core::EpigenomicsSummary;
+use genomics_core::GenomicsSummary;
+use transcriptomics_core::{significant_de_genes, TranscriptomicsSummary};
 
 use correlation::{build_cross_modality_matrix, pearson_correlation_matrix};
 
@@ -33,7 +37,11 @@ impl IntegrationSummary {
     /// Produce an empty summary when `--no-ml` is requested.
     pub fn empty() -> Self {
         Self {
-            correlation_matrix: vec![vec![1.0, 0.0, 0.0], vec![0.0, 1.0, 0.0], vec![0.0, 0.0, 1.0]],
+            correlation_matrix: vec![
+                vec![1.0, 0.0, 0.0],
+                vec![0.0, 1.0, 0.0],
+                vec![0.0, 0.0, 1.0],
+            ],
             pca: PcaResult {
                 points: vec![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]],
                 explained_variance_ratio: vec![1.0, 0.0],
@@ -93,19 +101,55 @@ pub fn run_integration(
     // Convert correlation matrix to fixed-size array for insight engine
     let corr_arr: [[f64; 3]; 3] = [
         [
-            correlation_matrix.first().and_then(|r| r.first()).copied().unwrap_or(1.0),
-            correlation_matrix.first().and_then(|r| r.get(1)).copied().unwrap_or(0.0),
-            correlation_matrix.first().and_then(|r| r.get(2)).copied().unwrap_or(0.0),
+            correlation_matrix
+                .first()
+                .and_then(|r| r.first())
+                .copied()
+                .unwrap_or(1.0),
+            correlation_matrix
+                .first()
+                .and_then(|r| r.get(1))
+                .copied()
+                .unwrap_or(0.0),
+            correlation_matrix
+                .first()
+                .and_then(|r| r.get(2))
+                .copied()
+                .unwrap_or(0.0),
         ],
         [
-            correlation_matrix.get(1).and_then(|r| r.first()).copied().unwrap_or(0.0),
-            correlation_matrix.get(1).and_then(|r| r.get(1)).copied().unwrap_or(1.0),
-            correlation_matrix.get(1).and_then(|r| r.get(2)).copied().unwrap_or(0.0),
+            correlation_matrix
+                .get(1)
+                .and_then(|r| r.first())
+                .copied()
+                .unwrap_or(0.0),
+            correlation_matrix
+                .get(1)
+                .and_then(|r| r.get(1))
+                .copied()
+                .unwrap_or(1.0),
+            correlation_matrix
+                .get(1)
+                .and_then(|r| r.get(2))
+                .copied()
+                .unwrap_or(0.0),
         ],
         [
-            correlation_matrix.get(2).and_then(|r| r.first()).copied().unwrap_or(0.0),
-            correlation_matrix.get(2).and_then(|r| r.get(1)).copied().unwrap_or(0.0),
-            correlation_matrix.get(2).and_then(|r| r.get(2)).copied().unwrap_or(1.0),
+            correlation_matrix
+                .get(2)
+                .and_then(|r| r.first())
+                .copied()
+                .unwrap_or(0.0),
+            correlation_matrix
+                .get(2)
+                .and_then(|r| r.get(1))
+                .copied()
+                .unwrap_or(0.0),
+            correlation_matrix
+                .get(2)
+                .and_then(|r| r.get(2))
+                .copied()
+                .unwrap_or(1.0),
         ],
     ];
 

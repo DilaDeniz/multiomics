@@ -1,6 +1,6 @@
-use ahash::{AHashMap, AHashSet};
+use ahash::AHashMap;
 
-use biomics_core::BatchAccum;
+use biomics_core::{BatchAccum, HyperLogLog};
 
 use crate::types::{ChromDensity, GenomicsSummary, TiTvClass, VariantRecord};
 
@@ -35,8 +35,9 @@ pub struct GenomicsAccum {
     pub high_impact: Vec<VariantRecord>,
     /// 20-bin allele frequency histogram over [0.0, 1.0).
     pub af_histogram: [u64; 20],
-    /// FNV-1a(chrom, pos) keys — avoids (String, u64) allocation per record.
-    pub positions: AHashSet<u64>,
+    /// HyperLogLog cardinality sketch — 16 KB fixed, ~0.81 % error.
+    /// Replaces AHashSet<u64> which grew O(n) and consumed hundreds of MB on WGS.
+    pub positions: HyperLogLog,
 }
 
 impl Default for GenomicsAccum {
@@ -51,7 +52,7 @@ impl Default for GenomicsAccum {
             per_chrom: AHashMap::new(),
             high_impact: Vec::new(),
             af_histogram: [0u64; 20],
-            positions: AHashSet::new(),
+            positions: HyperLogLog::new(),
         }
     }
 }
@@ -94,7 +95,7 @@ impl BatchAccum for GenomicsAccum {
             self.af_histogram[bin] += 1;
         }
 
-        self.positions.insert(position_key(&r.chrom, r.pos));
+        self.positions.insert_hashed(position_key(&r.chrom, r.pos));
 
         Ok(())
     }
@@ -120,7 +121,7 @@ impl BatchAccum for GenomicsAccum {
             self.af_histogram[i] += count;
         }
 
-        self.positions.extend(other.positions);
+        self.positions.merge(&other.positions);
     }
 
     fn finalize(self) -> anyhow::Result<GenomicsSummary> {
@@ -146,7 +147,7 @@ impl BatchAccum for GenomicsAccum {
             per_chrom: self.per_chrom.into_iter().collect(),
             high_impact: self.high_impact,
             af_histogram: self.af_histogram.to_vec(),
-            unique_positions: self.positions.len() as u64,
+            unique_positions: self.positions.cardinality(),
             high_impact_genes,
         })
     }

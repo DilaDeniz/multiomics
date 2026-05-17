@@ -1,0 +1,49 @@
+# config.yaml — BioMultiOmics Snakemake configuration
+#
+# Copy this file, fill in your paths, and run:
+#   snakemake --configfile config.yaml --cores 8
+
+# ---------------------------------------------------------------------------
+# Sample definitions
+# ---------------------------------------------------------------------------
+# Each key under ``samples`` becomes a sample name in the output directory.
+# Required fields: genomics, transcriptomics, epigenomics
+# Optional fields: atac, cnv, gmt
+
+samples:
+  my_sample:
+    genomics:        data/sample.vcf.gz
+    transcriptomics: data/expression_matrix.tsv
+    epigenomics:     data/methylation.bed
+    # atac:          data/atac_peaks.narrowPeak   # optional
+    # cnv:           data/cnv_calls.vcf            # optional
+    # gmt:           data/pathways.gmt             # optional
+
+# ---------------------------------------------------------------------------
+# Global settings
+# ---------------------------------------------------------------------------
+
+# Base directory for all outputs.  Each sample gets its own subdirectory.
+output_dir: bioomics_out
+
+# Number of CPU threads to use per sample.
+# Omit or set to null to use all available cores.
+threads: null
+
+# Treat the transcriptomics TSV as raw counts and apply size-factor
+# normalisation before differential expression analysis.
+raw_counts: false
+
+# Emit JSON output only — skip the interactive TUI and HTML report.
+# Useful on HPC nodes without a terminal.
+json_only: false
+
+# Skip the ML integration layer (PCA and cross-modality correlation matrix).
+no_ml: false
+
+# Run MultiQC over all sample outputs after bioomics completes.
+# Requires the multiqc_bioomics plugin:  pip install workflows/../multiqc_bioomics/
+run_multiqc: true
+
+# Optional path to a custom multiqc_config.yaml file.
+# multiqc_config: multiqc_config.yaml

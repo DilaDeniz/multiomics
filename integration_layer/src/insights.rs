@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 
+use epigenomics_core::EpigenomicsSummary;
 use genomics_core::GenomicsSummary;
 use transcriptomics_core::TranscriptomicsSummary;
-use epigenomics_core::EpigenomicsSummary;
 
 use crate::pathway::EnrichmentResult;
 
@@ -62,15 +62,27 @@ pub struct Insight {
 
 impl Insight {
     fn info(modality: InsightModality, message: impl Into<String>) -> Self {
-        Self { level: InsightLevel::Info, modality, message: message.into() }
+        Self {
+            level: InsightLevel::Info,
+            modality,
+            message: message.into(),
+        }
     }
 
     fn warn(modality: InsightModality, message: impl Into<String>) -> Self {
-        Self { level: InsightLevel::Warning, modality, message: message.into() }
+        Self {
+            level: InsightLevel::Warning,
+            modality,
+            message: message.into(),
+        }
     }
 
     fn crit(modality: InsightModality, message: impl Into<String>) -> Self {
-        Self { level: InsightLevel::Critical, modality, message: message.into() }
+        Self {
+            level: InsightLevel::Critical,
+            modality,
+            message: message.into(),
+        }
     }
 }
 
@@ -173,11 +185,13 @@ fn check_high_impact_genes(g: &GenomicsSummary, out: &mut Vec<Insight>) {
     }
 
     // Check for known tumor suppressor / oncogene hits
-    let flagged: Vec<&str> = ["TP53", "KRAS", "BRCA1", "BRCA2", "APC", "PTEN", "RB1", "VHL", "MLH1", "MSH2"]
-        .iter()
-        .filter(|&&gene| g.high_impact_genes.iter().any(|g| g == gene))
-        .copied()
-        .collect();
+    let flagged: Vec<&str> = [
+        "TP53", "KRAS", "BRCA1", "BRCA2", "APC", "PTEN", "RB1", "VHL", "MLH1", "MSH2",
+    ]
+    .iter()
+    .filter(|&&gene| g.high_impact_genes.iter().any(|g| g == gene))
+    .copied()
+    .collect();
 
     if !flagged.is_empty() {
         out.push(Insight::crit(
@@ -247,12 +261,20 @@ fn check_differential_expression(t: &TranscriptomicsSummary, out: &mut Vec<Insig
         // fall back to |log2FC| >= 2 threshold for n < 4 sample data.
         let has_padj = de.iter().any(|r| !r.padj.is_nan());
         let sig = if has_padj {
-            de.iter().filter(|r| !r.padj.is_nan() && r.padj < 0.05 && r.log2_fold_change.abs() >= 1.0).count()
+            de.iter()
+                .filter(|r| !r.padj.is_nan() && r.padj < 0.05 && r.log2_fold_change.abs() >= 1.0)
+                .count()
         } else {
-            de.iter().filter(|r| r.log2_fold_change.abs() >= 2.0).count()
+            de.iter()
+                .filter(|r| r.log2_fold_change.abs() >= 2.0)
+                .count()
         };
 
-        let criterion = if has_padj { "padj < 0.05 AND |log₂FC| ≥ 1" } else { "|log₂FC| ≥ 2" };
+        let criterion = if has_padj {
+            "padj < 0.05 AND |log₂FC| ≥ 1"
+        } else {
+            "|log₂FC| ≥ 2"
+        };
 
         if sig > 500 {
             out.push(Insight::crit(
@@ -424,7 +446,10 @@ fn check_pathway_enrichment(enrichment: &[EnrichmentResult], out: &mut Vec<Insig
         });
 
         // Count significantly enriched pathways
-        let n_sig = enrichment.iter().filter(|r| !r.padj.is_nan() && r.padj < 0.05).count();
+        let n_sig = enrichment
+            .iter()
+            .filter(|r| !r.padj.is_nan() && r.padj < 0.05)
+            .count();
         if n_sig > 3 {
             out.push(Insight::warn(
                 InsightModality::Integration,

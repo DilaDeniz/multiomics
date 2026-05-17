@@ -23,9 +23,7 @@ pub fn run_pca(features: &Array2<f64>, n_components: usize) -> Result<PcaResult>
 
     if n_samples < 2 || n_features < 2 {
         // Not enough data for PCA — return identity projection
-        let points = (0..n_samples)
-            .map(|i| [i as f64, 0.0])
-            .collect();
+        let points = (0..n_samples).map(|i| [i as f64, 0.0]).collect();
         return Ok(PcaResult {
             points,
             explained_variance_ratio: vec![1.0, 0.0],
@@ -88,11 +86,7 @@ fn try_linfa_pca(data: &Array2<f64>, n_components: usize) -> Result<PcaResult> {
         })
         .collect();
 
-    let explained: Vec<f64> = model
-        .explained_variance_ratio()
-        .iter()
-        .copied()
-        .collect();
+    let explained: Vec<f64> = model.explained_variance_ratio().iter().copied().collect();
 
     Ok(PcaResult {
         points,
@@ -112,7 +106,11 @@ fn manual_pca(data: &Array2<f64>, _n_components: usize) -> PcaResult {
         for j in 0..d {
             let col_i = data.column(i);
             let col_j = data.column(j);
-            cov[[i, j]] = col_i.iter().zip(col_j.iter()).map(|(a, b)| a * b).sum::<f64>()
+            cov[[i, j]] = col_i
+                .iter()
+                .zip(col_j.iter())
+                .map(|(a, b)| a * b)
+                .sum::<f64>()
                 / n as f64;
         }
     }

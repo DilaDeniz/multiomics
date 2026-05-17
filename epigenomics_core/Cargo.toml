@@ -15,3 +15,8 @@ memmap2           = { workspace = true }
 log               = { workspace = true }
 ahash             = { workspace = true }
 memchr            = { workspace = true }
+noodles-bam = { version = "0.68", optional = true }
+noodles-sam = { version = "0.65", optional = true }
+
+[features]
+longread = ["noodles-bam", "noodles-sam"]

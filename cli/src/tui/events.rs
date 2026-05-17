@@ -21,7 +21,9 @@ pub fn poll_event(timeout: Duration) -> anyhow::Result<Option<AppEvent>> {
     }
 
     match event::read()? {
-        Event::Key(KeyEvent { code, modifiers, .. }) => match (code, modifiers) {
+        Event::Key(KeyEvent {
+            code, modifiers, ..
+        }) => match (code, modifiers) {
             (KeyCode::Char('q'), _) | (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
                 Ok(Some(AppEvent::Quit))
             }

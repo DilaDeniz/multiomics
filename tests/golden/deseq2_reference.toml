@@ -1,0 +1,61 @@
+# Pre-computed DESeq2 reference values for the synthetic 5-gene × 6-sample dataset.
+#
+# Dataset
+# -------
+#          S1    S2    S3    S4    S5    S6
+# GENE_A   100   120    95   200   210   195
+# GENE_B   500   480   510  1000   990  1010
+# GENE_C    10     8    12    10     9    11
+# GENE_D   300   320   280   150   160   140
+# GENE_E    50    55    45   100    95   105
+#
+# Groups: S1–S3 = control, S4–S6 = case.
+#
+# Reference: Anders & Huber (2010) Genome Biology 11:R106.
+# Size factors computed by the median-of-ratios method implemented in
+# transcriptomics_core::deseq2::estimate_size_factors().
+
+[size_factors]
+S1 = 0.7096
+S2 = 0.8068
+S3 = 0.7238
+S4 = 1.3783
+S5 = 1.3463
+S6 = 1.3438
+
+# Differential expression: group 1 = S1–S3 (control), group 2 = S4–S6 (case).
+# log2FC = mean_log2(case_normalized + 0.5) − mean_log2(control_normalized + 0.5).
+# expected_direction: "up" = positive log2FC in case, "down" = negative, "none" = near zero.
+#
+# GENE_A and GENE_E: raw counts double in case but so does library size →
+#   after normalization they appear mildly up (log2FC ≈ +0.08 to +0.14).
+# GENE_B: large counts, consistent ratio → near-zero LFC after normalization.
+# GENE_C: small counts, slight reversal after normalization → moderately down.
+# GENE_D: genuinely downregulated in case (counts halved beyond library effect) →
+#   log2FC ≈ −1.86.
+
+[de_results.GENE_A]
+log2fc             = 0.0849
+expected_direction = "up"
+
+[de_results.GENE_B]
+log2fc             = 0.1469
+expected_direction = "none"
+
+[de_results.GENE_C]
+log2fc             = -0.8077
+expected_direction = "down"
+
+[de_results.GENE_D]
+log2fc             = -1.8583
+expected_direction = "down"
+
+[de_results.GENE_E]
+log2fc             = 0.1396
+expected_direction = "up"
+
+[tolerances]
+# Relative tolerance for size factor comparison: |computed − ref| / ref ≤ 0.05
+size_factor_rtol = 0.05
+# Absolute tolerance for log2FC comparisons
+log2fc_atol      = 0.15

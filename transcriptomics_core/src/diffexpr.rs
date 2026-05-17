@@ -32,8 +32,14 @@ pub fn differential_expression(records: &[GeneRecord]) -> Vec<DiffExprResult> {
         .iter()
         .filter(|r| r.samples.len() == n_samples)
         .map(|r| {
-            let g1: Vec<f64> = r.samples[..split].iter().map(|&v| (v + 0.5_f64).log2()).collect();
-            let g2: Vec<f64> = r.samples[split..].iter().map(|&v| (v + 0.5_f64).log2()).collect();
+            let g1: Vec<f64> = r.samples[..split]
+                .iter()
+                .map(|&v| (v + 0.5_f64).log2())
+                .collect();
+            let g2: Vec<f64> = r.samples[split..]
+                .iter()
+                .map(|&v| (v + 0.5_f64).log2())
+                .collect();
 
             let mean1 = g1.iter().sum::<f64>() / g1.len().max(1) as f64;
             let mean2 = g2.iter().sum::<f64>() / g2.len().max(1) as f64;
@@ -50,14 +56,25 @@ pub fn differential_expression(records: &[GeneRecord]) -> Vec<DiffExprResult> {
                 (f64::NAN, f64::NAN)
             };
 
-            DiffExprResult { gene_id: r.gene_id.clone(), log2_fold_change: lfc, mean_s1, mean_s2, p_value, padj }
+            DiffExprResult {
+                gene_id: r.gene_id.clone(),
+                log2_fold_change: lfc,
+                mean_s1,
+                mean_s2,
+                p_value,
+                padj,
+            }
         })
         .collect();
 
     // Apply BH FDR correction to the subset with valid p-values
     if can_test {
-        let valid_indices: Vec<usize> =
-            results.iter().enumerate().filter(|(_, r)| !r.p_value.is_nan()).map(|(i, _)| i).collect();
+        let valid_indices: Vec<usize> = results
+            .iter()
+            .enumerate()
+            .filter(|(_, r)| !r.p_value.is_nan())
+            .map(|(i, _)| i)
+            .collect();
 
         if !valid_indices.is_empty() {
             let pvals: Vec<f64> = valid_indices.iter().map(|&i| results[i].p_value).collect();
@@ -69,15 +86,19 @@ pub fn differential_expression(records: &[GeneRecord]) -> Vec<DiffExprResult> {
     }
 
     // Sort: significant first (by padj, NaN last), then by |log2FC|
-    results.sort_unstable_by(|a, b| {
-        match (a.padj.is_nan(), b.padj.is_nan()) {
-            (true, false) => std::cmp::Ordering::Greater,
-            (false, true) => std::cmp::Ordering::Less,
-            _ => a.padj.partial_cmp(&b.padj)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then(b.log2_fold_change.abs().partial_cmp(&a.log2_fold_change.abs())
-                    .unwrap_or(std::cmp::Ordering::Equal)),
-        }
+    results.sort_unstable_by(|a, b| match (a.padj.is_nan(), b.padj.is_nan()) {
+        (true, false) => std::cmp::Ordering::Greater,
+        (false, true) => std::cmp::Ordering::Less,
+        _ => a
+            .padj
+            .partial_cmp(&b.padj)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(
+                b.log2_fold_change
+                    .abs()
+                    .partial_cmp(&a.log2_fold_change.abs())
+                    .unwrap_or(std::cmp::Ordering::Equal),
+            ),
     });
 
     results
@@ -88,7 +109,11 @@ pub fn differential_expression(records: &[GeneRecord]) -> Vec<DiffExprResult> {
 /// When `padj` is available, the filter is `padj < 0.05 AND |log2FC| ≥ 1`.
 /// When `padj` is `NaN` (n < 4 samples), falls back to `|log2FC| ≥ threshold`
 /// with the caller-supplied `min_tpm` guard.
-pub fn significant_de_genes(results: &[DiffExprResult], threshold: f64, min_tpm: f64) -> Vec<String> {
+pub fn significant_de_genes(
+    results: &[DiffExprResult],
+    threshold: f64,
+    min_tpm: f64,
+) -> Vec<String> {
     results
         .iter()
         .filter(|r| {

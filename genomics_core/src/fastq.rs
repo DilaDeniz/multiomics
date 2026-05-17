@@ -31,8 +31,7 @@ pub fn parse_fastq(path: &Path) -> Result<FastqSummary> {
     let mut q30_bases = 0u64;
 
     while let Some(record) = reader.next() {
-        let rec =
-            record.with_context(|| format!("Parse error in FASTQ '{}'", path.display()))?;
+        let rec = record.with_context(|| format!("Parse error in FASTQ '{}'", path.display()))?;
 
         total_reads += 1;
         let seq = rec.seq();

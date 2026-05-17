@@ -90,8 +90,7 @@ pub fn detect_cpg_islands(
         let cpoe = island_sites.len() as f64 / (length as f64 * EXPECTED_CPG_RATE);
         // GC% approximation: each CpG = 2 GC bases; multiply by 3 for flanking GC context
         let gc_pct = (island_sites.len() as f64 * 6.0 / length as f64 * 100.0).min(100.0);
-        let mean_meth =
-            island_sites.iter().map(|s| s.2).sum::<f64>() / island_sites.len() as f64;
+        let mean_meth = island_sites.iter().map(|s| s.2).sum::<f64>() / island_sites.len() as f64;
 
         islands.push(CpGIsland {
             chrom: chrom.to_string(),
@@ -123,7 +122,10 @@ mod tests {
         let sites: Vec<(u64, u64, f64)> = (0..25).map(|i| (i * 10, i * 10 + 2, 60.0)).collect();
         let islands = detect_cpg_islands("chr1", &sites, 200, 50);
         assert!(!islands.is_empty(), "Expected at least one CpG island");
-        assert!(islands[0].cpoe >= 0.6, "CpO/E should meet the 0.6 threshold");
+        assert!(
+            islands[0].cpoe >= 0.6,
+            "CpO/E should meet the 0.6 threshold"
+        );
     }
 
     #[test]

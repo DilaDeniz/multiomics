@@ -1,0 +1,19 @@
+[package]
+name              = "atacseq_core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description       = "ENCODE narrowPeak parsing and ATAC-seq open chromatin statistics"
+
+[dependencies]
+biomics_core      = { path = "../biomics_core" }
+anyhow            = { workspace = true }
+serde             = { workspace = true }
+ahash             = { workspace = true, features = ["serde"] }
+memmap2           = { workspace = true }
+memchr            = { workspace = true }
+log               = { workspace = true }
+crossbeam-channel = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"

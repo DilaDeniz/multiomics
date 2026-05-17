@@ -3,10 +3,12 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 
-use genomics_core::GenomicsSummary;
-use transcriptomics_core::TranscriptomicsSummary;
 use epigenomics_core::EpigenomicsSummary;
+use genomics_core::GenomicsSummary;
 use integration_layer::{Insight, InsightLevel, IntegrationSummary};
+use transcriptomics_core::TranscriptomicsSummary;
+
+use super::circos::generate_circos_svg;
 
 /// Generate a self-contained HTML report and write it to `{output_dir}/report.html`.
 ///
@@ -37,6 +39,7 @@ fn generate_html(
 ) -> String {
     let head = html_head();
     let summary_cards = html_summary_cards(genomics, transcr, epigen);
+    let circos_svg = generate_circos_svg(genomics, epigen);
     let variant_chart = html_variant_density_chart(genomics);
     let expression_chart = html_expression_chart(transcr);
     let methylation_chart = html_methylation_chart(epigen);
@@ -57,10 +60,16 @@ fn generate_html(
     <p class="subtitle">Generated: {ts} &nbsp;|&nbsp; Tool version: {ver}</p>
   </header>
   {summary_cards}
-  <section class="section">
-    <h2>Genomic Variant Density by Chromosome</h2>
-    {variant_chart}
-  </section>
+  <div class="row-2">
+    <section class="section">
+      <h2>Genomic Overview</h2>
+      {circos_svg}
+    </section>
+    <section class="section">
+      <h2>Variant Density by Chromosome</h2>
+      {variant_chart}
+    </section>
+  </div>
   <section class="section">
     <h2>Top 20 Expressed Genes</h2>
     {expression_chart}
@@ -97,6 +106,7 @@ fn generate_html(
         ts = generated_at.format("%Y-%m-%d %H:%M:%S UTC"),
         ver = env!("CARGO_PKG_VERSION"),
         summary_cards = summary_cards,
+        circos_svg = circos_svg,
         variant_chart = variant_chart,
         expression_chart = expression_chart,
         methylation_chart = methylation_chart,
@@ -166,24 +176,43 @@ fn html_head() -> String {
 </head>"#.to_string()
 }
 
-fn html_summary_cards(g: &GenomicsSummary, t: &TranscriptomicsSummary, e: &EpigenomicsSummary) -> String {
+fn html_summary_cards(
+    g: &GenomicsSummary,
+    t: &TranscriptomicsSummary,
+    e: &EpigenomicsSummary,
+) -> String {
     let titv_badge = if g.titv_ratio >= 1.8 && g.titv_ratio <= 2.5 {
-        format!(r#"<span class="badge badge-green">{:.2}</span>"#, g.titv_ratio)
+        format!(
+            r#"<span class="badge badge-green">{:.2}</span>"#,
+            g.titv_ratio
+        )
     } else {
-        format!(r#"<span class="badge badge-yellow">{:.2}</span>"#, g.titv_ratio)
+        format!(
+            r#"<span class="badge badge-yellow">{:.2}</span>"#,
+            g.titv_ratio
+        )
     };
 
     let meth_badge = if e.global_methylation_pct < 40.0 {
-        format!(r#"<span class="badge badge-red">{:.1}%</span>"#, e.global_methylation_pct)
+        format!(
+            r#"<span class="badge badge-red">{:.1}%</span>"#,
+            e.global_methylation_pct
+        )
     } else {
-        format!(r#"<span class="badge badge-green">{:.1}%</span>"#, e.global_methylation_pct)
+        format!(
+            r#"<span class="badge badge-green">{:.1}%</span>"#,
+            e.global_methylation_pct
+        )
     };
 
     let expr_pct = if t.total_genes > 0 {
         t.expressed_genes as f64 / t.total_genes as f64 * 100.0
-    } else { 0.0 };
+    } else {
+        0.0
+    };
 
-    format!(r#"<div class="cards">
+    format!(
+        r#"<div class="cards">
   <div class="card">
     <h3>🧬 Genomics</h3>
     <div class="stat"><span class="stat-label">Total Variants</span><span class="stat-value">{}</span></div>
@@ -216,9 +245,13 @@ fn html_summary_cards(g: &GenomicsSummary, t: &TranscriptomicsSummary, e: &Epige
         format_num(g.high_impact.len() as u64),
         format_num(g.unique_positions),
         format_num(t.total_genes),
-        format_num(t.expressed_genes), expr_pct,
+        format_num(t.expressed_genes),
+        expr_pct,
         t.sample_count,
-        t.diff_expr.as_ref().map(|d| format_num(d.len() as u64)).unwrap_or_else(|| "N/A".to_string()),
+        t.diff_expr
+            .as_ref()
+            .map(|d| format_num(d.len() as u64))
+            .unwrap_or_else(|| "N/A".to_string()),
         format_num(e.total_sites),
         meth_badge,
         e.cpg_islands.len(),
@@ -231,7 +264,8 @@ fn html_variant_density_chart(g: &GenomicsSummary) -> String {
     let mut chroms: Vec<(&String, u64)> = g.per_chrom.iter().map(|(k, v)| (k, v.total)).collect();
     chroms.sort_by(|a, b| chrom_sort_key(a.0).cmp(&chrom_sort_key(b.0)));
 
-    format!(r#"<canvas id="varDensityChart"></canvas>
+    format!(
+        r#"<canvas id="varDensityChart"></canvas>
 <script>
 window._varDensityData = {{
   labels: [{}],
@@ -239,38 +273,68 @@ window._varDensityData = {{
   indels: [{}]
 }};
 </script>"#,
-        chroms.iter().map(|(c, _)| format!("\"{}\"", c)).collect::<Vec<_>>().join(","),
-        chroms.iter().map(|(c, _)| g.per_chrom[*c].snps.to_string()).collect::<Vec<_>>().join(","),
-        chroms.iter().map(|(c, _)| g.per_chrom[*c].indels.to_string()).collect::<Vec<_>>().join(","),
+        chroms
+            .iter()
+            .map(|(c, _)| format!("\"{}\"", c))
+            .collect::<Vec<_>>()
+            .join(","),
+        chroms
+            .iter()
+            .map(|(c, _)| g.per_chrom[*c].snps.to_string())
+            .collect::<Vec<_>>()
+            .join(","),
+        chroms
+            .iter()
+            .map(|(c, _)| g.per_chrom[*c].indels.to_string())
+            .collect::<Vec<_>>()
+            .join(","),
     )
 }
 
 fn html_expression_chart(t: &TranscriptomicsSummary) -> String {
     let top20: Vec<_> = t.top_100_expressed.iter().take(20).collect();
-    format!(r#"<canvas id="expressionChart"></canvas>
+    format!(
+        r#"<canvas id="expressionChart"></canvas>
 <script>
 window._expressionData = {{
   labels: [{}],
   values: [{}]
 }};
 </script>"#,
-        top20.iter().map(|(g, _)| format!("\"{}\"", escape_js(g))).collect::<Vec<_>>().join(","),
-        top20.iter().map(|(_, v)| format!("{:.1}", v)).collect::<Vec<_>>().join(","),
+        top20
+            .iter()
+            .map(|(g, _)| format!("\"{}\"", escape_js(g)))
+            .collect::<Vec<_>>()
+            .join(","),
+        top20
+            .iter()
+            .map(|(_, v)| format!("{:.1}", v))
+            .collect::<Vec<_>>()
+            .join(","),
     )
 }
 
 fn html_methylation_chart(e: &EpigenomicsSummary) -> String {
     let mut chroms: Vec<_> = e.per_chrom.iter().collect();
     chroms.sort_by(|a, b| chrom_sort_key(a.0).cmp(&chrom_sort_key(b.0)));
-    format!(r#"<canvas id="methylationChart"></canvas>
+    format!(
+        r#"<canvas id="methylationChart"></canvas>
 <script>
 window._methylationData = {{
   labels: [{}],
   values: [{}]
 }};
 </script>"#,
-        chroms.iter().map(|(c, _)| format!("\"{}\"", c)).collect::<Vec<_>>().join(","),
-        chroms.iter().map(|(_, cm)| format!("{:.1}", cm.mean_methylation)).collect::<Vec<_>>().join(","),
+        chroms
+            .iter()
+            .map(|(c, _)| format!("\"{}\"", c))
+            .collect::<Vec<_>>()
+            .join(","),
+        chroms
+            .iter()
+            .map(|(_, cm)| format!("{:.1}", cm.mean_methylation))
+            .collect::<Vec<_>>()
+            .join(","),
     )
 }
 
@@ -331,7 +395,10 @@ fn html_correlation_heatmap(integration: &IntegrationSummary) -> String {
     rows_html.push_str("</tr></thead><tbody>");
 
     for (i, label) in labels.iter().enumerate() {
-        rows_html.push_str(&format!("<tr><td style=\"text-align:left;font-weight:600;color:#8b949e\">{}</td>", label));
+        rows_html.push_str(&format!(
+            "<tr><td style=\"text-align:left;font-weight:600;color:#8b949e\">{}</td>",
+            label
+        ));
         for j in 0..3 {
             let val = corr.get(i).and_then(|r| r.get(j)).copied().unwrap_or(0.0);
             let bg = corr_color(val);
@@ -353,7 +420,9 @@ fn html_pca_chart(integration: &IntegrationSummary) -> String {
         .iter()
         .enumerate()
         .map(|(i, p)| {
-            let label = ["Genomics", "Transcriptomics", "Epigenomics"].get(i).unwrap_or(&"?");
+            let label = ["Genomics", "Transcriptomics", "Epigenomics"]
+                .get(i)
+                .unwrap_or(&"?");
             format!("{{x:{:.4},y:{:.4},label:\"{}\"}}", p[0], p[1], label)
         })
         .collect();
@@ -361,12 +430,14 @@ fn html_pca_chart(integration: &IntegrationSummary) -> String {
     let ev0 = ev.first().copied().unwrap_or(0.0) * 100.0;
     let ev1 = ev.get(1).copied().unwrap_or(0.0) * 100.0;
 
-    format!(r#"<canvas id="pcaChart"></canvas>
+    format!(
+        r#"<canvas id="pcaChart"></canvas>
 <script>
 window._pcaData = {{ points: [{}], ev0: {:.1}, ev1: {:.1} }};
 </script>"#,
         points_json.join(","),
-        ev0, ev1,
+        ev0,
+        ev1,
     )
 }
 
@@ -409,8 +480,16 @@ fn html_pathway_table(integration: &IntegrationSummary) -> String {
         } else {
             ""
         };
-        let pval_str = if r.p_value.is_nan() { "N/A".into() } else { format!("{:.2e}", r.p_value) };
-        let padj_str = if r.padj.is_nan() { "N/A".into() } else { format!("{:.2e}", r.padj) };
+        let pval_str = if r.p_value.is_nan() {
+            "N/A".into()
+        } else {
+            format!("{:.2e}", r.p_value)
+        };
+        let padj_str = if r.padj.is_nan() {
+            "N/A".into()
+        } else {
+            format!("{:.2e}", r.padj)
+        };
         html.push_str(&format!(
             "<tr><td>{}</td><td{}>{}</td><td>{}</td><td>{}</td><td>{}</td><td{}>{}</td><td>{:.4}</td></tr>",
             escape_html(&r.pathway_id),
@@ -544,7 +623,8 @@ document.addEventListener('DOMContentLoaded', function() {
     });
   }
 });
-"#.to_string()
+"#
+    .to_string()
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────

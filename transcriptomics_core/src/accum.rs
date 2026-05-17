@@ -136,7 +136,14 @@ impl BatchAccum for TranscriptomicsAccum {
 
             let max = means.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
 
-            gene_stats.insert(gene.clone(), GeneStats { mean: overall_mean, std, max });
+            gene_stats.insert(
+                gene.clone(),
+                GeneStats {
+                    mean: overall_mean,
+                    std,
+                    max,
+                },
+            );
 
             if overall_mean >= 1.0 {
                 expressed_genes += 1;

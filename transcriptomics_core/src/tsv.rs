@@ -3,8 +3,8 @@ use std::path::Path;
 use anyhow::{bail, Context, Result};
 use memmap2::Mmap;
 
-use biomics_core::parse::{parse_f64, trim_bytes, ByteLines, TabFields};
 use crate::types::GeneRecord;
+use biomics_core::parse::{parse_f64, trim_bytes, ByteLines, TabFields};
 
 /// Parse a genes-by-samples expression matrix TSV file using memory-mapped
 /// zero-allocation byte-level parsing.

@@ -3,8 +3,8 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use memmap2::Mmap;
 
-use biomics_core::parse::{parse_f64, parse_u64, trim_bytes, ByteLines, TabFields};
 use crate::types::MethylationRecord;
+use biomics_core::parse::{parse_f64, parse_u64, trim_bytes, ByteLines, TabFields};
 
 /// Parse a BED methylation file into a `Vec<MethylationRecord>` using
 /// memory-mapped zero-allocation byte-level parsing.
@@ -47,7 +47,11 @@ pub fn parse_bed(path: &Path) -> Result<Vec<MethylationRecord>> {
         }
     }
 
-    log::info!("Parsed {} methylation records from '{}'", records.len(), path.display());
+    log::info!(
+        "Parsed {} methylation records from '{}'",
+        records.len(),
+        path.display()
+    );
     Ok(records)
 }
 
@@ -69,7 +73,11 @@ fn parse_bed_line(line: &[u8]) -> Option<MethylationRecord> {
         score / 10.0
     } else if let Some(val_b) = col4 {
         let val: f64 = parse_f64(trim_bytes(val_b))?;
-        if val > 1.0 { val.min(100.0) } else { val * 100.0 }
+        if val > 1.0 {
+            val.min(100.0)
+        } else {
+            val * 100.0
+        }
     } else {
         return None;
     };

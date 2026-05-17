@@ -16,7 +16,9 @@ pub fn render(frame: &mut Frame, state: &AppState) {
     let outer = Block::default()
         .title(Span::styled(
             " BioMultiOmics ",
-            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
         ))
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Cyan));
@@ -209,11 +211,26 @@ fn render_insights_panel(frame: &mut Frame, area: Rect, state: &AppState) {
 
 fn render_key_hints(frame: &mut Frame, area: Rect) {
     let hints = Paragraph::new(Line::from(vec![
-        Span::styled("  q", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "  q",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::styled(": quit  ", Style::default().fg(Color::DarkGray)),
-        Span::styled("p", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "p",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::styled(": pause  ", Style::default().fg(Color::DarkGray)),
-        Span::styled("Ctrl-C", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "Ctrl-C",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::styled(": exit", Style::default().fg(Color::DarkGray)),
     ]))
     .alignment(Alignment::Left);

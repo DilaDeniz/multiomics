@@ -1,3 +1,4 @@
+use aho_corasick::AhoCorasick;
 use memchr::memchr;
 
 /// Zero-allocation line iterator over a byte slice.
@@ -30,7 +31,11 @@ impl<'a> Iterator for ByteLines<'a> {
                 let end = start + n;
                 self.pos = end + 1;
                 let line = &self.data[start..end];
-                Some(if line.last() == Some(&b'\r') { &line[..line.len() - 1] } else { line })
+                Some(if line.last() == Some(&b'\r') {
+                    &line[..line.len() - 1]
+                } else {
+                    line
+                })
             }
             None => {
                 self.pos = self.data.len();
@@ -53,7 +58,11 @@ pub struct TabFields<'a> {
 impl<'a> TabFields<'a> {
     #[inline]
     pub fn new(data: &'a [u8]) -> Self {
-        Self { data, pos: 0, done: false }
+        Self {
+            data,
+            pos: 0,
+            done: false,
+        }
     }
 }
 
@@ -86,12 +95,20 @@ impl<'a> Iterator for TabFields<'a> {
 /// Trim leading and trailing ASCII whitespace from a byte slice.
 #[inline]
 pub fn trim_bytes(b: &[u8]) -> &[u8] {
-    let start = b.iter().position(|&c| c != b' ' && c != b'\t' && c != b'\r' && c != b'\n')
+    let start = b
+        .iter()
+        .position(|&c| c != b' ' && c != b'\t' && c != b'\r' && c != b'\n')
         .unwrap_or(b.len());
-    let end = b.iter().rposition(|&c| c != b' ' && c != b'\t' && c != b'\r' && c != b'\n')
+    let end = b
+        .iter()
+        .rposition(|&c| c != b' ' && c != b'\t' && c != b'\r' && c != b'\n')
         .map(|i| i + 1)
         .unwrap_or(0);
-    if start < end { &b[start..end] } else { b"" }
+    if start < end {
+        &b[start..end]
+    } else {
+        b""
+    }
 }
 
 /// Parse a decimal `u64` from bytes. Returns `None` if any byte is non-ASCII-digit.
@@ -156,7 +173,9 @@ pub fn info_value_bytes<'a>(info: &'a [u8], key: &[u8]) -> Option<&'a [u8]> {
     let klen = key.len();
     let mut pos = 0usize;
     while pos < info.len() {
-        let field_end = memchr(b';', &info[pos..]).map(|n| pos + n).unwrap_or(info.len());
+        let field_end = memchr(b';', &info[pos..])
+            .map(|n| pos + n)
+            .unwrap_or(info.len());
         let field = &info[pos..field_end];
         if field.len() > klen && &field[..klen] == key && field[klen] == b'=' {
             return Some(&field[klen + 1..]);
@@ -164,6 +183,81 @@ pub fn info_value_bytes<'a>(info: &'a [u8], key: &[u8]) -> Option<&'a [u8]> {
         pos = field_end + 1;
     }
     None
+}
+
+/// Single-pass multi-key extractor for VCF INFO fields.
+///
+/// Builds an aho-corasick automaton over the supplied `key=` byte patterns and
+/// scans the INFO string exactly once, returning one `Option<&[u8]>` per key.
+/// Correct field-boundary semantics: a key is only accepted when it appears at
+/// position 0 or immediately after a `;` separator.
+///
+/// # Performance
+/// For k independent keys, the naïve approach calls `info_value_bytes` k times
+/// → k passes over the INFO string. `InfoMultiParser` reduces this to one pass
+/// regardless of k, giving a k× speedup for INFO-heavy parsers (e.g. CNV VCF).
+///
+/// # Example
+/// ```
+/// use biomics_core::parse::InfoMultiParser;
+/// static PARSER: std::sync::LazyLock<InfoMultiParser> =
+///     std::sync::LazyLock::new(|| InfoMultiParser::new(&["SVTYPE", "CN", "END"]));
+/// let vals = PARSER.extract(b"SVTYPE=DEL;CN=1;END=5000");
+/// assert_eq!(vals[0], Some(b"DEL".as_ref()));
+/// assert_eq!(vals[1], Some(b"1".as_ref()));
+/// assert_eq!(vals[2], Some(b"5000".as_ref()));
+/// ```
+pub struct InfoMultiParser {
+    ac: AhoCorasick,
+    n_keys: usize,
+}
+
+impl InfoMultiParser {
+    /// Build the automaton. `keys` are plain key names (without the `=`
+    /// suffix); the parser appends `=` internally.
+    pub fn new(keys: &[&str]) -> Self {
+        let patterns: Vec<Vec<u8>> = keys.iter().map(|k| format!("{k}=").into_bytes()).collect();
+        let ac = AhoCorasick::builder()
+            .ascii_case_insensitive(false)
+            .build(&patterns)
+            .expect("InfoMultiParser: invalid patterns");
+        Self {
+            ac,
+            n_keys: keys.len(),
+        }
+    }
+
+    /// Extract all key values from one INFO byte slice in a single scan.
+    ///
+    /// Returns a `Vec<Option<&[u8]>>` parallel to the `keys` slice passed to
+    /// [`InfoMultiParser::new`]. Fields are accepted only at field-start
+    /// positions (byte 0 or immediately after `;`).
+    pub fn extract<'a>(&self, info: &'a [u8]) -> Vec<Option<&'a [u8]>> {
+        let mut out = vec![None; self.n_keys];
+        let mut remaining = self.n_keys;
+
+        for mat in self.ac.find_iter(info) {
+            let start = mat.start();
+            // Enforce field-start: must be at byte 0 or after ';'
+            if start != 0 && info.get(start - 1) != Some(&b';') {
+                continue;
+            }
+            let key_idx = mat.pattern().as_usize();
+            if out[key_idx].is_some() {
+                continue; // already captured — take first occurrence
+            }
+            let val_start = mat.end(); // byte right after 'key='
+            let val_end = memchr(b';', &info[val_start..])
+                .map(|n| val_start + n)
+                .unwrap_or(info.len());
+            out[key_idx] = Some(&info[val_start..val_end]);
+            remaining -= 1;
+            if remaining == 0 {
+                break;
+            }
+        }
+        out
+    }
 }
 
 #[cfg(test)]

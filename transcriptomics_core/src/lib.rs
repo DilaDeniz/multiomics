@@ -1,9 +1,11 @@
 pub mod accum;
+pub mod deseq2;
 pub mod diffexpr;
 pub mod tsv;
 pub mod types;
 
 pub use accum::TranscriptomicsAccum;
+pub use deseq2::{deseq2_differential_expression, normalize_counts, NormalizedMatrix, SizeFactors};
 pub use diffexpr::{differential_expression, significant_de_genes};
 pub use tsv::parse_tsv;
 pub use types::{DiffExprResult, GeneRecord, GeneStats, TranscriptomicsSummary};

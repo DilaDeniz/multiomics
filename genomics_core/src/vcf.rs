@@ -3,10 +3,10 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use memmap2::Mmap;
 
+use crate::types::{TiTvClass, VariantRecord};
 use biomics_core::parse::{
     info_value_bytes, nth_pipe_field, parse_f32, parse_u64, ByteLines, TabFields,
 };
-use crate::types::{TiTvClass, VariantRecord};
 
 /// Classify a single-nucleotide substitution as transition or transversion.
 ///
@@ -94,7 +94,16 @@ fn parse_vcf_line(line: &[u8]) -> Option<VariantRecord> {
             })
         });
 
-    Some(VariantRecord { chrom, pos, ref_allele, alt_allele, qual, titv, af, gene })
+    Some(VariantRecord {
+        chrom,
+        pos,
+        ref_allele,
+        alt_allele,
+        qual,
+        titv,
+        af,
+        gene,
+    })
 }
 
 /// Parse a VCF file into a `Vec<VariantRecord>` using memory-mapped I/O and
@@ -130,7 +139,11 @@ pub fn parse_vcf(path: &Path) -> Result<Vec<VariantRecord>> {
         }
     }
 
-    log::info!("Parsed {} variant records from '{}'", records.len(), path.display());
+    log::info!(
+        "Parsed {} variant records from '{}'",
+        records.len(),
+        path.display()
+    );
     Ok(records)
 }
 

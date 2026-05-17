@@ -5,8 +5,10 @@ members = [
     "genomics_core",
     "transcriptomics_core",
     "epigenomics_core",
+    "atacseq_core",
     "integration_layer",
     "cli",
+    "pybioomics",
 ]
 
 [workspace.package]
@@ -34,10 +36,16 @@ clap              = { version = "4", features = ["derive"] }
 log               = "0.4"
 env_logger        = "0.11"
 # Performance: fast hash, fast float parsing, byte-level search, fast allocator
-ahash             = "0.8"
+ahash             = { version = "0.8", features = ["serde"] }
+aho-corasick      = "1"
 fast-float        = "0.2"
 memchr            = "2"
 mimalloc          = { version = "0.1", default-features = false }
+criterion         = { version = "0.5", features = ["html_reports"] }
+toml              = "0.8"
+itoa              = "1"
+ryu               = "1"
+num_cpus          = "1"
 
 [profile.release]
 lto           = "fat"
@@ -45,6 +53,14 @@ codegen-units = 1
 opt-level     = 3
 panic         = "abort"
 strip         = "symbols"
+
+[profile.release.build-override]
+opt-level = 3
+
+[profile.dist]
+inherits      = "release"
+lto           = "fat"
+codegen-units = 1
 
 [profile.bench]
 lto           = "thin"

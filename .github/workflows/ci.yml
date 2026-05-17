@@ -33,6 +33,18 @@ jobs:
       - name: Format check
         run: cargo fmt --check
 
+  validate:
+    name: Mathematical validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: DESeq2 numerical validation
+        run: cargo test -p transcriptomics_core deseq2_validation -- --nocapture
+      - name: GSEA property validation
+        run: cargo test -p integration_layer gsea_validation -- --nocapture
+
   release:
     name: Release binary (${{ matrix.target }})
     runs-on: ${{ matrix.os }}

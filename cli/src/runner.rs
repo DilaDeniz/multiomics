@@ -110,6 +110,7 @@ pub fn run_pipeline(
     }
 
     // Optional: ATAC-seq narrowPeak analysis
+    #[cfg(feature = "atac")]
     if let Some(ref atac_path) = cli.atac {
         log::info!("Running ATAC-seq analysis: '{}'", atac_path.display());
         match atacseq_core::analyze_narrowpeak(atac_path, None) {
@@ -132,8 +133,19 @@ pub fn run_pipeline(
             Err(e) => log::warn!("ATAC-seq analysis failed: {}", e),
         }
     }
+    #[cfg(not(feature = "atac"))]
+    if cli.atac.is_some() {
+        log::warn!(
+            "--atac supplied but this binary was compiled without the 'atac' feature; ignoring"
+        );
+        push_insight(
+            &state,
+            "[WARN] ATAC-seq support not compiled in (rebuild with --features atac)".to_string(),
+        );
+    }
 
     // Optional: CNV analysis from a dedicated VCF
+    #[cfg(feature = "cnv")]
     if let Some(ref cnv_path) = cli.cnv {
         log::info!("Running CNV analysis: '{}'", cnv_path.display());
         match genomics_core::parse_cnv_vcf(cnv_path) {
@@ -158,6 +170,16 @@ pub fn run_pipeline(
             }
             Err(e) => log::warn!("CNV analysis failed: {}", e),
         }
+    }
+    #[cfg(not(feature = "cnv"))]
+    if cli.cnv.is_some() {
+        log::warn!(
+            "--cnv supplied but this binary was compiled without the 'cnv' feature; ignoring"
+        );
+        push_insight(
+            &state,
+            "[WARN] CNV support not compiled in (rebuild with --features cnv)".to_string(),
+        );
     }
 
     // Optional: FASTQ QC

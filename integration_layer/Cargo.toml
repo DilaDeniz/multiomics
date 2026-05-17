@@ -5,6 +5,10 @@ edition.workspace = true
 license.workspace = true
 description       = "Cross-modality correlation, PCA, pathway enrichment, and insight engine"
 
+[[test]]
+name = "gsea_validation"
+path = "tests/gsea_validation.rs"
+
 [dependencies]
 biomics_core         = { path = "../biomics_core" }
 genomics_core        = { path = "../genomics_core" }

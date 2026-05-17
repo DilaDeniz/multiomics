@@ -2,6 +2,8 @@ use std::path::PathBuf;
 
 use clap::Parser;
 
+use crate::config;
+
 /// BioMultiOmics — parallel multi-omics analysis: VCF + TSV + BED → HTML/JSON report.
 #[derive(Parser, Debug, Clone)]
 #[command(
@@ -71,6 +73,14 @@ pub struct Cli {
     /// Print default configuration as TOML and exit
     #[arg(long, default_value_t = false)]
     pub dump_config: bool,
+
+    /// Pre-configured threshold set for common use cases (cancer, plant, rna-seq, wgbs, atac, clinical)
+    #[arg(long, value_enum)]
+    pub preset: Option<config::Preset>,
+
+    /// List all available presets and exit
+    #[arg(long, default_value_t = false)]
+    pub list_presets: bool,
 
     // ── Output ────────────────────────────────────────────────────────────────
     /// Output directory (created if it does not exist)

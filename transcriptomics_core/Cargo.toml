@@ -5,6 +5,10 @@ edition.workspace = true
 license.workspace = true
 description       = "TSV expression matrix parsing and differential expression analysis"
 
+[[test]]
+name = "deseq2_validation"
+path = "tests/deseq2_validation.rs"
+
 [dependencies]
 biomics_core      = { path = "../biomics_core" }
 anyhow            = { workspace = true }

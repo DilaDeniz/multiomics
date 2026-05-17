@@ -7,6 +7,86 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
+/// Named preset for common biological use cases.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum Preset {
+    /// Somatic mutation analysis: low QUAL threshold, strict Ti/Tv, hypomethylation alerts
+    Cancer,
+    /// Plant/agricultural genomics: relaxed Ti/Tv, higher expressed_tpm, plant-specific thresholds
+    Plant,
+    /// Bulk RNA-seq differential expression focus: strict padj, lower log2fc threshold
+    RnaSeq,
+    /// Whole-genome bisulfite sequencing: tight CpG island criteria, strict methylation thresholds
+    Wgbs,
+    /// ATAC-seq chromatin accessibility: optimized peak signal thresholds
+    Atac,
+    /// Clinical/translational research: conservative thresholds, fewer false positives
+    Clinical,
+}
+
+/// Return a `BioomicsConfig` pre-tuned for the given preset.
+pub fn preset_config(preset: Preset) -> BioomicsConfig {
+    let mut cfg = BioomicsConfig::default();
+    match preset {
+        Preset::Cancer => {
+            cfg.genomics.high_impact_qual = 20.0;
+            cfg.genomics.titv_warn_below = 1.5;
+            cfg.epigenomics.global_meth_crit_below = 50.0;
+            cfg.epigenomics.global_meth_warn_below = 65.0;
+            cfg.transcriptomics.padj_threshold = 0.01;
+            cfg.transcriptomics.log2fc_threshold = 1.5;
+            cfg.compare.case_label = "tumor".into();
+            cfg.compare.control_label = "normal".into();
+            cfg.compare.delta_meth_threshold = 10.0;
+        }
+        Preset::Plant => {
+            cfg.genomics.high_impact_qual = 25.0;
+            cfg.genomics.titv_warn_below = 1.2;
+            cfg.genomics.titv_warn_above = 4.5;
+            cfg.transcriptomics.expressed_tpm = 0.5;
+            cfg.epigenomics.cpg_island_min_gc = 0.45;
+            cfg.epigenomics.cpg_island_min_cpoe = 0.5;
+            cfg.output.report_title = "Plant Genomics Report".into();
+        }
+        Preset::RnaSeq => {
+            cfg.transcriptomics.padj_threshold = 0.05;
+            cfg.transcriptomics.log2fc_threshold = 1.0;
+            cfg.transcriptomics.expressed_tpm = 1.0;
+            cfg.transcriptomics.top_n_expressed = 200;
+            cfg.transcriptomics.max_de_genes = 100_000;
+            cfg.integration.gsea_n_permutations = 1000;
+            cfg.integration.gsea_min_size = 15;
+            cfg.output.report_title = "RNA-seq Analysis Report".into();
+        }
+        Preset::Wgbs => {
+            cfg.epigenomics.cpg_island_min_len = 300;
+            cfg.epigenomics.cpg_island_min_gc = 0.55;
+            cfg.epigenomics.cpg_island_min_cpoe = 0.65;
+            cfg.epigenomics.hypermeth_threshold = 75.0;
+            cfg.epigenomics.hypometh_threshold = 25.0;
+            cfg.compare.delta_meth_threshold = 20.0;
+            cfg.output.report_title = "WGBS Methylation Report".into();
+        }
+        Preset::Atac => {
+            cfg.atac.min_signal = 5.0;
+            cfg.atac.min_qvalue = 2.0;
+            cfg.atac.top_n_peaks = 500;
+            cfg.output.report_title = "ATAC-seq Chromatin Report".into();
+        }
+        Preset::Clinical => {
+            cfg.genomics.high_impact_qual = 40.0;
+            cfg.genomics.titv_warn_below = 2.0;
+            cfg.transcriptomics.padj_threshold = 0.01;
+            cfg.transcriptomics.log2fc_threshold = 2.0;
+            cfg.transcriptomics.expressed_tpm = 2.0;
+            cfg.epigenomics.global_meth_crit_below = 35.0;
+            cfg.integration.correlation_insight_threshold = 0.8;
+            cfg.output.report_title = "Clinical Multi-Omics Report".into();
+        }
+    }
+    cfg
+}
+
 /// Master configuration. All fields have sensible defaults via `Default`.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default, deny_unknown_fields)]
@@ -229,11 +309,69 @@ impl Default for CompareConfig {
 }
 
 /// Load config from a TOML file, merging with defaults.
+///
+/// This is a convenience function that loads a fresh config using only the
+/// file contents and built-in defaults. For preset-aware loading, prefer
+/// [`load_config_onto`].
+#[allow(dead_code)]
 pub fn load_config(path: &Path) -> Result<BioomicsConfig> {
     let raw = std::fs::read_to_string(path)
         .with_context(|| format!("Cannot read config '{}'", path.display()))?;
     let cfg: BioomicsConfig =
         toml::from_str(&raw).with_context(|| format!("Invalid TOML in '{}'", path.display()))?;
+    Ok(cfg)
+}
+
+/// Load a TOML config file on top of an existing `base` config.
+///
+/// Only the sections (tables) that are explicitly present in the TOML file
+/// override the corresponding section of `base`. Missing sections keep the
+/// base values. This lets `--preset` set defaults that `--config` can
+/// selectively override.
+pub fn load_config_onto(path: &Path, base: BioomicsConfig) -> Result<BioomicsConfig> {
+    let raw = std::fs::read_to_string(path)
+        .with_context(|| format!("Cannot read config '{}'", path.display()))?;
+
+    // Serialize the base config to a TOML Value tree.
+    let base_str = toml::to_string_pretty(&base).expect("base config is always serializable");
+    let mut base_val: toml::Value =
+        toml::from_str(&base_str).expect("round-trip of base config must succeed");
+
+    // Parse the user file as a TOML Value tree.
+    let user_val: toml::Value =
+        toml::from_str(&raw).with_context(|| format!("Invalid TOML in '{}'", path.display()))?;
+
+    // Merge: for every top-level table in the user file, override the
+    // corresponding table in the base (field by field so that partial
+    // user sections are respected).
+    if let (Some(base_map), Some(user_map)) = (base_val.as_table_mut(), user_val.as_table()) {
+        for (section_key, user_section) in user_map {
+            if let Some(user_tbl) = user_section.as_table() {
+                // If the base already has this section as a table, merge
+                // field-by-field so that unmentioned fields keep their
+                // preset value.
+                if let Some(base_section) = base_map.get_mut(section_key) {
+                    if let Some(base_tbl) = base_section.as_table_mut() {
+                        for (k, v) in user_tbl {
+                            base_tbl.insert(k.clone(), v.clone());
+                        }
+                        continue;
+                    }
+                }
+                // Section not in base — just insert wholesale.
+                base_map.insert(section_key.clone(), user_section.clone());
+            } else {
+                // Top-level scalar (shouldn't happen with our schema, but
+                // handle gracefully).
+                base_map.insert(section_key.clone(), user_section.clone());
+            }
+        }
+    }
+
+    let merged_str =
+        toml::to_string_pretty(&base_val).expect("merged config is always serializable");
+    let cfg: BioomicsConfig = toml::from_str(&merged_str)
+        .with_context(|| format!("Invalid merged config from '{}'", path.display()))?;
     Ok(cfg)
 }
 

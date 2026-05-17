@@ -9,13 +9,28 @@ description       = "BioMultiOmics — production multi-omics analysis CLI"
 name = "bioomics"
 path = "src/main.rs"
 
+[features]
+## Compile-time modality selection
+## ─────────────────────────────────────────────────────────────────────────────
+## atac     — ATAC-seq narrowPeak chromatin accessibility analysis
+## cnv      — Copy-number variation extraction from VCF CN/SVTYPE fields
+## longread — Long-read (PacBio / Nanopore) support in epigenomics
+## full     — Enable all optional modalities (suitable for HPC nodes)
+## default  — Practical default: atac + cnv enabled; longread opt-in
+## ─────────────────────────────────────────────────────────────────────────────
+atac     = ["dep:atacseq_core"]
+cnv      = []
+longread = ["epigenomics_core/longread"]
+full     = ["atac", "cnv", "longread"]
+default  = ["atac", "cnv"]
+
 [dependencies]
 biomics_core         = { path = "../biomics_core" }
 genomics_core        = { path = "../genomics_core" }
 transcriptomics_core = { path = "../transcriptomics_core" }
 epigenomics_core     = { path = "../epigenomics_core" }
 integration_layer    = { path = "../integration_layer" }
-atacseq_core         = { path = "../atacseq_core" }
+atacseq_core         = { path = "../atacseq_core", optional = true }
 anyhow               = { workspace = true }
 rayon                = { workspace = true }
 crossbeam-channel    = { workspace = true }

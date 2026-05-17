@@ -9,13 +9,49 @@ use anyhow::Result;
 use clap::Parser;
 
 use args::Cli;
-use config::{dump_default_config, load_config, BioomicsConfig};
+use config::{dump_default_config, load_config_onto, preset_config, BioomicsConfig};
 use tui::new_shared_state;
 
 // Replace the default system allocator with mimalloc.
 // Benchmarks on allocation-heavy workloads show 20-40% wall-clock improvement.
 #[global_allocator]
 static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
+/// Print which optional modalities are compiled into this binary.
+fn print_compiled_features() {
+    println!("Compiled-in optional modalities:");
+    #[cfg(feature = "atac")]
+    println!("  [+] atac     — ATAC-seq narrowPeak analysis");
+    #[cfg(not(feature = "atac"))]
+    println!("  [-] atac     — not compiled (rebuild with --features atac)");
+
+    #[cfg(feature = "cnv")]
+    println!("  [+] cnv      — Copy-number variation from VCF");
+    #[cfg(not(feature = "cnv"))]
+    println!("  [-] cnv      — not compiled (rebuild with --features cnv)");
+
+    #[cfg(feature = "longread")]
+    println!("  [+] longread — Long-read (PacBio/Nanopore) epigenomics");
+    #[cfg(not(feature = "longread"))]
+    println!("  [-] longread — not compiled (rebuild with --features longread)");
+}
+
+/// Log warnings for optional flags that need a feature not compiled in.
+fn warn_disabled_features(_cli: &Cli) {
+    #[cfg(not(feature = "atac"))]
+    if _cli.atac.is_some() {
+        log::warn!(
+            "--atac supplied but bioomics was compiled without the 'atac' feature (rebuild with --features atac)"
+        );
+    }
+
+    #[cfg(not(feature = "cnv"))]
+    if _cli.cnv.is_some() {
+        log::warn!(
+            "--cnv supplied but bioomics was compiled without the 'cnv' feature (rebuild with --features cnv)"
+        );
+    }
+}
 
 fn main() -> Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
@@ -30,11 +66,55 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
-    // Load configuration (config file merged with defaults; CLI flags take priority)
-    let cfg = if let Some(ref path) = cli.config {
-        load_config(path)?
-    } else {
-        BioomicsConfig::default()
+    // --list-presets: show available presets and exit
+    if cli.list_presets {
+        println!("Available presets:\n");
+        println!(
+            "  {:<10} Somatic mutation analysis (tumor/normal, strict thresholds)",
+            "cancer"
+        );
+        println!(
+            "  {:<10} Plant/agricultural genomics (relaxed Ti/Tv, plant-specific)",
+            "plant"
+        );
+        println!(
+            "  {:<10} Bulk RNA-seq DE focus (strict padj, high gene count)",
+            "rnaseq"
+        );
+        println!(
+            "  {:<10} Whole-genome bisulfite sequencing (tight CpG island criteria)",
+            "wgbs"
+        );
+        println!(
+            "  {:<10} ATAC-seq chromatin accessibility (peak signal tuned)",
+            "atac"
+        );
+        println!(
+            "  {:<10} Clinical/translational (conservative, fewer false positives)",
+            "clinical"
+        );
+        println!();
+        println!("Use: bioomics --preset cancer --genomics ...");
+        println!("Combine with --config to override specific fields:");
+        println!("  bioomics --preset cancer --config my_tweaks.toml --genomics ...");
+        println!();
+        print_compiled_features();
+        return Ok(());
+    }
+
+    // Load configuration: start with preset (if any), then overlay the config
+    // file so that explicit file settings always win over preset defaults.
+    let cfg = {
+        let base = if let Some(preset) = cli.preset {
+            preset_config(preset)
+        } else {
+            BioomicsConfig::default()
+        };
+        if let Some(ref path) = cli.config {
+            load_config_onto(path, base)?
+        } else {
+            base
+        }
     };
 
     // Validate required inputs (they are Option only so --dump-config can skip them)
@@ -51,6 +131,9 @@ fn main() -> Result<()> {
             _ => {}
         }
     }
+
+    // Warn at startup about any disabled-feature flags that were passed
+    warn_disabled_features(&cli);
 
     if cli.json {
         runner::run_pipeline(&cli, &cfg, None)?;

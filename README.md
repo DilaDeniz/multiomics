@@ -147,6 +147,27 @@ bioomics --genomics v.vcf --transcriptomics t.tsv --epigenomics e.bed \
 
 ---
 
+## Presets
+
+Named threshold bundles for common use cases. Use `--preset` to load one, optionally overriding specific fields with `--config`.
+
+| Preset | Use case | Key changes |
+|--------|----------|-------------|
+| `cancer` | Somatic tumor/normal | QUAL≥20, strict Ti/Tv, hypomethylation alerts |
+| `plant` | Plant/agricultural genomics | Relaxed Ti/Tv, lower expressed TPM |
+| `rnaseq` | Bulk RNA-seq DE | Strict padj=0.01, top 200 genes |
+| `wgbs` | Whole-genome bisulfite | Tight CpG island criteria |
+| `atac` | ATAC-seq focus | Signal threshold=5, top 500 peaks |
+| `clinical` | Clinical/translational | Conservative thresholds throughout |
+
+```bash
+bioomics --preset cancer --genomics tumor.vcf ...
+bioomics --list-presets
+bioomics --preset cancer --config my_overrides.toml --genomics ...
+```
+
+---
+
 ## Input Formats
 
 ### VCF (`--genomics` / `--cnv`)
@@ -254,6 +275,21 @@ Classic KS enrichment score from Subramanian et al. 2005. Hit increment = √((N
 **CpG island detection**
 
 Gardiner-Garden & Frommer (1987) criterion: GC content > 50%, length ≥ 200 bp, observed/expected CpG ratio ≥ 0.6 where CpO/E = (n_CpG × window_length) / (n_C × n_G). Detection uses an O(n) two-pointer sliding window over sorted per-chromosome sites.
+
+### Numerical Validation
+
+The DESeq2 normalization and GSEA implementations are validated against
+pre-computed reference values in `tests/`. Size factors match R DESeq2
+to within 5% relative tolerance; log₂FC directions are verified against
+manually confirmed reference datasets. GSEA enrichment scores satisfy
+the theoretical bounds from Subramanian et al. 2005.
+
+Run validation tests:
+
+```bash
+cargo test -p transcriptomics_core deseq2_validation -- --nocapture
+cargo test -p integration_layer gsea_validation -- --nocapture
+```
 
 ---
 

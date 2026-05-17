@@ -153,7 +153,12 @@ where
                         let _ = std::hint::black_box(ahead as *const _ as usize);
                     }
                     if let Err(e) = acc.process(record) {
-                        log::warn!("[{}] skipping record in chunk {}: {}", modality, chunk_idx, e);
+                        log::warn!(
+                            "[{}] skipping record in chunk {}: {}",
+                            modality,
+                            chunk_idx,
+                            e
+                        );
                     }
                 }
             }
@@ -161,7 +166,12 @@ where
             #[cfg(not(feature = "prefetch"))]
             for record in chunk {
                 if let Err(e) = acc.process(record) {
-                    log::warn!("[{}] skipping record in chunk {}: {}", modality, chunk_idx, e);
+                    log::warn!(
+                        "[{}] skipping record in chunk {}: {}",
+                        modality,
+                        chunk_idx,
+                        e
+                    );
                 }
             }
 

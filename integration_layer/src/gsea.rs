@@ -107,7 +107,9 @@ fn permutation_null(is_hit: &[bool], n_hits: usize, n_perm: usize) -> Vec<f64> {
             // Shuffle hit positions using a simple deterministic PRNG.
             // We scatter the n_hits hit positions uniformly across the n positions.
             let n = is_hit.len();
-            let seed = (perm_idx as u64).wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            let seed = (perm_idx as u64)
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             let shuffled_positions = xorshift_sample(n, n_hits, seed);
 
             let mut perm_hit = vec![false; n];
@@ -179,8 +181,7 @@ pub fn gsea_preranked(
         .iter()
         .filter_map(|&(pid, pname, pgenes)| {
             // Build pathway gene set (uppercase for case-insensitive matching)
-            let pathway_set: AHashSet<String> =
-                pgenes.iter().map(|g| g.to_uppercase()).collect();
+            let pathway_set: AHashSet<String> = pgenes.iter().map(|g| g.to_uppercase()).collect();
 
             // Count how many pathway genes appear in the ranked list
             let n_hits = ranked_genes
@@ -208,7 +209,11 @@ pub fn gsea_preranked(
             let null_abs_mean = {
                 let s: f64 = null_es.iter().map(|x| x.abs()).sum();
                 let m = s / null_es.len() as f64;
-                if m < 1e-9 { 1.0 } else { m }
+                if m < 1e-9 {
+                    1.0
+                } else {
+                    m
+                }
             };
             let nes = es / null_abs_mean;
 
@@ -264,7 +269,9 @@ pub fn gsea_preranked(
 
     // Sort by NES descending (most positively enriched first)
     results.sort_unstable_by(|a, b| {
-        b.nes.partial_cmp(&a.nes).unwrap_or(std::cmp::Ordering::Equal)
+        b.nes
+            .partial_cmp(&a.nes)
+            .unwrap_or(std::cmp::Ordering::Equal)
     });
 
     results
@@ -304,10 +311,25 @@ mod tests {
         assert_eq!(results.len(), 1, "should return exactly one result");
         let r = &results[0];
 
-        assert!(r.es > 0.0, "ES should be positive for pathway at top: ES={}", r.es);
-        assert!(r.nes > 1.0, "NES should exceed 1.0 for a strongly enriched pathway: NES={}", r.nes);
-        assert!(r.p_value <= 0.10, "p-value should be low for perfect pathway: p={}", r.p_value);
-        assert!(!r.leading_edge.is_empty(), "leading edge should be non-empty");
+        assert!(
+            r.es > 0.0,
+            "ES should be positive for pathway at top: ES={}",
+            r.es
+        );
+        assert!(
+            r.nes > 1.0,
+            "NES should exceed 1.0 for a strongly enriched pathway: NES={}",
+            r.nes
+        );
+        assert!(
+            r.p_value <= 0.10,
+            "p-value should be low for perfect pathway: p={}",
+            r.p_value
+        );
+        assert!(
+            !r.leading_edge.is_empty(),
+            "leading edge should be non-empty"
+        );
     }
 
     #[test]
@@ -318,14 +340,12 @@ mod tests {
         let ranked = make_ranked(n);
 
         // Uniform pathway: every 10th gene (20 genes spread throughout)
-        let uniform_genes: Vec<&str> =
-            ranked.iter().step_by(10).map(|(g, _)| g.as_str()).collect();
+        let uniform_genes: Vec<&str> = ranked.iter().step_by(10).map(|(g, _)| g.as_str()).collect();
         let uniform_pathways: Vec<(&str, &str, &[&str])> =
             vec![("PW_UNIFORM", "Uniform pathway", uniform_genes.as_slice())];
 
         // Enriched pathway: all 20 genes at the top
-        let enriched_genes: Vec<&str> =
-            ranked[..20].iter().map(|(g, _)| g.as_str()).collect();
+        let enriched_genes: Vec<&str> = ranked[..20].iter().map(|(g, _)| g.as_str()).collect();
         let enriched_pathways: Vec<(&str, &str, &[&str])> =
             vec![("PW_TOP", "Top pathway", enriched_genes.as_slice())];
 
@@ -339,7 +359,8 @@ mod tests {
         assert!(
             enriched_res[0].es > uniform_res[0].es,
             "top-loaded pathway ES ({}) should exceed uniform pathway ES ({})",
-            enriched_res[0].es, uniform_res[0].es,
+            enriched_res[0].es,
+            uniform_res[0].es,
         );
     }
 
@@ -350,7 +371,10 @@ mod tests {
         let tiny_genes: Vec<&str> = ranked[..2].iter().map(|(g, _)| g.as_str()).collect();
         let pathways = vec![("TINY", "Tiny pathway", tiny_genes.as_slice())];
         let results = gsea_preranked(&ranked, &pathways, 5, 500, 10);
-        assert!(results.is_empty(), "pathway below min_size should be filtered");
+        assert!(
+            results.is_empty(),
+            "pathway below min_size should be filtered"
+        );
     }
 
     #[test]
@@ -360,6 +384,10 @@ mod tests {
         let pathway_genes: Vec<&str> = ranked[..10].iter().map(|(g, _)| g.as_str()).collect();
         let pathways = vec![("PW", "Test", pathway_genes.as_slice())];
         let results = gsea_preranked(&ranked, &pathways, 5, 500, 50);
-        assert_eq!(results[0].running_sum.len(), n, "running sum length should equal ranked list length");
+        assert_eq!(
+            results[0].running_sum.len(),
+            n,
+            "running sum length should equal ranked list length"
+        );
     }
 }

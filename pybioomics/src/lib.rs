@@ -256,7 +256,11 @@ fn enrichment_score(
 
     let n_miss = n_total - n_hit;
     let hit_weight = if n_hit == 0 { 1.0 } else { 1.0 / n_hit as f64 };
-    let miss_weight = if n_miss == 0 { 0.0 } else { 1.0 / n_miss as f64 };
+    let miss_weight = if n_miss == 0 {
+        0.0
+    } else {
+        1.0 / n_miss as f64
+    };
 
     let mut running = 0.0_f64;
     let mut max_dev = 0.0_f64;
@@ -291,10 +295,8 @@ fn run_gsea_preranked(ranked: &[(String, f64)], min_size: usize, n_perm: usize) 
     let n_total = ranked.len();
 
     // Build a lookup of uppercase gene -> rank-metric for fast membership test.
-    let ranked_upper: Vec<(String, f64)> = ranked
-        .iter()
-        .map(|(g, m)| (g.to_uppercase(), *m))
-        .collect();
+    let ranked_upper: Vec<(String, f64)> =
+        ranked.iter().map(|(g, m)| (g.to_uppercase(), *m)).collect();
 
     let mut results: Vec<GseaResult> = KEGG_PATHWAYS
         .iter()
@@ -311,8 +313,7 @@ fn run_gsea_preranked(ranked: &[(String, f64)], min_size: usize, n_perm: usize) 
                 return None;
             }
 
-            let (es, leading_edge) =
-                enrichment_score(&ranked_upper, &pathway_set, n_total, n_hit);
+            let (es, leading_edge) = enrichment_score(&ranked_upper, &pathway_set, n_total, n_hit);
 
             // Permutation test: shuffle gene labels, recompute ES.
             let mut null_es: Vec<f64> = Vec::with_capacity(n_perm);
@@ -324,7 +325,9 @@ fn run_gsea_preranked(ranked: &[(String, f64)], min_size: usize, n_perm: usize) 
                 // Fisher-Yates shuffle with LCG.
                 let len = shuffled.len();
                 for i in (1..len).rev() {
-                    lcg = lcg.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407);
+                    lcg = lcg
+                        .wrapping_mul(6_364_136_223_846_793_005)
+                        .wrapping_add(1_442_695_040_888_963_407);
                     let j = (lcg >> 33) as usize % (i + 1);
                     shuffled.swap(i, j);
                 }
@@ -371,7 +374,9 @@ fn run_gsea_preranked(ranked: &[(String, f64)], min_size: usize, n_perm: usize) 
 
     // Sort by NES descending (most enriched first).
     results.sort_unstable_by(|a, b| {
-        b.nes.partial_cmp(&a.nes).unwrap_or(std::cmp::Ordering::Equal)
+        b.nes
+            .partial_cmp(&a.nes)
+            .unwrap_or(std::cmp::Ordering::Equal)
     });
 
     results

@@ -101,7 +101,9 @@ pub fn benjamini_hochberg(pvalues: &[f64]) -> Vec<f64> {
     // Sort indices by ascending p-value
     let mut order: Vec<usize> = (0..m).collect();
     order.sort_unstable_by(|&a, &b| {
-        pvalues[a].partial_cmp(&pvalues[b]).unwrap_or(std::cmp::Ordering::Equal)
+        pvalues[a]
+            .partial_cmp(&pvalues[b])
+            .unwrap_or(std::cmp::Ordering::Equal)
     });
 
     let mut padj = vec![1.0f64; m];
@@ -151,16 +153,17 @@ fn regularised_incomplete_beta(x: f64, a: f64, b: f64) -> f64 {
         (1.0 - x, b, a, true)
     };
 
-    let ln_prefix = aa * xx.ln()
-        + bb * (1.0 - xx).ln()
-        + ln_gamma(aa + bb)
-        - ln_gamma(aa)
-        - ln_gamma(bb);
+    let ln_prefix =
+        aa * xx.ln() + bb * (1.0 - xx).ln() + ln_gamma(aa + bb) - ln_gamma(aa) - ln_gamma(bb);
 
     let cf = betacf(xx, aa, bb);
     let ibeta = (ln_prefix.exp() * cf / aa).clamp(0.0, 1.0);
 
-    if flipped { 1.0 - ibeta } else { ibeta }
+    if flipped {
+        1.0 - ibeta
+    } else {
+        ibeta
+    }
 }
 
 /// Lentz's continued fraction for the incomplete beta function.
@@ -191,7 +194,11 @@ fn betacf(x: f64, a: f64, b: f64) -> f64 {
         };
         c = {
             let v = 1.0 + aa / c;
-            if v.abs() < FPMIN { FPMIN } else { v }
+            if v.abs() < FPMIN {
+                FPMIN
+            } else {
+                v
+            }
         };
         h *= d * c;
 
@@ -203,7 +210,11 @@ fn betacf(x: f64, a: f64, b: f64) -> f64 {
         };
         c = {
             let v = 1.0 + aa / c;
-            if v.abs() < FPMIN { FPMIN } else { v }
+            if v.abs() < FPMIN {
+                FPMIN
+            } else {
+                v
+            }
         };
         let delta = d * c;
         h *= delta;
@@ -244,8 +255,8 @@ pub fn welch_t_test(group1: &[f64], group2: &[f64]) -> Option<(f64, f64)> {
 
     // Welch-Satterthwaite degrees of freedom
     let df_num = se_sq.powi(2);
-    let df_den = (var1 / n1 as f64).powi(2) / (n1 - 1) as f64
-        + (var2 / n2 as f64).powi(2) / (n2 - 1) as f64;
+    let df_den =
+        (var1 / n1 as f64).powi(2) / (n1 - 1) as f64 + (var2 / n2 as f64).powi(2) / (n2 - 1) as f64;
     let df = if df_den < 1e-30 {
         (n1 + n2 - 2) as f64
     } else {
@@ -273,9 +284,7 @@ pub fn spearman_r(a: &[f64], b: &[f64]) -> f64 {
 fn rank_array(v: &[f64]) -> Vec<f64> {
     let n = v.len();
     let mut idx: Vec<usize> = (0..n).collect();
-    idx.sort_unstable_by(|&a, &b| {
-        v[a].partial_cmp(&v[b]).unwrap_or(std::cmp::Ordering::Equal)
-    });
+    idx.sort_unstable_by(|&a, &b| v[a].partial_cmp(&v[b]).unwrap_or(std::cmp::Ordering::Equal));
     let mut ranks = vec![0.0f64; n];
     let mut i = 0;
     while i < n {
@@ -298,10 +307,18 @@ fn pearson_of_ranks(ra: &[f64], rb: &[f64]) -> f64 {
     let n = ra.len() as f64;
     let ma = ra.iter().sum::<f64>() / n;
     let mb = rb.iter().sum::<f64>() / n;
-    let cov: f64 = ra.iter().zip(rb.iter()).map(|(x, y)| (x - ma) * (y - mb)).sum();
+    let cov: f64 = ra
+        .iter()
+        .zip(rb.iter())
+        .map(|(x, y)| (x - ma) * (y - mb))
+        .sum();
     let sa = ra.iter().map(|x| (x - ma).powi(2)).sum::<f64>().sqrt();
     let sb = rb.iter().map(|y| (y - mb).powi(2)).sum::<f64>().sqrt();
-    if sa < 1e-12 || sb < 1e-12 { 0.0 } else { (cov / (sa * sb)).clamp(-1.0, 1.0) }
+    if sa < 1e-12 || sb < 1e-12 {
+        0.0
+    } else {
+        (cov / (sa * sb)).clamp(-1.0, 1.0)
+    }
 }
 
 #[cfg(test)]
@@ -335,7 +352,10 @@ mod tests {
         // High overlap: P(X >= 8 | n=10, K=10, N=20) ≈ 0.0115 — significant
         // C(10,8)*C(10,2)/C(20,10) + ... ≈ 0.0115
         let p_sig = hypergeometric_pvalue(8, 10, 10, 20);
-        assert!(p_sig < 0.05, "Expected significant enrichment, got p={p_sig}");
+        assert!(
+            p_sig < 0.05,
+            "Expected significant enrichment, got p={p_sig}"
+        );
         assert!(p_sig > 0.0);
     }
 
@@ -355,7 +375,7 @@ mod tests {
         let g2 = vec![5.0, 5.1, 4.9, 5.05, 4.95];
         let (t, p) = welch_t_test(&g1, &g2).unwrap();
         assert!(t.abs() > 5.0); // large t
-        assert!(p < 0.001);     // highly significant
+        assert!(p < 0.001); // highly significant
     }
 
     #[test]

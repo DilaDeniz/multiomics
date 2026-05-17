@@ -15,9 +15,9 @@ use anyhow::Result;
 use crossbeam_channel::unbounded;
 use serde::{Deserialize, Serialize};
 
+use epigenomics_core::EpigenomicsSummary;
 use genomics_core::GenomicsSummary;
 use transcriptomics_core::TranscriptomicsSummary;
-use epigenomics_core::EpigenomicsSummary;
 
 use crate::args::Cli;
 use crate::config::BioomicsConfig;
@@ -110,7 +110,9 @@ pub fn run_comparison(
 
     log::info!(
         "Comparison mode: analysing control inputs '{}', '{}', '{}'",
-        ctrl_g_path.display(), ctrl_t_path.display(), ctrl_e_path.display()
+        ctrl_g_path.display(),
+        ctrl_t_path.display(),
+        ctrl_e_path.display()
     );
 
     let (gtx, _grx) = unbounded();
@@ -133,12 +135,7 @@ pub fn run_comparison(
     let genomics = diff_genomics(case_g, &ctrl_g);
     let transcriptomics = diff_transcriptomics(case_t, &ctrl_t);
     let epigenomics = diff_epigenomics(case_e, &ctrl_e, cfg.compare.delta_meth_threshold);
-    let insights = derive_comparison_insights(
-        &genomics,
-        &transcriptomics,
-        &epigenomics,
-        cfg,
-    );
+    let insights = derive_comparison_insights(&genomics, &transcriptomics, &epigenomics, cfg);
 
     Ok(ComparisonSummary {
         case_label: cfg.compare.case_label.clone(),
@@ -161,7 +158,11 @@ fn diff_genomics(case: &GenomicsSummary, ctrl: &GenomicsSummary) -> GenomicsComp
         .per_chrom
         .iter()
         .map(|(chrom, cd)| {
-            let ctrl_total = ctrl.per_chrom.get(chrom.as_str()).map(|c| c.total).unwrap_or(0);
+            let ctrl_total = ctrl
+                .per_chrom
+                .get(chrom.as_str())
+                .map(|c| c.total)
+                .unwrap_or(0);
             let fold = (cd.total as f64 - ctrl_total as f64) / (ctrl_total.max(1) as f64);
             ChromVariantDelta {
                 chrom: chrom.clone(),
@@ -172,7 +173,9 @@ fn diff_genomics(case: &GenomicsSummary, ctrl: &GenomicsSummary) -> GenomicsComp
         })
         .collect();
     per_chrom.sort_unstable_by(|a, b| {
-        b.fold_enrichment.abs().partial_cmp(&a.fold_enrichment.abs())
+        b.fold_enrichment
+            .abs()
+            .partial_cmp(&a.fold_enrichment.abs())
             .unwrap_or(std::cmp::Ordering::Equal)
     });
 
@@ -251,7 +254,9 @@ fn diff_epigenomics(
         })
         .collect();
     per_chrom.sort_unstable_by(|a, b| {
-        b.delta.abs().partial_cmp(&a.delta.abs())
+        b.delta
+            .abs()
+            .partial_cmp(&a.delta.abs())
             .unwrap_or(std::cmp::Ordering::Equal)
     });
 
@@ -304,7 +309,8 @@ fn derive_comparison_insights(
     if titv_delta > 0.3 {
         insights.push(format!(
             "[INFO] Ti/Tv differs between groups: {case}={:.2}, {ctrl}={:.2}",
-            g.case_titv, g.control_titv,
+            g.case_titv,
+            g.control_titv,
             case = cfg.compare.case_label,
             ctrl = cfg.compare.control_label,
         ));
@@ -332,10 +338,18 @@ fn derive_comparison_insights(
 
     // Global methylation shift
     if e.delta_global_meth.abs() >= cfg.compare.delta_meth_threshold {
-        let direction = if e.delta_global_meth > 0.0 { "hyper" } else { "hypo" };
+        let direction = if e.delta_global_meth > 0.0 {
+            "hyper"
+        } else {
+            "hypo"
+        };
         insights.push(format!(
             "[{}] Global {}methylation in {case}: {:.1}% vs {ctrl}: {:.1}% (Δ={:+.1}%)",
-            if e.delta_global_meth.abs() > 20.0 { "CRIT" } else { "WARN" },
+            if e.delta_global_meth.abs() > 20.0 {
+                "CRIT"
+            } else {
+                "WARN"
+            },
             direction,
             e.case_global_meth,
             e.control_global_meth,
@@ -348,7 +362,12 @@ fn derive_comparison_insights(
     // Differentially methylated chromosomes
     if !e.differentially_methylated_chroms.is_empty() {
         let n = e.differentially_methylated_chroms.len();
-        let sample: Vec<_> = e.differentially_methylated_chroms.iter().take(3).cloned().collect();
+        let sample: Vec<_> = e
+            .differentially_methylated_chroms
+            .iter()
+            .take(3)
+            .cloned()
+            .collect();
         insights.push(format!(
             "[INFO] {} chromosomes with |Δmeth| ≥ {:.0}% ({}{})",
             n,

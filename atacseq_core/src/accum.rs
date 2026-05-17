@@ -58,8 +58,11 @@ impl AtacAccum {
     #[inline]
     fn trim_top_peaks(&mut self) {
         // Partial sort: place the top-N by signal in the first N slots.
-        self.top_peaks
-            .sort_unstable_by(|a, b| b.signal_value.partial_cmp(&a.signal_value).unwrap_or(std::cmp::Ordering::Equal));
+        self.top_peaks.sort_unstable_by(|a, b| {
+            b.signal_value
+                .partial_cmp(&a.signal_value)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         self.top_peaks.truncate(TOP_PEAKS_ACCUM);
         self.top_min_signal = self
             .top_peaks
@@ -87,7 +90,10 @@ impl BatchAccum for AtacAccum {
         }
 
         // Per-chromosome counters.
-        let entry = self.per_chrom.entry(r.chrom.clone()).or_insert((0, 0, 0.0, 0));
+        let entry = self
+            .per_chrom
+            .entry(r.chrom.clone())
+            .or_insert((0, 0, 0.0, 0));
         entry.0 += 1;
         entry.1 += width;
         entry.2 += r.signal_value;
@@ -99,7 +105,9 @@ impl BatchAccum for AtacAccum {
             // Trim only when the buffer overflows to avoid O(n) work every record.
             if self.top_peaks.len() > TOP_PEAKS_ACCUM {
                 self.trim_top_peaks();
-            } else if r.signal_value < self.top_min_signal || self.top_min_signal == f64::NEG_INFINITY {
+            } else if r.signal_value < self.top_min_signal
+                || self.top_min_signal == f64::NEG_INFINITY
+            {
                 self.top_min_signal = r.signal_value;
             }
         }
@@ -171,8 +179,16 @@ impl BatchAccum for AtacAccum {
             .per_chrom
             .into_iter()
             .map(|(chrom, (n_peaks, open_bp, sig_sum, width_sum))| {
-                let mean_signal = if n_peaks == 0 { 0.0 } else { sig_sum / n_peaks as f64 };
-                let mean_width = if n_peaks == 0 { 0.0 } else { width_sum as f64 / n_peaks as f64 };
+                let mean_signal = if n_peaks == 0 {
+                    0.0
+                } else {
+                    sig_sum / n_peaks as f64
+                };
+                let mean_width = if n_peaks == 0 {
+                    0.0
+                } else {
+                    width_sum as f64 / n_peaks as f64
+                };
                 (
                     chrom,
                     ChromPeakStats {
@@ -186,8 +202,11 @@ impl BatchAccum for AtacAccum {
             .collect();
 
         // Finalize top peaks: sort descending by signal and take top 100.
-        self.top_peaks
-            .sort_unstable_by(|a, b| b.signal_value.partial_cmp(&a.signal_value).unwrap_or(std::cmp::Ordering::Equal));
+        self.top_peaks.sort_unstable_by(|a, b| {
+            b.signal_value
+                .partial_cmp(&a.signal_value)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         self.top_peaks.truncate(TOP_PEAKS_FINAL);
 
         Ok(AtacSummary {
@@ -239,7 +258,9 @@ mod tests {
     fn test_single_peak() {
         let mut accum = AtacAccum::default();
         // width = 300, narrow (< 500)
-        accum.process(&make_peak("chr1", 1000, 1300, 7.5)).expect("process");
+        accum
+            .process(&make_peak("chr1", 1000, 1300, 7.5))
+            .expect("process");
         let summary = accum.finalize().expect("finalize");
         assert_eq!(summary.total_peaks, 1);
         assert_eq!(summary.total_open_chromatin_bp, 300);
@@ -253,9 +274,15 @@ mod tests {
     #[test]
     fn test_per_chrom_aggregation() {
         let mut accum = AtacAccum::default();
-        accum.process(&make_peak("chr1", 100, 600, 5.0)).expect("process"); // width 500, not narrow
-        accum.process(&make_peak("chr1", 700, 900, 3.0)).expect("process"); // width 200, narrow
-        accum.process(&make_peak("chr2", 0, 100, 9.0)).expect("process");   // width 100, narrow
+        accum
+            .process(&make_peak("chr1", 100, 600, 5.0))
+            .expect("process"); // width 500, not narrow
+        accum
+            .process(&make_peak("chr1", 700, 900, 3.0))
+            .expect("process"); // width 200, narrow
+        accum
+            .process(&make_peak("chr2", 0, 100, 9.0))
+            .expect("process"); // width 100, narrow
 
         let summary = accum.finalize().expect("finalize");
         assert_eq!(summary.total_peaks, 3);
@@ -276,14 +303,20 @@ mod tests {
     fn test_top_peaks_ordering() {
         let mut accum = AtacAccum::default();
         for i in 0..150u64 {
-            accum.process(&make_peak("chr1", i * 1000, i * 1000 + 200, i as f64)).expect("process");
+            accum
+                .process(&make_peak("chr1", i * 1000, i * 1000 + 200, i as f64))
+                .expect("process");
         }
         let summary = accum.finalize().expect("finalize");
         assert_eq!(summary.top_peaks.len(), TOP_PEAKS_FINAL);
         // Highest signal should be first
         assert!(summary.top_peaks[0].signal_value >= summary.top_peaks[1].signal_value);
         // All top peaks should have signal >= the 100th-highest
-        let min_top = summary.top_peaks.last().map(|p| p.signal_value).unwrap_or(0.0);
+        let min_top = summary
+            .top_peaks
+            .last()
+            .map(|p| p.signal_value)
+            .unwrap_or(0.0);
         // signals were 0..149; top 100 should be 50..149
         assert!((min_top - 50.0).abs() < f64::EPSILON);
     }

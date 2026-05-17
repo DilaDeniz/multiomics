@@ -1,5 +1,5 @@
-use genomics_core::GenomicsSummary;
 use epigenomics_core::EpigenomicsSummary;
+use genomics_core::GenomicsSummary;
 
 const SVG_SIZE: f64 = 600.0;
 const CX: f64 = SVG_SIZE / 2.0;
@@ -11,18 +11,33 @@ const R_INNER: f64 = 150.0;
 const TRACK_W: f64 = 38.0;
 
 const CHROM_SIZES_MB: &[(&str, f64)] = &[
-    ("chr1", 248.9), ("chr2", 242.2), ("chr3", 198.3), ("chr4", 190.2),
-    ("chr5", 181.5), ("chr6", 170.8), ("chr7", 159.3), ("chr8", 145.1),
-    ("chr9", 138.4), ("chr10", 133.8), ("chr11", 135.1), ("chr12", 133.3),
-    ("chr13", 114.4), ("chr14", 107.0), ("chr15", 101.9), ("chr16", 90.3),
-    ("chr17", 83.3), ("chr18", 80.4), ("chr19", 58.6), ("chr20", 64.4),
-    ("chr21", 46.7), ("chr22", 50.8), ("chrX", 156.0), ("chrY", 57.2),
+    ("chr1", 248.9),
+    ("chr2", 242.2),
+    ("chr3", 198.3),
+    ("chr4", 190.2),
+    ("chr5", 181.5),
+    ("chr6", 170.8),
+    ("chr7", 159.3),
+    ("chr8", 145.1),
+    ("chr9", 138.4),
+    ("chr10", 133.8),
+    ("chr11", 135.1),
+    ("chr12", 133.3),
+    ("chr13", 114.4),
+    ("chr14", 107.0),
+    ("chr15", 101.9),
+    ("chr16", 90.3),
+    ("chr17", 83.3),
+    ("chr18", 80.4),
+    ("chr19", 58.6),
+    ("chr20", 64.4),
+    ("chr21", 46.7),
+    ("chr22", 50.8),
+    ("chrX", 156.0),
+    ("chrY", 57.2),
 ];
 
-pub fn generate_circos_svg(
-    genomics: &GenomicsSummary,
-    epigen: &EpigenomicsSummary,
-) -> String {
+pub fn generate_circos_svg(genomics: &GenomicsSummary, epigen: &EpigenomicsSummary) -> String {
     let total_genome_mb: f64 = CHROM_SIZES_MB.iter().map(|(_, s)| s).sum();
 
     let max_variants = genomics
@@ -109,8 +124,15 @@ pub fn generate_circos_svg(
             .unwrap_or(75.0);
         let meth_intensity = (meth_pct / 100.0).clamp(0.0, 1.0);
         let meth_color = interpolate_color(0x58, 0xa6, 0xff, 0xbc, 0x8c, 0xff, meth_intensity);
-        push_ring_segment(&mut s, R_MIDDLE, R_MIDDLE + TRACK_W,
-            start_rad, end_rad, arc_deg, &meth_color);
+        push_ring_segment(
+            &mut s,
+            R_MIDDLE,
+            R_MIDDLE + TRACK_W,
+            start_rad,
+            end_rad,
+            arc_deg,
+            &meth_color,
+        );
 
         // Variant density ring (outer)
         let variants = genomics
@@ -121,8 +143,15 @@ pub fn generate_circos_svg(
         let density = (variants / max_variants).clamp(0.0, 1.0);
         let track_h = (density * TRACK_W).max(2.0);
         let var_color = interpolate_color(0x23, 0x48, 0x23, 0x3f, 0xb9, 0x50, density);
-        push_ring_segment(&mut s, R_OUTER, R_OUTER + track_h,
-            start_rad, end_rad, arc_deg, &var_color);
+        push_ring_segment(
+            &mut s,
+            R_OUTER,
+            R_OUTER + track_h,
+            start_rad,
+            end_rad,
+            arc_deg,
+            &var_color,
+        );
 
         angle_deg += arc_deg + gap_deg;
     }
@@ -146,8 +175,10 @@ pub fn generate_circos_svg(
 // cx/cy are always CX/CY constants — callers omit them to stay under the 7-arg limit.
 fn push_ring_segment(
     out: &mut String,
-    r_inner: f64, r_outer: f64,
-    start: f64, end: f64,
+    r_inner: f64,
+    r_outer: f64,
+    start: f64,
+    end: f64,
     arc_deg: f64,
     fill: &str,
 ) {
@@ -165,7 +196,8 @@ fn push_ring_segment(
         "<path d=\"M {x1:.2} {y1:.2} A {ri:.2} {ri:.2} 0 {large} 1 {x4:.2} {y4:.2} \
          L {x3:.2} {y3:.2} A {ro:.2} {ro:.2} 0 {large} 0 {x2:.2} {y2:.2} Z\" \
          fill=\"{fill}\" opacity=\"0.85\"/>\n",
-        ri = r_inner, ro = r_outer,
+        ri = r_inner,
+        ro = r_outer,
     ));
 }
 

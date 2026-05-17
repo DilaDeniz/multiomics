@@ -3,7 +3,9 @@ use ahash::AHashMap;
 use biomics_core::BatchAccum;
 
 use crate::cpg::detect_cpg_islands;
-use crate::types::{ChromMethylation, EpigenomicsSummary, MethylationRecord, MethylationRegion, RegionKind};
+use crate::types::{
+    ChromMethylation, EpigenomicsSummary, MethylationRecord, MethylationRegion, RegionKind,
+};
 
 /// Lock-free accumulator for methylation statistics.
 ///
@@ -129,8 +131,18 @@ fn sliding_window_regions(
         let start = window[0].0;
         let end = window[window.len() - 1].1;
         let mean = window.iter().map(|s| s.2).sum::<f64>() / window.len() as f64;
-        let kind = if mean > 80.0 { RegionKind::Hypermethylated } else { RegionKind::Hypomethylated };
-        regions.push(MethylationRegion { chrom: chrom.to_string(), start, end, mean_methylation: mean, kind });
+        let kind = if mean > 80.0 {
+            RegionKind::Hypermethylated
+        } else {
+            RegionKind::Hypomethylated
+        };
+        regions.push(MethylationRegion {
+            chrom: chrom.to_string(),
+            start,
+            end,
+            mean_methylation: mean,
+            kind,
+        });
     }
     regions
 }

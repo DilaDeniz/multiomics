@@ -3,9 +3,9 @@
 //! Load with `--config bioomics.toml`. CLI flags override config values.
 //! Run `bioomics --dump-config` to print defaults.
 
-use std::path::Path;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 
 /// Master configuration. All fields have sensible defaults via `Default`.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -135,7 +135,6 @@ pub struct CompareConfig {
     pub delta_meth_threshold: f64,
 }
 
-
 impl Default for GenomicsConfig {
     fn default() -> Self {
         Self {
@@ -233,8 +232,8 @@ impl Default for CompareConfig {
 pub fn load_config(path: &Path) -> Result<BioomicsConfig> {
     let raw = std::fs::read_to_string(path)
         .with_context(|| format!("Cannot read config '{}'", path.display()))?;
-    let cfg: BioomicsConfig = toml::from_str(&raw)
-        .with_context(|| format!("Invalid TOML in '{}'", path.display()))?;
+    let cfg: BioomicsConfig =
+        toml::from_str(&raw).with_context(|| format!("Invalid TOML in '{}'", path.display()))?;
     Ok(cfg)
 }
 

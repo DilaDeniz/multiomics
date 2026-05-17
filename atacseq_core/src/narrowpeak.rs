@@ -86,13 +86,12 @@ fn parse_line(line: &[u8]) -> Result<AtacPeak> {
 
     // col 2 — start (0-based)
     let start_bytes = next_field!("start");
-    let start = parse_u64(start_bytes)
-        .with_context(|| format!("invalid start: {}", lossy(start_bytes)))?;
+    let start =
+        parse_u64(start_bytes).with_context(|| format!("invalid start: {}", lossy(start_bytes)))?;
 
     // col 3 — end
     let end_bytes = next_field!("end");
-    let end =
-        parse_u64(end_bytes).with_context(|| format!("invalid end: {}", lossy(end_bytes)))?;
+    let end = parse_u64(end_bytes).with_context(|| format!("invalid end: {}", lossy(end_bytes)))?;
 
     // col 4 — name
     let name_bytes = next_field!("name");
@@ -102,8 +101,8 @@ fn parse_line(line: &[u8]) -> Result<AtacPeak> {
 
     // col 5 — score (integer 0–1000, stored as f64)
     let score_bytes = next_field!("score");
-    let score = parse_f64(score_bytes)
-        .with_context(|| format!("invalid score: {}", lossy(score_bytes)))?;
+    let score =
+        parse_f64(score_bytes).with_context(|| format!("invalid score: {}", lossy(score_bytes)))?;
 
     // col 6 — strand: '+', '-', or '.' (dot → None)
     let strand_bytes = next_field!("strand");
@@ -117,13 +116,13 @@ fn parse_line(line: &[u8]) -> Result<AtacPeak> {
 
     // col 8 — pValue (-log10; -1 if not computed)
     let pv_bytes = next_field!("pValue");
-    let p_value_log10 = parse_f64(pv_bytes)
-        .with_context(|| format!("invalid pValue: {}", lossy(pv_bytes)))?;
+    let p_value_log10 =
+        parse_f64(pv_bytes).with_context(|| format!("invalid pValue: {}", lossy(pv_bytes)))?;
 
     // col 9 — qValue (-log10; -1 if not computed)
     let qv_bytes = next_field!("qValue");
-    let q_value_log10 = parse_f64(qv_bytes)
-        .with_context(|| format!("invalid qValue: {}", lossy(qv_bytes)))?;
+    let q_value_log10 =
+        parse_f64(qv_bytes).with_context(|| format!("invalid qValue: {}", lossy(qv_bytes)))?;
 
     // col 10 — peak (0-based offset to summit; -1 if not determined)
     let pk_bytes = next_field!("peak");

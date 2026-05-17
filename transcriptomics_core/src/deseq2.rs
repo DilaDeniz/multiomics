@@ -40,10 +40,7 @@ pub struct NormalizedMatrix {
 /// Estimate per-sample size factors using the DESeq2 median-of-ratios method.
 ///
 /// `counts[gene][sample]` — raw integer counts as f64.
-pub fn estimate_size_factors(
-    counts: &[Vec<f64>],
-    sample_names: &[String],
-) -> Result<SizeFactors> {
+pub fn estimate_size_factors(counts: &[Vec<f64>], sample_names: &[String]) -> Result<SizeFactors> {
     let n_genes = counts.len();
     if n_genes == 0 {
         bail!("estimate_size_factors: count matrix is empty");
@@ -71,11 +68,8 @@ pub fn estimate_size_factors(
     let geom_means: Vec<f64> = counts
         .iter()
         .map(|row| {
-            let positive_logs: Vec<f64> = row
-                .iter()
-                .filter(|&&c| c > 0.0)
-                .map(|&c| c.ln())
-                .collect();
+            let positive_logs: Vec<f64> =
+                row.iter().filter(|&&c| c > 0.0).map(|&c| c.ln()).collect();
             if positive_logs.is_empty() {
                 0.0 // sentinel: excluded below
             } else {
@@ -171,8 +165,7 @@ pub fn normalize_counts(
             continue;
         }
         let var_g = if n_samples > 1 {
-            norm_row.iter().map(|&x| (x - mean_g).powi(2)).sum::<f64>()
-                / (n - 1.0)
+            norm_row.iter().map(|&x| (x - mean_g).powi(2)).sum::<f64>() / (n - 1.0)
         } else {
             0.0
         };
@@ -233,15 +226,11 @@ pub fn deseq2_differential_expression(matrix: &NormalizedMatrix) -> Vec<DiffExpr
             let lfc = mean2 - mean1; // log2 scale → log2FC
 
             // Raw (non-log) means for reporting
-            let mean_s1 =
-                norm_row[..split].iter().sum::<f64>() / split.max(1) as f64;
-            let mean_s2 =
-                norm_row[split..].iter().sum::<f64>() / (n_samples - split).max(1) as f64;
+            let mean_s1 = norm_row[..split].iter().sum::<f64>() / split.max(1) as f64;
+            let mean_s2 = norm_row[split..].iter().sum::<f64>() / (n_samples - split).max(1) as f64;
 
             let (p_value, padj) = if can_test {
-                let pval = welch_t_test(&g1, &g2)
-                    .map(|(_, p)| p)
-                    .unwrap_or(f64::NAN);
+                let pval = welch_t_test(&g1, &g2).map(|(_, p)| p).unwrap_or(f64::NAN);
                 (pval, f64::NAN) // padj filled below
             } else {
                 (f64::NAN, f64::NAN)
@@ -277,21 +266,19 @@ pub fn deseq2_differential_expression(matrix: &NormalizedMatrix) -> Vec<DiffExpr
     }
 
     // Sort: smallest padj first (NaN last), break ties by descending |log2FC|
-    results.sort_unstable_by(|a, b| {
-        match (a.padj.is_nan(), b.padj.is_nan()) {
-            (true, false) => std::cmp::Ordering::Greater,
-            (false, true) => std::cmp::Ordering::Less,
-            _ => a
-                .padj
-                .partial_cmp(&b.padj)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then(
-                    b.log2_fold_change
-                        .abs()
-                        .partial_cmp(&a.log2_fold_change.abs())
-                        .unwrap_or(std::cmp::Ordering::Equal),
-                ),
-        }
+    results.sort_unstable_by(|a, b| match (a.padj.is_nan(), b.padj.is_nan()) {
+        (true, false) => std::cmp::Ordering::Greater,
+        (false, true) => std::cmp::Ordering::Less,
+        _ => a
+            .padj
+            .partial_cmp(&b.padj)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(
+                b.log2_fold_change
+                    .abs()
+                    .partial_cmp(&a.log2_fold_change.abs())
+                    .unwrap_or(std::cmp::Ordering::Equal),
+            ),
     });
 
     results
@@ -388,8 +375,7 @@ mod tests {
     #[test]
     fn test_normalization() {
         let (gene_ids, counts, sample_names) = make_test_counts();
-        let matrix =
-            normalize_counts(&gene_ids, &counts, &sample_names).expect("normalize_counts");
+        let matrix = normalize_counts(&gene_ids, &counts, &sample_names).expect("normalize_counts");
 
         // After normalization, the per-sample sums of normalized counts should
         // be roughly equal (within 20 %) across samples, because the size
@@ -427,19 +413,22 @@ mod tests {
         //   - results are sorted correctly (ascending padj),
         //   - there is at least one result per gene.
         let gene_ids: Vec<String> = (0..4).map(|i| format!("g{i}")).collect();
-        let sample_names: Vec<String> =
-            vec!["a1".to_string(), "a2".to_string(), "b1".to_string(), "b2".to_string()];
+        let sample_names: Vec<String> = vec![
+            "a1".to_string(),
+            "a2".to_string(),
+            "b1".to_string(),
+            "b2".to_string(),
+        ];
         // group 1 (a1,a2) has low raw counts; group 2 (b1,b2) has high raw counts.
         // After median-of-ratios normalization the library-size difference is
         // corrected, leaving only within-gene variance — so LFC ≈ 0 for all genes.
         let counts: Vec<Vec<f64>> = vec![
             vec![10.0, 12.0, 100.0, 110.0],
-            vec![ 8.0,  9.0,  80.0,  90.0],
-            vec![ 5.0,  6.0,  50.0,  55.0],
+            vec![8.0, 9.0, 80.0, 90.0],
+            vec![5.0, 6.0, 50.0, 55.0],
             vec![20.0, 22.0, 200.0, 220.0],
         ];
-        let matrix = normalize_counts(&gene_ids, &counts, &sample_names)
-            .expect("normalize_counts");
+        let matrix = normalize_counts(&gene_ids, &counts, &sample_names).expect("normalize_counts");
         let de = deseq2_differential_expression(&matrix);
         assert_eq!(de.len(), 4);
 
@@ -463,13 +452,17 @@ mod tests {
         // Test with a count matrix that has genuine differential expression:
         // gene A is truly up in group 2 (beyond library-size correction).
         let gene_ids2: Vec<String> = vec!["de_gene".to_string(), "null_gene".to_string()];
-        let sample_names2: Vec<String> =
-            vec!["x1".to_string(), "x2".to_string(), "y1".to_string(), "y2".to_string()];
+        let sample_names2: Vec<String> = vec![
+            "x1".to_string(),
+            "x2".to_string(),
+            "y1".to_string(),
+            "y2".to_string(),
+        ];
         // de_gene: group 2 is 16× higher AFTER adjusting for 2× overall library size
         // null_gene: group 2 is 2× higher (pure library-size effect, corrected to 1×)
         let counts2: Vec<Vec<f64>> = vec![
             vec![10.0, 11.0, 160.0, 175.0], // de_gene: up ~8× after normalization
-            vec![20.0, 22.0,  40.0,  44.0], // null_gene: pure library-size, LFC ≈ 0
+            vec![20.0, 22.0, 40.0, 44.0],   // null_gene: pure library-size, LFC ≈ 0
         ];
         let matrix2 = normalize_counts(&gene_ids2, &counts2, &sample_names2).unwrap();
         let de2 = deseq2_differential_expression(&matrix2);

@@ -12,7 +12,6 @@ use clap::Parser;
 )]
 pub struct Cli {
     // ── Primary inputs ────────────────────────────────────────────────────────
-
     /// VCF file for genomics variant analysis
     #[arg(long, value_name = "FILE")]
     pub genomics: Option<PathBuf>,
@@ -38,7 +37,6 @@ pub struct Cli {
     pub fastq: Option<PathBuf>,
 
     // ── Comparison mode (tumor-vs-normal / treatment-vs-control) ─────────────
-
     /// Control/normal VCF for comparison mode (enables --compare-* flags)
     #[arg(long, value_name = "FILE", requires = "compare_transcriptomics")]
     pub compare_genomics: Option<PathBuf>,
@@ -56,19 +54,16 @@ pub struct Cli {
     pub compare_atac: Option<PathBuf>,
 
     // ── Enrichment ────────────────────────────────────────────────────────────
-
     /// GMT pathway file for custom gene set enrichment (name, desc, genes…)
     #[arg(long, value_name = "FILE")]
     pub gmt: Option<PathBuf>,
 
     // ── Normalization ─────────────────────────────────────────────────────────
-
     /// Treat --transcriptomics as raw counts; apply DESeq2 size-factor normalization
     #[arg(long, default_value_t = false)]
     pub raw_counts: bool,
 
     // ── Config ────────────────────────────────────────────────────────────────
-
     /// TOML configuration file (thresholds, output settings, performance tuning)
     #[arg(long, value_name = "FILE")]
     pub config: Option<PathBuf>,
@@ -78,7 +73,6 @@ pub struct Cli {
     pub dump_config: bool,
 
     // ── Output ────────────────────────────────────────────────────────────────
-
     /// Output directory (created if it does not exist)
     #[arg(long, value_name = "DIR", default_value = "./bioomics_out")]
     pub output: PathBuf,

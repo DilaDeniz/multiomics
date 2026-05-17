@@ -53,8 +53,8 @@ pub struct GmtPathway {
 /// Returns an error if the file cannot be opened or if a non-comment, non-blank
 /// line has fewer than 2 tab-separated columns.
 pub fn parse_gmt(path: &Path) -> anyhow::Result<Vec<GmtPathway>> {
-    let file = File::open(path)
-        .with_context(|| format!("parse_gmt: cannot open {}", path.display()))?;
+    let file =
+        File::open(path).with_context(|| format!("parse_gmt: cannot open {}", path.display()))?;
     let reader = BufReader::new(file);
     parse_gmt_reader(reader)
 }
@@ -64,7 +64,8 @@ pub(crate) fn parse_gmt_reader<R: BufRead>(reader: R) -> anyhow::Result<Vec<GmtP
     let mut pathways = Vec::new();
 
     for (line_no, line_result) in reader.lines().enumerate() {
-        let line = line_result.with_context(|| format!("parse_gmt: I/O error at line {line_no}"))?;
+        let line =
+            line_result.with_context(|| format!("parse_gmt: I/O error at line {line_no}"))?;
 
         // Skip blank lines and comment lines
         let trimmed = line.trim();
@@ -94,7 +95,11 @@ pub(crate) fn parse_gmt_reader<R: BufRead>(reader: R) -> anyhow::Result<Vec<GmtP
                 .collect(),
         };
 
-        pathways.push(GmtPathway { name, description, genes });
+        pathways.push(GmtPathway {
+            name,
+            description,
+            genes,
+        });
     }
 
     Ok(pathways)
@@ -162,7 +167,10 @@ pub fn gmt_enrichment_analysis(
         .filter_map(|pathway| {
             // Pathway genes are already uppercased by the parser
             let pathway_set: AHashSet<&str> = pathway.genes.iter().map(|g| g.as_str()).collect();
-            let overlap = query_set.iter().filter(|g| pathway_set.contains(g.as_str())).count();
+            let overlap = query_set
+                .iter()
+                .filter(|g| pathway_set.contains(g.as_str()))
+                .count();
 
             if overlap < min_overlap {
                 return None;
@@ -173,8 +181,7 @@ pub fn gmt_enrichment_analysis(
 
             let score = overlap as f64 / ((pathway_size as f64) * (query_size as f64)).sqrt();
 
-            let p_value =
-                hypergeometric_pvalue(overlap, query_size, pathway_size, bg_size);
+            let p_value = hypergeometric_pvalue(overlap, query_size, pathway_size, bg_size);
 
             Some(EnrichmentResult {
                 pathway_id: pathway.name.clone(),
@@ -202,7 +209,9 @@ pub fn gmt_enrichment_analysis(
 
     // Sort by padj ascending
     results.sort_unstable_by(|a, b| {
-        a.padj.partial_cmp(&b.padj).unwrap_or(std::cmp::Ordering::Equal)
+        a.padj
+            .partial_cmp(&b.padj)
+            .unwrap_or(std::cmp::Ordering::Equal)
     });
 
     results
@@ -229,23 +238,39 @@ CELL_CYCLE_CORE\t\tCDK1\tCDK2\tCCNA2\tCCNB1\tMCM2\tPCNA
         let pathways = parse_gmt_reader(cursor).expect("parse should succeed");
 
         // 3 non-comment, non-blank lines → 3 pathways
-        assert_eq!(pathways.len(), 3, "expected 3 pathways, got {}", pathways.len());
+        assert_eq!(
+            pathways.len(),
+            3,
+            "expected 3 pathways, got {}",
+            pathways.len()
+        );
 
         let hypoxia = &pathways[0];
         assert_eq!(hypoxia.name, "HALLMARK_HYPOXIA");
-        assert_eq!(hypoxia.genes.len(), 7, "HALLMARK_HYPOXIA should have 7 genes");
+        assert_eq!(
+            hypoxia.genes.len(),
+            7,
+            "HALLMARK_HYPOXIA should have 7 genes"
+        );
         // Genes must be uppercased
         assert!(hypoxia.genes.contains(&"VEGFA".to_string()));
         assert!(hypoxia.genes.contains(&"HIF1A".to_string()));
 
         let glycolysis = &pathways[1];
         assert_eq!(glycolysis.name, "HALLMARK_GLYCOLYSIS");
-        assert_eq!(glycolysis.genes.len(), 9, "HALLMARK_GLYCOLYSIS should have 9 genes");
+        assert_eq!(
+            glycolysis.genes.len(),
+            9,
+            "HALLMARK_GLYCOLYSIS should have 9 genes"
+        );
 
         // Third pathway has an empty description field
         let cc = &pathways[2];
         assert_eq!(cc.name, "CELL_CYCLE_CORE");
-        assert_eq!(cc.description, "", "empty description should parse as empty string");
+        assert_eq!(
+            cc.description, "",
+            "empty description should parse as empty string"
+        );
         assert_eq!(cc.genes.len(), 6);
     }
 
@@ -256,10 +281,17 @@ CELL_CYCLE_CORE\t\tCDK1\tCDK2\tCCNA2\tCCNB1\tMCM2\tPCNA
 
         // Query contains all glycolysis genes + a few extra → should strongly enrich HALLMARK_GLYCOLYSIS
         let query = vec![
-            "HK2".to_string(), "PFK1".to_string(), "ALDOA".to_string(),
-            "GAPDH".to_string(), "PGK1".to_string(), "ENO1".to_string(),
-            "PKM".to_string(), "LDHA".to_string(), "G6PD".to_string(),
-            "FAKE_GENE_1".to_string(), "FAKE_GENE_2".to_string(),
+            "HK2".to_string(),
+            "PFK1".to_string(),
+            "ALDOA".to_string(),
+            "GAPDH".to_string(),
+            "PGK1".to_string(),
+            "ENO1".to_string(),
+            "PKM".to_string(),
+            "LDHA".to_string(),
+            "G6PD".to_string(),
+            "FAKE_GENE_1".to_string(),
+            "FAKE_GENE_2".to_string(),
         ];
 
         let results = gmt_enrichment_analysis(&query, &pathways, 1);
@@ -281,7 +313,11 @@ CELL_CYCLE_CORE\t\tCDK1\tCDK2\tCCNA2\tCCNB1\tMCM2\tPCNA
 
         // padj should be filled and not NaN
         for r in &results {
-            assert!(!r.padj.is_nan(), "padj should not be NaN for {}", r.pathway_name);
+            assert!(
+                !r.padj.is_nan(),
+                "padj should not be NaN for {}",
+                r.pathway_name
+            );
         }
     }
 

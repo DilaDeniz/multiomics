@@ -9,7 +9,7 @@ use anyhow::Result;
 use clap::Parser;
 
 use args::Cli;
-use config::{load_config, dump_default_config, BioomicsConfig};
+use config::{dump_default_config, load_config, BioomicsConfig};
 use tui::new_shared_state;
 
 // Replace the default system allocator with mimalloc.

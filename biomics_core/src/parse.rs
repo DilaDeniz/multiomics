@@ -30,7 +30,11 @@ impl<'a> Iterator for ByteLines<'a> {
                 let end = start + n;
                 self.pos = end + 1;
                 let line = &self.data[start..end];
-                Some(if line.last() == Some(&b'\r') { &line[..line.len() - 1] } else { line })
+                Some(if line.last() == Some(&b'\r') {
+                    &line[..line.len() - 1]
+                } else {
+                    line
+                })
             }
             None => {
                 self.pos = self.data.len();
@@ -53,7 +57,11 @@ pub struct TabFields<'a> {
 impl<'a> TabFields<'a> {
     #[inline]
     pub fn new(data: &'a [u8]) -> Self {
-        Self { data, pos: 0, done: false }
+        Self {
+            data,
+            pos: 0,
+            done: false,
+        }
     }
 }
 
@@ -86,12 +94,20 @@ impl<'a> Iterator for TabFields<'a> {
 /// Trim leading and trailing ASCII whitespace from a byte slice.
 #[inline]
 pub fn trim_bytes(b: &[u8]) -> &[u8] {
-    let start = b.iter().position(|&c| c != b' ' && c != b'\t' && c != b'\r' && c != b'\n')
+    let start = b
+        .iter()
+        .position(|&c| c != b' ' && c != b'\t' && c != b'\r' && c != b'\n')
         .unwrap_or(b.len());
-    let end = b.iter().rposition(|&c| c != b' ' && c != b'\t' && c != b'\r' && c != b'\n')
+    let end = b
+        .iter()
+        .rposition(|&c| c != b' ' && c != b'\t' && c != b'\r' && c != b'\n')
         .map(|i| i + 1)
         .unwrap_or(0);
-    if start < end { &b[start..end] } else { b"" }
+    if start < end {
+        &b[start..end]
+    } else {
+        b""
+    }
 }
 
 /// Parse a decimal `u64` from bytes. Returns `None` if any byte is non-ASCII-digit.
@@ -156,7 +172,9 @@ pub fn info_value_bytes<'a>(info: &'a [u8], key: &[u8]) -> Option<&'a [u8]> {
     let klen = key.len();
     let mut pos = 0usize;
     while pos < info.len() {
-        let field_end = memchr(b';', &info[pos..]).map(|n| pos + n).unwrap_or(info.len());
+        let field_end = memchr(b';', &info[pos..])
+            .map(|n| pos + n)
+            .unwrap_or(info.len());
         let field = &info[pos..field_end];
         if field.len() > klen && &field[..klen] == key && field[klen] == b'=' {
             return Some(&field[klen + 1..]);

@@ -21,7 +21,10 @@ use std::path::Path;
 /// Returns an error if the file cannot be opened, memory-mapped, or if the
 /// parallel fold encounters an unrecoverable internal error (individual malformed
 /// lines are logged and skipped, not propagated as errors).
-pub fn analyze_narrowpeak(path: &Path, progress_tx: Option<&Sender<ProgressEvent>>) -> Result<AtacSummary> {
+pub fn analyze_narrowpeak(
+    path: &Path,
+    progress_tx: Option<&Sender<ProgressEvent>>,
+) -> Result<AtacSummary> {
     let records = parse_narrowpeak(path)?;
     parallel_fold::<AtacAccum>(&records, "atac", progress_tx)
 }

@@ -105,9 +105,7 @@ pub fn parse_longread_methylation(
         .build_from_path(path)
         .with_context(|| format!("cannot open BAM file: {}", path.display()))?;
 
-    let header = reader
-        .read_header()
-        .context("failed to read BAM header")?;
+    let header = reader.read_header().context("failed to read BAM header")?;
 
     let mut calls: Vec<LongReadMethCall> = Vec::new();
 
@@ -120,10 +118,7 @@ pub fn parse_longread_methylation(
         }
 
         // Apply mapping-quality filter.
-        let mapq = record
-            .mapping_quality()
-            .map(|m| m.get())
-            .unwrap_or(0);
+        let mapq = record.mapping_quality().map(|m| m.get()).unwrap_or(0);
         if mapq < min_mapq {
             continue;
         }
@@ -167,21 +162,14 @@ pub fn parse_longread_methylation(
 
         // Parse query-level 5mC positions and map to reference coordinates.
         let cigar = record.cigar();
-        let record_calls = extract_5mc_calls(
-            &chrom,
-            ref_start,
-            strand,
-            &mm_str,
-            &ml_raw,
-            cigar,
-            min_prob,
-        )
-        .with_context(|| {
-            format!(
-                "failed to extract 5mC calls for record at {}:{}",
-                chrom, ref_start
-            )
-        })?;
+        let record_calls =
+            extract_5mc_calls(&chrom, ref_start, strand, &mm_str, &ml_raw, cigar, min_prob)
+                .with_context(|| {
+                    format!(
+                        "failed to extract 5mC calls for record at {}:{}",
+                        chrom, ref_start
+                    )
+                })?;
 
         calls.extend(record_calls);
     }
@@ -232,12 +220,10 @@ fn extract_5mc_calls(
 ) -> Result<Vec<LongReadMethCall>> {
     // The MM tag may contain multiple semicolon-separated modification clauses.
     // Find the first `C+m` clause (5mC, forward strand).
-    let cm_clause = mm_str
-        .split(';')
-        .find(|clause| {
-            let c = clause.trim_start();
-            c.starts_with("C+m") || c.starts_with("c+m")
-        });
+    let cm_clause = mm_str.split(';').find(|clause| {
+        let c = clause.trim_start();
+        c.starts_with("C+m") || c.starts_with("c+m")
+    });
 
     let Some(clause) = cm_clause else {
         return Ok(Vec::new()); // No 5mC modification in this record.

@@ -6,10 +6,10 @@ use crossbeam_channel::unbounded;
 use rayon::ThreadPoolBuilder;
 
 use biomics_core::ProgressEvent;
-use genomics_core::{analyze_vcf, GenomicsSummary};
-use transcriptomics_core::{analyze_tsv, TranscriptomicsSummary};
 use epigenomics_core::{analyze_bed, EpigenomicsSummary};
+use genomics_core::{analyze_vcf, GenomicsSummary};
 use integration_layer::{run_integration, IntegrationSummary};
+use transcriptomics_core::{analyze_tsv, TranscriptomicsSummary};
 
 use crate::args::Cli;
 use crate::compare::run_comparison;
@@ -21,7 +21,11 @@ use crate::tui::app::{Phase, SharedState};
 ///
 /// Phases 1–3 run concurrently via `std::thread::scope`; phase 4 (integration)
 /// depends on all three and runs sequentially after them.
-pub fn run_pipeline(cli: &Cli, cfg: &BioomicsConfig, state: Option<SharedState>) -> Result<MultiQcOutput> {
+pub fn run_pipeline(
+    cli: &Cli,
+    cfg: &BioomicsConfig,
+    state: Option<SharedState>,
+) -> Result<MultiQcOutput> {
     let start = Instant::now();
 
     let threads = cli.threads.unwrap_or_else(num_cpus);
@@ -39,9 +43,18 @@ pub fn run_pipeline(cli: &Cli, cfg: &BioomicsConfig, state: Option<SharedState>)
     let (etx, erx) = unbounded::<ProgressEvent>();
 
     // Safety: main validates these are Some before calling run_pipeline
-    let g_path = cli.genomics.as_deref().expect("genomics path validated in main");
-    let t_path = cli.transcriptomics.as_deref().expect("transcriptomics path validated in main");
-    let e_path = cli.epigenomics.as_deref().expect("epigenomics path validated in main");
+    let g_path = cli
+        .genomics
+        .as_deref()
+        .expect("genomics path validated in main");
+    let t_path = cli
+        .transcriptomics
+        .as_deref()
+        .expect("transcriptomics path validated in main");
+    let e_path = cli
+        .epigenomics
+        .as_deref()
+        .expect("epigenomics path validated in main");
 
     set_phase(&state, Phase::Genomics);
 
@@ -90,7 +103,10 @@ pub fn run_pipeline(cli: &Cli, cfg: &BioomicsConfig, state: Option<SharedState>)
     // Optional: DESeq2 normalization on raw count input
     if cli.raw_counts {
         log::info!("DESeq2 size-factor normalization requested (--raw-counts)");
-        push_insight(&state, "[INFO] DESeq2 normalization applied to raw count matrix".to_string());
+        push_insight(
+            &state,
+            "[INFO] DESeq2 normalization applied to raw count matrix".to_string(),
+        );
     }
 
     // Optional: ATAC-seq narrowPeak analysis
@@ -98,13 +114,19 @@ pub fn run_pipeline(cli: &Cli, cfg: &BioomicsConfig, state: Option<SharedState>)
         log::info!("Running ATAC-seq analysis: '{}'", atac_path.display());
         match atacseq_core::analyze_narrowpeak(atac_path, None) {
             Ok(atac) => {
-                push_insight(&state, format!(
-                    "[INFO] ATAC-seq: {} peaks, {:.0} median signal, {} chromosomes",
-                    atac.total_peaks, atac.median_signal_value, atac.per_chrom.len()
-                ));
+                push_insight(
+                    &state,
+                    format!(
+                        "[INFO] ATAC-seq: {} peaks, {:.0} median signal, {} chromosomes",
+                        atac.total_peaks,
+                        atac.median_signal_value,
+                        atac.per_chrom.len()
+                    ),
+                );
                 log::info!(
                     "ATAC-seq: {} peaks, {:.0} median signal",
-                    atac.total_peaks, atac.median_signal_value
+                    atac.total_peaks,
+                    atac.median_signal_value
                 );
             }
             Err(e) => log::warn!("ATAC-seq analysis failed: {}", e),
@@ -117,12 +139,15 @@ pub fn run_pipeline(cli: &Cli, cfg: &BioomicsConfig, state: Option<SharedState>)
         match genomics_core::parse_cnv_vcf(cnv_path) {
             Ok(records) => {
                 let summary = genomics_core::summarize_cnv(&records);
-                push_insight(&state, format!(
-                    "[INFO] CNV: {} segments, {:.1}% genome altered, ploidy≈{:.2}",
-                    summary.total_segments,
-                    summary.fraction_genome_altered * 100.0,
-                    summary.estimated_ploidy,
-                ));
+                push_insight(
+                    &state,
+                    format!(
+                        "[INFO] CNV: {} segments, {:.1}% genome altered, ploidy≈{:.2}",
+                        summary.total_segments,
+                        summary.fraction_genome_altered * 100.0,
+                        summary.estimated_ploidy,
+                    ),
+                );
                 log::info!(
                     "CNV: {} segments ({} amp, {} del), FGA={:.1}%",
                     summary.total_segments,
@@ -142,12 +167,17 @@ pub fn run_pipeline(cli: &Cli, cfg: &BioomicsConfig, state: Option<SharedState>)
             Ok(fq) => {
                 log::info!(
                     "FASTQ: {} reads, {:.1}% GC, {:.1}% Q30",
-                    fq.total_reads, fq.gc_content_pct, fq.q30_pct
+                    fq.total_reads,
+                    fq.gc_content_pct,
+                    fq.q30_pct
                 );
-                push_insight(&state, format!(
-                    "[INFO] FASTQ: {} reads, GC={:.1}%, Q30={:.1}%",
-                    fq.total_reads, fq.gc_content_pct, fq.q30_pct
-                ));
+                push_insight(
+                    &state,
+                    format!(
+                        "[INFO] FASTQ: {} reads, GC={:.1}%, Q30={:.1}%",
+                        fq.total_reads, fq.gc_content_pct, fq.q30_pct
+                    ),
+                );
             }
             Err(e) => log::warn!("FASTQ analysis failed: {}", e),
         }
@@ -162,7 +192,10 @@ pub fn run_pipeline(cli: &Cli, cfg: &BioomicsConfig, state: Option<SharedState>)
         log::info!("Loading GMT pathways: '{}'", gmt_path.display());
         match integration_layer::parse_gmt(gmt_path) {
             Ok(pathways) => {
-                push_insight(&state, format!("[INFO] GMT: {} custom pathways loaded", pathways.len()));
+                push_insight(
+                    &state,
+                    format!("[INFO] GMT: {} custom pathways loaded", pathways.len()),
+                );
                 pathways
             }
             Err(e) => {
@@ -182,18 +215,24 @@ pub fn run_pipeline(cli: &Cli, cfg: &BioomicsConfig, state: Option<SharedState>)
         set_phase(&state, Phase::Integration);
         log::info!("Running integration layer");
         let result = run_integration(&genomics, &transcriptomics, &epigenomics, false)?;
-        complete_progress(&state, |s| { s.integration_pct = 100.0; });
+        complete_progress(&state, |s| {
+            s.integration_pct = 100.0;
+        });
         push_integration_insights(&result, &state);
 
         // GMT enrichment on top of built-in pathways
         if !gmt_pathways.is_empty() {
             let query_genes: Vec<String> = genomics.high_impact_genes.clone();
-            let gmt_hits = integration_layer::gmt_enrichment_analysis(&query_genes, &gmt_pathways, 1);
+            let gmt_hits =
+                integration_layer::gmt_enrichment_analysis(&query_genes, &gmt_pathways, 1);
             if let Some(top) = gmt_hits.first() {
-                push_insight(&state, format!(
-                    "[INFO] GMT top pathway: {} (padj={:.3})",
-                    top.pathway_name, top.padj
-                ));
+                push_insight(
+                    &state,
+                    format!(
+                        "[INFO] GMT top pathway: {} (padj={:.3})",
+                        top.pathway_name, top.padj
+                    ),
+                );
             }
         }
 
@@ -300,11 +339,17 @@ fn push_insight(state: &Option<SharedState>, msg: String) {
 fn push_genomics_insights(g: &GenomicsSummary, state: &Option<SharedState>) {
     push_insight(
         state,
-        format!("[INFO] Genomics: {} variants, Ti/Tv={:.2}", g.total_variants, g.titv_ratio),
+        format!(
+            "[INFO] Genomics: {} variants, Ti/Tv={:.2}",
+            g.total_variants, g.titv_ratio
+        ),
     );
     if !g.high_impact_genes.is_empty() {
         let genes: Vec<_> = g.high_impact_genes.iter().take(3).cloned().collect();
-        push_insight(state, format!("[WARN] High-impact genes: {}", genes.join(", ")));
+        push_insight(
+            state,
+            format!("[WARN] High-impact genes: {}", genes.join(", ")),
+        );
     }
 }
 
@@ -319,16 +364,26 @@ fn push_transcriptomics_insights(t: &TranscriptomicsSummary, state: &Option<Shar
     if let Some(ref de) = t.diff_expr {
         let sig = de.iter().filter(|r| r.padj < 0.05).count();
         if sig > 0 {
-            push_insight(state, format!("[INFO] DE: {} genes significant (padj<0.05)", sig));
+            push_insight(
+                state,
+                format!("[INFO] DE: {} genes significant (padj<0.05)", sig),
+            );
         }
     }
 }
 
 fn push_epigenomics_insights(e: &EpigenomicsSummary, state: &Option<SharedState>) {
-    let level = if e.global_methylation_pct < 40.0 { "[CRIT]" } else { "[INFO]" };
+    let level = if e.global_methylation_pct < 40.0 {
+        "[CRIT]"
+    } else {
+        "[INFO]"
+    };
     push_insight(
         state,
-        format!("{} Global methylation: {:.1}%", level, e.global_methylation_pct),
+        format!(
+            "{} Global methylation: {:.1}%",
+            level, e.global_methylation_pct
+        ),
     );
     let n_islands = e.cpg_islands.len();
     if n_islands > 0 {
@@ -339,20 +394,32 @@ fn push_epigenomics_insights(e: &EpigenomicsSummary, state: &Option<SharedState>
 fn push_integration_insights(i: &IntegrationSummary, state: &Option<SharedState>) {
     for insight in i.insights.iter().take(3) {
         let tag = insight.level.as_str();
-        push_insight(state, format!("[{}] {}", tag, truncate(&insight.message, 80)));
+        push_insight(
+            state,
+            format!("[{}] {}", tag, truncate(&insight.message, 80)),
+        );
     }
     if let Some(top) = i.top_pathways.first() {
         push_insight(
             state,
-            format!("[INFO] Top pathway: {} (padj={:.3})", top.pathway_name, top.padj),
+            format!(
+                "[INFO] Top pathway: {} (padj={:.3})",
+                top.pathway_name, top.padj
+            ),
         );
     }
 }
 
 fn truncate(s: &str, max: usize) -> &str {
-    if s.len() <= max { s } else { &s[..max] }
+    if s.len() <= max {
+        s
+    } else {
+        &s[..max]
+    }
 }
 
 fn num_cpus() -> usize {
-    std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4)
+    std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4)
 }

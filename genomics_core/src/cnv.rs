@@ -119,9 +119,8 @@ pub fn parse_cnv_from_vcf_line(line: &[u8]) -> Option<CnvRecord> {
 
     // Require either SVTYPE=CNV/DEL/DUP or a CN= value present
     let svtype = info_value_bytes(info, b"SVTYPE");
-    let has_cnv_svtype = svtype.is_some_and(|sv| {
-        matches!(sv, b"CNV" | b"DEL" | b"DUP" | b"GAIN" | b"LOSS")
-    });
+    let has_cnv_svtype =
+        svtype.is_some_and(|sv| matches!(sv, b"CNV" | b"DEL" | b"DUP" | b"GAIN" | b"LOSS"));
 
     // Extract CN value: try CN=, CNA=, TCN=, CNVTYPE= numeric
     let cn_opt = info_value_bytes(info, b"CN")
@@ -189,7 +188,11 @@ pub fn parse_cnv_vcf(path: &std::path::Path) -> anyhow::Result<Vec<CnvRecord>> {
         }
     }
 
-    log::info!("Parsed {} CNV segments from '{}'", records.len(), path.display());
+    log::info!(
+        "Parsed {} CNV segments from '{}'",
+        records.len(),
+        path.display()
+    );
     Ok(records)
 }
 
@@ -266,7 +269,9 @@ pub fn summarize_cnv(records: &[CnvRecord]) -> CnvSummary {
 
     // Keep top driver events
     summary.driver_amplifications.sort_unstable_by(|a, b| {
-        b.copy_number.partial_cmp(&a.copy_number).unwrap_or(std::cmp::Ordering::Equal)
+        b.copy_number
+            .partial_cmp(&a.copy_number)
+            .unwrap_or(std::cmp::Ordering::Equal)
     });
     summary.driver_amplifications.truncate(50);
     summary.driver_deletions.truncate(50);

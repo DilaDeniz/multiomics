@@ -1,9 +1,9 @@
 use ndarray::{Array1, Array2};
 
+use biomics_core::statistics::spearman_r;
+use epigenomics_core::EpigenomicsSummary;
 use genomics_core::GenomicsSummary;
 use transcriptomics_core::TranscriptomicsSummary;
-use epigenomics_core::EpigenomicsSummary;
-use biomics_core::statistics::spearman_r;
 
 /// Build a feature vector from genomics data.
 ///
@@ -31,10 +31,7 @@ pub fn genomics_feature_vec(summary: &GenomicsSummary, chrom_order: &[String]) -
 }
 
 /// Build a feature vector from transcriptomics top-N gene expression.
-pub fn transcriptomics_feature_vec(
-    summary: &TranscriptomicsSummary,
-    top_n: usize,
-) -> Array1<f64> {
+pub fn transcriptomics_feature_vec(summary: &TranscriptomicsSummary, top_n: usize) -> Array1<f64> {
     let mut v: Vec<f64> = summary
         .top_100_expressed
         .iter()
@@ -86,7 +83,11 @@ pub fn pearson_r(a: &Array1<f64>, b: &Array1<f64>) -> f64 {
     let mean_a = a.sum() / n as f64;
     let mean_b = b.sum() / n as f64;
 
-    let cov: f64 = a.iter().zip(b.iter()).map(|(x, y)| (x - mean_a) * (y - mean_b)).sum();
+    let cov: f64 = a
+        .iter()
+        .zip(b.iter())
+        .map(|(x, y)| (x - mean_a) * (y - mean_b))
+        .sum();
     let std_a: f64 = a.iter().map(|x| (x - mean_a).powi(2)).sum::<f64>().sqrt();
     let std_b: f64 = b.iter().map(|y| (y - mean_b).powi(2)).sum::<f64>().sqrt();
 

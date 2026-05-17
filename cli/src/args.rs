@@ -15,15 +15,15 @@ pub struct Cli {
 
     /// VCF file for genomics variant analysis
     #[arg(long, value_name = "FILE")]
-    pub genomics: PathBuf,
+    pub genomics: Option<PathBuf>,
 
     /// Expression matrix TSV or raw-count matrix (genes × samples, first row = sample names)
     #[arg(long, value_name = "FILE")]
-    pub transcriptomics: PathBuf,
+    pub transcriptomics: Option<PathBuf>,
 
     /// BED methylation file for epigenomics analysis (ENCODE bisulfite or 4-column format)
     #[arg(long, value_name = "FILE")]
-    pub epigenomics: PathBuf,
+    pub epigenomics: Option<PathBuf>,
 
     /// ATAC-seq peaks in ENCODE narrowPeak (BED6+4) format
     #[arg(long, value_name = "FILE")]

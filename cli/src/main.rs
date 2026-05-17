@@ -24,7 +24,7 @@ fn main() -> Result<()> {
 
     let cli = Cli::parse();
 
-    // --dump-config: print defaults and exit (useful for creating a config template)
+    // --dump-config: print defaults and exit (no input files required)
     if cli.dump_config {
         print!("{}", dump_default_config());
         return Ok(());
@@ -37,13 +37,18 @@ fn main() -> Result<()> {
         BioomicsConfig::default()
     };
 
+    // Validate required inputs (they are Option only so --dump-config can skip them)
     for (label, path) in [
-        ("--genomics", &cli.genomics),
-        ("--transcriptomics", &cli.transcriptomics),
-        ("--epigenomics", &cli.epigenomics),
+        ("--genomics", cli.genomics.as_deref()),
+        ("--transcriptomics", cli.transcriptomics.as_deref()),
+        ("--epigenomics", cli.epigenomics.as_deref()),
     ] {
-        if !path.exists() {
-            anyhow::bail!("Input file for {} not found: '{}'", label, path.display());
+        match path {
+            None => anyhow::bail!("{} is required", label),
+            Some(p) if !p.exists() => {
+                anyhow::bail!("Input file for {} not found: '{}'", label, p.display());
+            }
+            _ => {}
         }
     }
 

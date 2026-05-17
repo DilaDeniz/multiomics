@@ -38,18 +38,19 @@ pub fn run_pipeline(cli: &Cli, cfg: &BioomicsConfig, state: Option<SharedState>)
     let (ttx, trx) = unbounded::<ProgressEvent>();
     let (etx, erx) = unbounded::<ProgressEvent>();
 
+    // Safety: main validates these are Some before calling run_pipeline
+    let g_path = cli.genomics.as_deref().expect("genomics path validated in main");
+    let t_path = cli.transcriptomics.as_deref().expect("transcriptomics path validated in main");
+    let e_path = cli.epigenomics.as_deref().expect("epigenomics path validated in main");
+
     set_phase(&state, Phase::Genomics);
 
     log::info!(
         "Starting parallel analysis: '{}', '{}', '{}'",
-        cli.genomics.display(),
-        cli.transcriptomics.display(),
-        cli.epigenomics.display()
+        g_path.display(),
+        t_path.display(),
+        e_path.display()
     );
-
-    let g_path = &cli.genomics;
-    let t_path = &cli.transcriptomics;
-    let e_path = &cli.epigenomics;
 
     let (genomics, transcriptomics, epigenomics): (
         GenomicsSummary,

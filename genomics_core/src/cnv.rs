@@ -1,25 +1,7 @@
 use ahash::AHashMap;
 use serde::{Deserialize, Serialize};
 
-use biomics_core::parse::{parse_f32, ByteLines, TabFields};
-use biomics_core::InfoMultiParser;
-
-// ── Static aho-corasick parser for CNV VCF INFO fields ───────────────────────
-// Scans 9 keys in one pass instead of 9 separate memchr sweeps (~9× speedup).
-static CNV_INFO: std::sync::LazyLock<InfoMultiParser> = std::sync::LazyLock::new(|| {
-    InfoMultiParser::new(&[
-        "SVTYPE", "CN", "CNA", "TCN", "END", "LOG2", "RATIO", "GENE", "Gene",
-    ])
-});
-const I_SVTYPE: usize = 0;
-const I_CN: usize = 1;
-const I_CNA: usize = 2;
-const I_TCN: usize = 3;
-const I_END: usize = 4;
-const I_LOG2: usize = 5;
-const I_RATIO: usize = 6;
-const I_GENE: usize = 7;
-const I_GENE_LC: usize = 8;
+use biomics_core::parse::{info_value_bytes, parse_f32, parse_u64, ByteLines, TabFields};
 
 /// Copy-number state classification.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -121,9 +103,6 @@ pub struct CnvSummary {
 /// 2. CNVTYPE= with CN= (Sequenza / PURPLE style)
 /// 3. Standard FORMAT/CN or FORMAT/TCN fields
 /// 4. INFO/CNA with numeric copy number
-///
-/// Uses a static aho-corasick automaton to scan the INFO string once for all
-/// 9 keys simultaneously instead of 9 independent passes.
 pub fn parse_cnv_from_vcf_line(line: &[u8]) -> Option<CnvRecord> {
     let mut fields = TabFields::new(line);
 
@@ -136,16 +115,14 @@ pub fn parse_cnv_from_vcf_line(line: &[u8]) -> Option<CnvRecord> {
     let _ = fields.next()?; // FILTER
     let info = fields.next().unwrap_or(b".");
 
-    // Single-pass extraction of all 9 INFO keys via aho-corasick automaton.
-    let vals = CNV_INFO.extract(info);
-    let svtype = vals[I_SVTYPE];
+    let svtype = info_value_bytes(info, b"SVTYPE");
 
     let has_cnv_svtype =
         svtype.is_some_and(|sv| matches!(sv, b"CNV" | b"DEL" | b"DUP" | b"GAIN" | b"LOSS"));
 
-    let cn_opt = vals[I_CN]
-        .or(vals[I_CNA])
-        .or(vals[I_TCN])
+    let cn_opt = info_value_bytes(info, b"CN")
+        .or_else(|| info_value_bytes(info, b"CNA"))
+        .or_else(|| info_value_bytes(info, b"TCN"))
         .and_then(parse_f32);
 
     if cn_opt.is_none() && !has_cnv_svtype {
@@ -159,14 +136,16 @@ pub fn parse_cnv_from_vcf_line(line: &[u8]) -> Option<CnvRecord> {
     };
     let copy_number = cn_opt.unwrap_or(inferred_cn);
 
-    let end = vals[I_END]
-        .and_then(biomics_core::parse::parse_u64)
+    let end = info_value_bytes(info, b"END")
+        .and_then(parse_u64)
         .unwrap_or(start + 1);
 
-    let log2_ratio = vals[I_LOG2].or(vals[I_RATIO]).and_then(parse_f32);
+    let log2_ratio = info_value_bytes(info, b"LOG2")
+        .or_else(|| info_value_bytes(info, b"RATIO"))
+        .and_then(parse_f32);
 
-    let gene = vals[I_GENE]
-        .or(vals[I_GENE_LC])
+    let gene = info_value_bytes(info, b"GENE")
+        .or_else(|| info_value_bytes(info, b"Gene"))
         .and_then(|v| std::str::from_utf8(v).ok().map(|s| s.to_string()));
 
     let chrom = std::str::from_utf8(chrom_b).ok()?.to_string();

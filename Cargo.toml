@@ -41,6 +41,7 @@ aho-corasick      = "1"
 fast-float        = "0.2"
 memchr            = "2"
 mimalloc          = { version = "0.1", default-features = false }
+criterion         = { version = "0.5", features = ["html_reports"] }
 toml              = "0.8"
 itoa              = "1"
 ryu               = "1"

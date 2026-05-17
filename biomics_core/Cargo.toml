@@ -21,3 +21,16 @@ memchr            = { workspace = true }
 fast-float        = { workspace = true }
 itoa              = { workspace = true }
 ryu               = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+ahash     = { workspace = true }
+memchr    = { workspace = true }
+
+[[bench]]
+name    = "hll_vs_hashset"
+harness = false
+
+[[bench]]
+name    = "info_parser"
+harness = false

@@ -16,6 +16,7 @@ rayon             = { workspace = true }
 crossbeam-channel = { workspace = true }
 serde             = { workspace = true }
 log               = { workspace = true }
+aho-corasick      = { workspace = true }
 memchr            = { workspace = true }
 fast-float        = { workspace = true }
 itoa              = { workspace = true }

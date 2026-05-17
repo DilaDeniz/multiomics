@@ -15,7 +15,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 
-use ahash::AHashSet;
+use ahash::{AHashMap, AHashSet};
 use anyhow::Context;
 use biomics_core::statistics::{benjamini_hochberg, hypergeometric_pvalue};
 use serde::{Deserialize, Serialize};
@@ -150,39 +150,49 @@ pub fn gmt_enrichment_analysis(
     }
 
     let query_set: AHashSet<String> = query_genes.iter().map(|g| g.to_uppercase()).collect();
+    let query_size = query_set.len();
 
-    // Build background universe: union of all genes in all GMT pathways
-    let background: AHashSet<String> = gmt_pathways
-        .iter()
-        .flat_map(|p| p.genes.iter().cloned())
-        .collect();
-    let bg_size = background.len();
+    // ── Inverted gene index ───────────────────────────────────────────────────
+    // gene (uppercase) → list of pathway indices that contain it.
+    // Build once: O(Σ pathway_genes). Lookup per query gene: O(1).
+    // Replaces per-pathway AHashSet rebuild + O(Q×P×G) intersection loop.
+    let mut gene_to_pathways: AHashMap<&str, Vec<usize>> =
+        AHashMap::with_capacity(gmt_pathways.iter().map(|p| p.genes.len()).sum());
+    let mut bg_set: AHashSet<&str> = AHashSet::new();
 
+    for (i, pw) in gmt_pathways.iter().enumerate() {
+        for gene in &pw.genes {
+            gene_to_pathways.entry(gene.as_str()).or_default().push(i);
+            bg_set.insert(gene.as_str());
+        }
+    }
+
+    let bg_size = bg_set.len();
     if bg_size == 0 {
         return Vec::new();
     }
 
+    // Count overlaps in O(Q) using the inverted index
+    let mut overlap_counts = vec![0usize; gmt_pathways.len()];
+    for gene in &query_set {
+        if let Some(idxs) = gene_to_pathways.get(gene.as_str()) {
+            for &idx in idxs {
+                overlap_counts[idx] += 1;
+            }
+        }
+    }
+
     let mut results: Vec<EnrichmentResult> = gmt_pathways
         .iter()
-        .filter_map(|pathway| {
-            // Pathway genes are already uppercased by the parser
-            let pathway_set: AHashSet<&str> = pathway.genes.iter().map(|g| g.as_str()).collect();
-            let overlap = query_set
-                .iter()
-                .filter(|g| pathway_set.contains(g.as_str()))
-                .count();
-
+        .enumerate()
+        .filter_map(|(i, pathway)| {
+            let overlap = overlap_counts[i];
             if overlap < min_overlap {
                 return None;
             }
-
             let pathway_size = pathway.genes.len();
-            let query_size = query_set.len();
-
             let score = overlap as f64 / ((pathway_size as f64) * (query_size as f64)).sqrt();
-
             let p_value = hypergeometric_pvalue(overlap, query_size, pathway_size, bg_size);
-
             Some(EnrichmentResult {
                 pathway_id: pathway.name.clone(),
                 pathway_name: pathway.name.clone(),
@@ -191,7 +201,7 @@ pub fn gmt_enrichment_analysis(
                 query_size,
                 score,
                 p_value,
-                padj: f64::NAN, // filled below
+                padj: f64::NAN,
             })
         })
         .collect();

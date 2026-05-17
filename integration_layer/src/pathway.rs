@@ -1,5 +1,6 @@
-use ahash::AHashSet;
+use ahash::{AHashMap, AHashSet};
 use serde::{Deserialize, Serialize};
+use std::sync::OnceLock;
 
 use biomics_core::statistics::{benjamini_hochberg, hypergeometric_pvalue};
 
@@ -639,9 +640,27 @@ pub struct EnrichmentResult {
     pub padj: f64,
 }
 
-/// Run enrichment of `query_genes` against the static KEGG pathway table.
-///
-/// ## Method
+// ── Static inverted gene → pathway index (built once from KEGG_PATHWAYS) ─────
+// gene (uppercase) → list of KEGG_PATHWAYS indices.
+// Eliminates O(P × G) AHashSet rebuilds per enrichment call; lookup is O(1).
+
+type GeneIndex = AHashMap<&'static str, Vec<u8>>; // u8 sufficient for ≤255 pathways
+
+fn kegg_gene_index() -> &'static (GeneIndex, usize) {
+    static IDX: OnceLock<(GeneIndex, usize)> = OnceLock::new();
+    IDX.get_or_init(|| {
+        let mut map: GeneIndex = AHashMap::new();
+        let mut bg: AHashSet<&str> = AHashSet::new();
+        for (i, pw) in KEGG_PATHWAYS.iter().enumerate() {
+            for &gene in pw.genes {
+                map.entry(gene).or_default().push(i as u8);
+                bg.insert(gene);
+            }
+        }
+        (map, bg.len())
+    })
+}
+
 /// Fisher's exact test (one-sided hypergeometric) with Benjamini-Hochberg FDR
 /// correction. Background gene universe = union of all genes in KEGG_PATHWAYS.
 /// Only pathways with `overlap >= min_overlap` are returned.
@@ -653,40 +672,39 @@ pub fn enrichment_analysis(query_genes: &[String], min_overlap: usize) -> Vec<En
         return Vec::new();
     }
 
-    // Build background universe: all unique genes across all pathways
-    let background: AHashSet<String> = KEGG_PATHWAYS
-        .iter()
-        .flat_map(|p| p.genes.iter().map(|g| g.to_uppercase()))
-        .collect();
-    let bg_size = background.len();
+    let (gene_idx, bg_size) = kegg_gene_index();
+    let query_size = query_set.len();
+
+    // Count overlaps via inverted index: O(Q) instead of O(P × G)
+    let mut overlap_counts = vec![0usize; KEGG_PATHWAYS.len()];
+    for gene in &query_set {
+        if let Some(idxs) = gene_idx.get(gene.as_str()) {
+            for &i in idxs {
+                overlap_counts[i as usize] += 1;
+            }
+        }
+    }
 
     let mut results: Vec<EnrichmentResult> = KEGG_PATHWAYS
         .iter()
-        .filter_map(|pathway| {
-            let pathway_genes: AHashSet<String> =
-                pathway.genes.iter().map(|g| g.to_uppercase()).collect();
-
-            let overlap = query_set.intersection(&pathway_genes).count();
+        .enumerate()
+        .filter_map(|(i, pathway)| {
+            let overlap = overlap_counts[i];
             if overlap < min_overlap {
                 return None;
             }
-
             let score =
-                overlap as f64 / ((pathway.genes.len() as f64) * (query_set.len() as f64)).sqrt();
-
-            // Fisher's exact test: P(X >= overlap | query_size, pathway_size, bg_size)
-            let p_value =
-                hypergeometric_pvalue(overlap, query_set.len(), pathway.genes.len(), bg_size);
-
+                overlap as f64 / ((pathway.genes.len() as f64) * (query_size as f64)).sqrt();
+            let p_value = hypergeometric_pvalue(overlap, query_size, pathway.genes.len(), *bg_size);
             Some(EnrichmentResult {
                 pathway_id: pathway.id.to_string(),
                 pathway_name: pathway.name.to_string(),
                 overlap,
                 pathway_size: pathway.genes.len(),
-                query_size: query_set.len(),
+                query_size,
                 score,
                 p_value,
-                padj: f64::NAN, // filled below
+                padj: f64::NAN,
             })
         })
         .collect();

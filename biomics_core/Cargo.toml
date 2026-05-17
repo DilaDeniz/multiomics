@@ -5,6 +5,11 @@ edition.workspace = true
 license.workspace = true
 description       = "Shared BatchAccum trait, lock-free fold, and statistics helpers"
 
+[features]
+default  = []
+prefetch = []   # enables manual prefetch hints in parallel_fold (see fold.rs)
+native   = []   # doc-only hint: build with RUSTFLAGS="-C target-cpu=native"
+
 [dependencies]
 anyhow            = { workspace = true }
 rayon             = { workspace = true }
@@ -13,3 +18,5 @@ serde             = { workspace = true }
 log               = { workspace = true }
 memchr            = { workspace = true }
 fast-float        = { workspace = true }
+itoa              = { workspace = true }
+ryu               = { workspace = true }

@@ -1,6 +1,20 @@
 [build]
-# Set target-cpu=native or target-cpu=x86-64-v4 for production deployments with AVX-512.
-# Using x86-64-v3 (AVX2) as default to avoid SIGILL in container environments.
+# Default: x86-64-v3 (AVX2) — safe for most modern x86 CPUs and containers.
+# This avoids SIGILL in environments that lack AVX-512 (x86-64-v4).
+#
+# To build a fully native binary tuned to the exact host CPU (maximum throughput,
+# not portable), override this flag at build time:
+#
+#   RUSTFLAGS="-C target-cpu=native" cargo build --profile dist
+#
+# To target a specific microarchitecture level instead:
+#   x86-64-v2  — SSE4.2             (most virtual machines)
+#   x86-64-v3  — AVX2               (this default)
+#   x86-64-v4  — AVX-512            (select server CPUs: Skylake-X, Ice Lake, ...)
+#   native      — whatever this host has (non-portable but fastest)
+#
+# The `native` feature flag in Cargo.toml is a doc-only hint; the actual
+# instruction-set selection is controlled exclusively by RUSTFLAGS above.
 rustflags = [
     "-C", "target-cpu=x86-64-v3",
     "-C", "force-frame-pointers=no",

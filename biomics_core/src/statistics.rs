@@ -33,12 +33,16 @@ pub fn ln_gamma(x: f64) -> f64 {
         1.505_632_735_149_311_6e-7,
     ];
     let xm1 = x - 1.0;
+    // Accumulate the Lanczos series using fused multiply-add where possible.
+    // Each term is ci / (xm1 + i + 1); we keep a running sum.
     let mut a = C[0];
     for (i, &ci) in C[1..].iter().enumerate() {
-        a += ci / (xm1 + i as f64 + 1.0);
+        a = ci.mul_add((xm1 + i as f64 + 1.0).recip(), a);
     }
     let t = xm1 + G + 0.5;
-    (2.0 * std::f64::consts::PI).sqrt().ln() + a.ln() + (xm1 + 0.5) * t.ln() - t
+    // Use mul_add for the final linear combination to reduce rounding error.
+    let log_prefix = (2.0 * std::f64::consts::PI).sqrt().ln();
+    (xm1 + 0.5).mul_add(t.ln(), log_prefix + a.ln()) - t
 }
 
 /// Natural log of the binomial coefficient C(n, k).

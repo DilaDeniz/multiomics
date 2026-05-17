@@ -28,3 +28,6 @@ chrono               = { workspace = true }
 log                  = { workspace = true }
 env_logger           = { workspace = true }
 mimalloc             = { workspace = true }
+toml                 = { workspace = true }
+num_cpus             = { workspace = true }
+ahash                = { workspace = true }

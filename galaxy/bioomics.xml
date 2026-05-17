@@ -1,0 +1,368 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    bioomics.xml — Galaxy tool wrapper for BioMultiOmics
+
+    Place this file (and the companion tool_data_table_conf.xml.sample if
+    required) in your Galaxy tool directory and restart the server, or add
+    it to a Tool Shed repository.
+
+    Tool id:      bioomics
+    Version:      0.1.0
+    Name:         BioMultiOmics
+    Author:       BioMultiOmics Contributors
+    Repository:   https://github.com/diladeniz/multiomics
+    License:      Apache-2.0
+-->
+<tool id="bioomics" name="BioMultiOmics" version="0.1.0" python_template_version="3.5"
+      profile="23.0">
+
+    <description>Integrated multi-omics analysis (genomics, transcriptomics, epigenomics)</description>
+
+    <!-- ================================================================
+         Requirements
+         ================================================================ -->
+    <requirements>
+        <!-- The bioomics binary must be on the PATH.  Galaxy can satisfy
+             this via a conda package or a Docker/Singularity container. -->
+        <requirement type="package" version="0.1.0">bioomics</requirement>
+    </requirements>
+
+    <!-- ================================================================
+         Version command — used by Galaxy to record the tool version in
+         job metadata and to check for version mismatches.
+         ================================================================ -->
+    <version_command>bioomics --version</version_command>
+
+    <!-- ================================================================
+         Command block (Cheetah templating)
+         ================================================================ -->
+    <command detect_errors="exit_code"><![CDATA[
+## Create a writable output directory inside the job working directory.
+mkdir -p "\$TMPDIR/bioomics_out" &&
+
+bioomics
+    --genomics        '$genomics'
+    --transcriptomics '$transcriptomics'
+    --epigenomics     '$epigenomics'
+
+#if $optional_inputs.atac:
+    --atac '$optional_inputs.atac'
+#end if
+
+#if $optional_inputs.cnv:
+    --cnv '$optional_inputs.cnv'
+#end if
+
+#if $optional_inputs.gmt:
+    --gmt '$optional_inputs.gmt'
+#end if
+
+    --output   "\$TMPDIR/bioomics_out"
+    --threads  $threads
+
+#if $raw_counts:
+    --raw-counts
+#end if
+
+#if $json_only:
+    --json
+#end if
+
+#if $no_ml:
+    --no-ml
+#end if
+
+&&
+
+## Copy outputs to Galaxy dataset paths.
+## The HTML report may be absent when --json-only is set.
+#if not $json_only:
+cp "\$TMPDIR/bioomics_out/report.html" '$output_html' &&
+#end if
+cp "\$TMPDIR/bioomics_out/multiqc_bioomics.json" '$output_json'
+    ]]></command>
+
+    <!-- ================================================================
+         Inputs
+         ================================================================ -->
+    <inputs>
+
+        <!-- ── Required modality inputs ─────────────────────────────── -->
+
+        <param name="genomics"
+               type="data"
+               format="vcf,vcf_bgzip"
+               label="Genomics VCF"
+               help="Variant Call Format file (plain or bgzipped) containing SNPs and indels.
+                     Supports single-sample and multi-sample VCFs." />
+
+        <param name="transcriptomics"
+               type="data"
+               format="tabular,tsv"
+               label="Transcriptomics expression matrix (TSV)"
+               help="Tab-separated expression matrix. The first row must contain sample names;
+                     the first column must contain gene identifiers.
+                     Values should be TPM or raw counts (enable 'Treat as raw counts' below)." />
+
+        <param name="epigenomics"
+               type="data"
+               format="bed"
+               label="Epigenomics methylation BED"
+               help="BED file with CpG methylation values. Supported formats:
+                     ENCODE bisulfite BED (columns 1-11) or a simple 4-column BED
+                     (chrom, start, end, methylation_pct)." />
+
+        <!-- ── Optional inputs (conditional section) ─────────────────── -->
+
+        <section name="optional_inputs" title="Optional additional inputs" expanded="false">
+
+            <param name="atac"
+                   type="data"
+                   format="bed"
+                   optional="true"
+                   label="ATAC-seq peaks (ENCODE narrowPeak / BED6+4)"
+                   help="Open chromatin peaks from ATAC-seq in ENCODE narrowPeak format.
+                         When provided, peak-level chromatin accessibility is integrated
+                         with the methylation and expression data." />
+
+            <param name="cnv"
+                   type="data"
+                   format="vcf,vcf_bgzip"
+                   optional="true"
+                   label="Copy-number variation VCF"
+                   help="VCF file with a CN INFO field (integer copy number per variant).
+                         Used to annotate high-impact variants with their local copy-number
+                         context." />
+
+            <param name="gmt"
+                   type="data"
+                   format="tabular"
+                   optional="true"
+                   label="Custom GMT pathway file"
+                   help="Gene set file in GMT format (tab-delimited: name, description, gene1, gene2, …).
+                         Overrides the built-in KEGG pathway gene sets for enrichment analysis." />
+
+        </section>
+
+        <!-- ── Analysis parameters ──────────────────────────────────── -->
+
+        <param name="threads"
+               type="integer"
+               value="4"
+               min="1"
+               max="128"
+               label="CPU threads"
+               help="Number of parallel worker threads.  Set to the number of CPU cores
+                     allocated to this Galaxy job for best performance." />
+
+        <param name="raw_counts"
+               type="boolean"
+               truevalue="true"
+               falsevalue="false"
+               checked="false"
+               label="Treat transcriptomics input as raw counts"
+               help="When enabled, BioMultiOmics applies DESeq2-style size-factor
+                     normalisation before differential expression analysis.
+                     Leave unchecked if your matrix already contains TPM or RPKM values." />
+
+        <param name="json_only"
+               type="boolean"
+               truevalue="true"
+               falsevalue="false"
+               checked="false"
+               label="JSON output only (skip HTML report)"
+               help="Emit only the MultiQC-compatible JSON file.  The HTML report will
+                     not be produced.  Useful when the JSON will be aggregated by
+                     MultiQC with the multiqc_bioomics plugin." />
+
+        <param name="no_ml"
+               type="boolean"
+               truevalue="true"
+               falsevalue="false"
+               checked="false"
+               label="Skip ML integration (PCA and correlation matrix)"
+               help="Disable the principal-component analysis and Pearson cross-modality
+                     correlation matrix.  Speeds up the run when statistical integration
+                     is not required." />
+
+    </inputs>
+
+    <!-- ================================================================
+         Outputs
+         ================================================================ -->
+    <outputs>
+
+        <data name="output_html"
+              format="html"
+              label="${tool.name} on ${on_string}: HTML report">
+            <filter>not json_only</filter>
+        </data>
+
+        <data name="output_json"
+              format="json"
+              label="${tool.name} on ${on_string}: MultiQC JSON" />
+
+    </outputs>
+
+    <!-- ================================================================
+         Tests
+         ================================================================ -->
+    <tests>
+        <test expect_num_outputs="2">
+            <param name="genomics"        value="sample.vcf" />
+            <param name="transcriptomics" value="expression.tsv" />
+            <param name="epigenomics"     value="methylation.bed" />
+            <param name="threads"         value="2" />
+            <param name="raw_counts"      value="false" />
+            <param name="json_only"       value="false" />
+            <param name="no_ml"           value="true" />
+            <output name="output_json">
+                <assert_contents>
+                    <has_text text="bioomics_genomics" />
+                    <has_text text="bioomics_epigenomics" />
+                    <has_text text="bioomics_transcriptomics" />
+                    <has_text text="bioomics_integration" />
+                    <has_text text="total_variants" />
+                    <has_text text="global_methylation_pct" />
+                </assert_contents>
+            </output>
+            <output name="output_html">
+                <assert_contents>
+                    <has_text text="BioMultiOmics" />
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="1">
+            <!-- JSON-only mode should not produce an HTML output -->
+            <param name="genomics"        value="sample.vcf" />
+            <param name="transcriptomics" value="expression.tsv" />
+            <param name="epigenomics"     value="methylation.bed" />
+            <param name="threads"         value="1" />
+            <param name="json_only"       value="true" />
+            <param name="no_ml"           value="true" />
+            <output name="output_json">
+                <assert_contents>
+                    <has_text text="bioomics_genomics" />
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+
+    <!-- ================================================================
+         Help
+         ================================================================ -->
+    <help><![CDATA[
+.. class:: infomark
+
+**BioMultiOmics** is a high-performance Rust command-line tool that integrates
+three major omics modalities — genomics (VCF), transcriptomics (expression
+matrix), and epigenomics (BED methylation) — into a single cohesive report.
+
+-----
+
+**What it does**
+
+BioMultiOmics processes each modality in parallel using a multi-threaded
+pipeline and then performs cross-modality integration:
+
+* **Genomics** — parses the input VCF to count SNPs, indels, and
+  high-impact variants; computes the Ti/Tv ratio; builds an allele-frequency
+  histogram; and tallies variants per chromosome.
+
+* **Transcriptomics** — reads a genes × samples expression matrix, counts
+  expressed genes (TPM ≥ 1), identifies top-expressed genes, and optionally
+  performs differential expression analysis when raw counts are provided.
+
+* **Epigenomics** — parses a BED methylation file to compute global and
+  per-chromosome methylation percentages, detects CpG islands, and flags
+  hyper- and hypomethylated regions.
+
+* **Integration** — computes a Pearson cross-modality correlation matrix and
+  a PCA projection of the three modalities; performs pathway enrichment
+  analysis against built-in KEGG gene sets (or a custom GMT file); and
+  generates plain-English biological insights ranked by severity.
+
+-----
+
+**Outputs**
+
+* **HTML report** — an interactive self-contained HTML file with tables,
+  charts, and insights (omitted when *JSON only* is enabled).
+
+* **MultiQC JSON** — a ``multiqc_bioomics.json`` file compatible with the
+  ``multiqc_bioomics`` MultiQC plugin, which can aggregate results from
+  multiple samples into a single QC report.
+
+-----
+
+**Inputs**
+
++---------------------+-----------------------------------------------------------+
+| Input               | Description                                               |
++=====================+===========================================================+
+| Genomics VCF        | Plain or bgzipped VCF; single- or multi-sample            |
++---------------------+-----------------------------------------------------------+
+| Transcriptomics TSV | Genes × samples matrix; values are TPM or raw counts      |
++---------------------+-----------------------------------------------------------+
+| Epigenomics BED     | ENCODE bisulfite BED or 4-column chrom/start/end/meth_pct |
++---------------------+-----------------------------------------------------------+
+| ATAC-seq peaks      | *(Optional)* ENCODE narrowPeak format                     |
++---------------------+-----------------------------------------------------------+
+| CNV VCF             | *(Optional)* VCF with CN INFO field                       |
++---------------------+-----------------------------------------------------------+
+| GMT pathways        | *(Optional)* Custom gene set file                         |
++---------------------+-----------------------------------------------------------+
+
+-----
+
+**Parameters**
+
+*CPU threads*
+    Increasing threads linearly reduces wall-clock time for large inputs.
+    Match this to the number of cores allocated to the Galaxy job.
+
+*Treat as raw counts*
+    Enable when the expression matrix contains integer read counts rather
+    than pre-normalised TPM/RPKM values.  BioMultiOmics will apply
+    DESeq2-style median-of-ratios size-factor normalisation.
+
+*JSON only*
+    Skip the HTML report and TUI interface.  Useful on HPC nodes without
+    an interactive terminal, or when the JSON will be aggregated by
+    MultiQC.
+
+*Skip ML integration*
+    Disable PCA and cross-modality correlation.  Speeds up runs where
+    statistical integration is not needed.
+
+-----
+
+**Example command** (equivalent command line)
+
+::
+
+    bioomics \\
+        --genomics        sample.vcf.gz \\
+        --transcriptomics counts.tsv    \\
+        --epigenomics     methylation.bed \\
+        --output          results/        \\
+        --threads         8
+
+-----
+
+**References**
+
+See the `BioMultiOmics repository`_ for full documentation, test data, and
+the Nextflow / Snakemake workflow wrappers.
+
+.. _BioMultiOmics repository: https://github.com/diladeniz/multiomics
+    ]]></help>
+
+    <!-- ================================================================
+         Citations
+         ================================================================ -->
+    <citations>
+        <citation type="doi">10.5281/zenodo.placeholder</citation>
+    </citations>
+
+</tool>

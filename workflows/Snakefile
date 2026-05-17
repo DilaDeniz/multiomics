@@ -1,0 +1,211 @@
+"""
+Snakefile — BioMultiOmics Snakemake workflow
+=============================================
+
+Runs the ``bioomics`` binary and, optionally, MultiQC to aggregate the JSON
+output into a MultiQC HTML report.
+
+Quick start
+-----------
+1. Copy ``config.yaml`` and fill in the paths for your sample(s).
+2. Execute (dry-run first)::
+
+       snakemake --configfile config.yaml -n
+       snakemake --configfile config.yaml --cores 8
+
+Configuration keys (see config.yaml for full schema)
+------------------------------------------------------
+Required:
+  samples:
+    <name>:
+      genomics:        path/to/sample.vcf[.gz]
+      transcriptomics: path/to/counts.tsv
+      epigenomics:     path/to/methylation.bed
+
+Optional per-sample:
+  samples.<name>.atac:      path to ENCODE narrowPeak BED
+  samples.<name>.cnv:       path to VCF with CN INFO field
+  samples.<name>.gmt:       path to GMT pathway file
+
+Global optional:
+  output_dir:       base output directory (default: "bioomics_out")
+  threads:          worker threads per sample (default: all cores)
+  raw_counts:       treat transcriptomics input as raw counts (default: false)
+  json_only:        emit JSON only, no HTML/TUI (default: false)
+  no_ml:            skip PCA and correlation (default: false)
+  run_multiqc:      aggregate outputs with MultiQC (default: true)
+  multiqc_config:   optional path to a multiqc_config.yaml
+"""
+
+import os
+from pathlib import Path
+
+# ---------------------------------------------------------------------------
+# Configuration defaults
+# ---------------------------------------------------------------------------
+
+configfile: "config.yaml"
+
+OUTPUT_DIR   = config.get("output_dir",  "bioomics_out")
+THREADS      = config.get("threads",     workflow.cores)
+RAW_COUNTS   = config.get("raw_counts",  False)
+JSON_ONLY    = config.get("json_only",   False)
+NO_ML        = config.get("no_ml",       False)
+RUN_MULTIQC  = config.get("run_multiqc", True)
+MULTIQC_CFG  = config.get("multiqc_config", None)
+
+SAMPLES = config.get("samples", {})
+
+if not SAMPLES:
+    raise ValueError(
+        "No samples defined in the config file. "
+        "Add at least one entry under the 'samples' key."
+    )
+
+# ---------------------------------------------------------------------------
+# Helper — build CLI flag string from a boolean config value
+# ---------------------------------------------------------------------------
+
+def flag(value: bool, arg: str) -> str:
+    return arg if value else ""
+
+
+def opt_path(sample_cfg: dict, key: str, arg: str) -> str:
+    """Return '--arg path' if the key exists in the sample config."""
+    p = sample_cfg.get(key)
+    return f"{arg} {p}" if p else ""
+
+
+# ---------------------------------------------------------------------------
+# Target rule
+# ---------------------------------------------------------------------------
+
+rule all:
+    """Default target: produce JSON + HTML for every sample."""
+    input:
+        expand(
+            os.path.join(OUTPUT_DIR, "{sample}", "multiqc_bioomics.json"),
+            sample=SAMPLES,
+        ),
+        expand(
+            os.path.join(OUTPUT_DIR, "{sample}", "report.html"),
+            sample=SAMPLES,
+        ) if not JSON_ONLY else [],
+        os.path.join(OUTPUT_DIR, "multiqc_report", "multiqc_report.html")
+            if RUN_MULTIQC else [],
+
+
+# ---------------------------------------------------------------------------
+# Rule: bioomics — run the main analysis binary
+# ---------------------------------------------------------------------------
+
+rule bioomics:
+    """
+    Run BioMultiOmics for a single sample.
+
+    Inputs
+    ------
+    genomics        : VCF (gzipped or plain)
+    transcriptomics : Expression matrix TSV
+    epigenomics     : BED methylation file
+
+    Outputs
+    -------
+    json   : multiqc_bioomics.json (always produced)
+    html   : report.html           (unless --json flag is set)
+    """
+    input:
+        genomics        = lambda wc: SAMPLES[wc.sample]["genomics"],
+        transcriptomics = lambda wc: SAMPLES[wc.sample]["transcriptomics"],
+        epigenomics     = lambda wc: SAMPLES[wc.sample]["epigenomics"],
+        # Optional inputs resolved to empty string when absent so that
+        # Snakemake does not require them as actual file dependencies.
+        atac  = lambda wc: SAMPLES[wc.sample].get("atac",  []),
+        cnv   = lambda wc: SAMPLES[wc.sample].get("cnv",   []),
+        gmt   = lambda wc: SAMPLES[wc.sample].get("gmt",   []),
+    output:
+        json  = os.path.join(OUTPUT_DIR, "{sample}", "multiqc_bioomics.json"),
+        html  = os.path.join(OUTPUT_DIR, "{sample}", "report.html"),
+    params:
+        sample_cfg = lambda wc: SAMPLES[wc.sample],
+        out_dir    = lambda wc: os.path.join(OUTPUT_DIR, wc.sample),
+        threads    = THREADS,
+        raw_counts = flag(RAW_COUNTS, "--raw-counts"),
+        json_only  = flag(JSON_ONLY,  "--json"),
+        no_ml      = flag(NO_ML,      "--no-ml"),
+        atac_arg   = lambda wc: opt_path(SAMPLES[wc.sample], "atac", "--atac"),
+        cnv_arg    = lambda wc: opt_path(SAMPLES[wc.sample], "cnv",  "--cnv"),
+        gmt_arg    = lambda wc: opt_path(SAMPLES[wc.sample], "gmt",  "--gmt"),
+    threads: THREADS
+    log:
+        os.path.join(OUTPUT_DIR, "{sample}", "logs", "bioomics.log"),
+    shell:
+        """
+        mkdir -p {params.out_dir}/logs
+
+        bioomics \\
+            --genomics        {input.genomics}        \\
+            --transcriptomics {input.transcriptomics} \\
+            --epigenomics     {input.epigenomics}     \\
+            {params.atac_arg}                         \\
+            {params.cnv_arg}                          \\
+            {params.gmt_arg}                          \\
+            --output          {params.out_dir}        \\
+            --threads         {params.threads}        \\
+            {params.raw_counts}                       \\
+            {params.json_only}                        \\
+            {params.no_ml}                            \\
+        2>&1 | tee {log}
+        """
+
+
+# ---------------------------------------------------------------------------
+# Rule: multiqc — aggregate all JSON outputs into a single MultiQC report
+# ---------------------------------------------------------------------------
+
+rule multiqc:
+    """
+    Run MultiQC over all BioMultiOmics JSON outputs.
+
+    Requires the ``multiqc_bioomics`` Python plugin to be installed::
+
+        pip install multiqc_bioomics/
+
+    This rule is only included in the DAG when ``run_multiqc: true`` in the
+    config (the default).
+    """
+    input:
+        jsons = expand(
+            os.path.join(OUTPUT_DIR, "{sample}", "multiqc_bioomics.json"),
+            sample=SAMPLES,
+        ),
+    output:
+        html = os.path.join(OUTPUT_DIR, "multiqc_report", "multiqc_report.html"),
+        data = directory(os.path.join(OUTPUT_DIR, "multiqc_report", "multiqc_data")),
+    params:
+        search_dirs  = " ".join(
+            os.path.join(OUTPUT_DIR, s) for s in SAMPLES
+        ),
+        out_dir      = os.path.join(OUTPUT_DIR, "multiqc_report"),
+        cfg_flag     = f"--config {MULTIQC_CFG}" if MULTIQC_CFG else "",
+    log:
+        os.path.join(OUTPUT_DIR, "logs", "multiqc.log"),
+    shell:
+        """
+        multiqc \\
+            {params.search_dirs}     \\
+            --outdir {params.out_dir} \\
+            --force                   \\
+            {params.cfg_flag}         \\
+        2>&1 | tee {log}
+        """
+
+
+# ---------------------------------------------------------------------------
+# Rule: clean — remove all generated outputs
+# ---------------------------------------------------------------------------
+
+rule clean:
+    """Remove the output directory."""
+    shell:
+        f"rm -rf {OUTPUT_DIR}"

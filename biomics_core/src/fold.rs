@@ -4,11 +4,23 @@ use std::time::Instant;
 
 use crate::accum::BatchAccum;
 
-/// Number of records processed per rayon task.
+/// Default chunk size: 64 KiB worth of records per rayon task.
 ///
-/// 64 K is the sweet spot: large enough to amortize rayon scheduling overhead,
-/// small enough to keep L2 cache warm on a single core.
-pub const BATCH_SIZE: usize = 64_000;
+/// The actual chunk size used at runtime is computed dynamically in
+/// `parallel_fold` by targeting `TARGET_CHUNK_BYTES` (256 KB) of record data
+/// per task.  This constant is the fallback when `size_of::<A::Record>() == 0`
+/// or the computed value would otherwise be 0.
+pub const DEFAULT_CHUNK: usize = 65_536;
+
+/// Target approximately 256 KB of record data per rayon task so that each
+/// chunk fits comfortably in the L2 cache of a modern core.
+const TARGET_CHUNK_BYTES: usize = 256 * 1024;
+
+/// Retained for backwards compatibility with call sites that reference it.
+pub const BATCH_SIZE: usize = DEFAULT_CHUNK;
+
+/// How many records ahead to prefetch when the `prefetch` feature is enabled.
+pub const PREFETCH_DISTANCE: usize = 16;
 
 /// Progress event sent over the crossbeam channel to the TUI or orchestration thread.
 #[derive(Debug, Clone)]
@@ -30,6 +42,19 @@ impl ProgressEvent {
     }
 }
 
+/// Compute the chunk size for a given record type, targeting `TARGET_CHUNK_BYTES`.
+///
+/// Falls back to `DEFAULT_CHUNK` for ZSTs or when the size would overflow.
+#[inline]
+fn chunk_size_for<T>() -> usize {
+    let record_size = std::mem::size_of::<T>();
+    if record_size == 0 {
+        DEFAULT_CHUNK
+    } else {
+        (TARGET_CHUNK_BYTES / record_size).max(1)
+    }
+}
+
 /// Execute a lock-free parallel fold over a pre-collected slice of records.
 ///
 /// Two code paths are compiled:
@@ -39,6 +64,10 @@ impl ProgressEvent {
 /// Both paths share the same rayon `par_chunks` + `reduce` skeleton; the
 /// `if let Some(tx)` branch is fully eliminated at compile time via monomorphism
 /// because callers almost always pass a concrete `Option<&Sender<…>>` literal.
+///
+/// Chunk size is derived dynamically from `TARGET_CHUNK_BYTES` (256 KB) to keep
+/// each task's working set inside the L2 cache.  Override by calling
+/// `parallel_fold_with_chunk` directly.
 pub fn parallel_fold<A>(
     records: &[A::Record],
     modality: &'static str,
@@ -47,28 +76,47 @@ pub fn parallel_fold<A>(
 where
     A: BatchAccum,
 {
+    let chunk_size = chunk_size_for::<A::Record>();
     if let Some(tx) = progress_tx {
-        parallel_fold_with_progress::<A>(records, modality, tx)
+        parallel_fold_with_progress::<A>(records, modality, tx, chunk_size)
     } else {
-        parallel_fold_bare::<A>(records)
+        parallel_fold_bare::<A>(records, chunk_size)
     }
 }
 
 /// Inner fold without any progress reporting — zero branch cost per chunk.
 #[inline]
-fn parallel_fold_bare<A>(records: &[A::Record]) -> anyhow::Result<A::Summary>
+fn parallel_fold_bare<A>(records: &[A::Record], chunk_size: usize) -> anyhow::Result<A::Summary>
 where
     A: BatchAccum,
 {
     let merged: A = records
-        .par_chunks(BATCH_SIZE)
+        .par_chunks(chunk_size)
         .map(|chunk| {
             let mut acc = A::default();
+
+            #[cfg(feature = "prefetch")]
+            {
+                // Touch each record PREFETCH_DISTANCE ahead to warm the cache
+                // line before the main loop reaches it.  `black_box` prevents
+                // the compiler from eliding the load as dead code.
+                for (i, record) in chunk.iter().enumerate() {
+                    if let Some(ahead) = chunk.get(i + PREFETCH_DISTANCE) {
+                        let _ = std::hint::black_box(ahead as *const _ as usize);
+                    }
+                    if let Err(e) = acc.process(record) {
+                        log::warn!("skipping record: {}", e);
+                    }
+                }
+            }
+
+            #[cfg(not(feature = "prefetch"))]
             for record in chunk {
                 if let Err(e) = acc.process(record) {
                     log::warn!("skipping record: {}", e);
                 }
             }
+
             acc
         })
         .reduce(A::default, |mut left, right| {
@@ -84,6 +132,7 @@ fn parallel_fold_with_progress<A>(
     records: &[A::Record],
     modality: &'static str,
     tx: &Sender<ProgressEvent>,
+    chunk_size: usize,
 ) -> anyhow::Result<A::Summary>
 where
     A: BatchAccum,
@@ -92,16 +141,31 @@ where
     let start = Instant::now();
 
     let merged: A = records
-        .par_chunks(BATCH_SIZE)
+        .par_chunks(chunk_size)
         .enumerate()
         .map(|(chunk_idx, chunk)| {
             let mut acc = A::default();
+
+            #[cfg(feature = "prefetch")]
+            {
+                for (i, record) in chunk.iter().enumerate() {
+                    if let Some(ahead) = chunk.get(i + PREFETCH_DISTANCE) {
+                        let _ = std::hint::black_box(ahead as *const _ as usize);
+                    }
+                    if let Err(e) = acc.process(record) {
+                        log::warn!("[{}] skipping record in chunk {}: {}", modality, chunk_idx, e);
+                    }
+                }
+            }
+
+            #[cfg(not(feature = "prefetch"))]
             for record in chunk {
                 if let Err(e) = acc.process(record) {
                     log::warn!("[{}] skipping record in chunk {}: {}", modality, chunk_idx, e);
                 }
             }
-            let processed = (((chunk_idx + 1) * BATCH_SIZE) as u64).min(total);
+
+            let processed = (((chunk_idx + 1) * chunk_size) as u64).min(total);
             let elapsed = start.elapsed().as_secs_f64().max(1e-9);
             let _ = tx.send(ProgressEvent {
                 modality,
@@ -150,7 +214,7 @@ where
                         log::warn!("[{}] skipping record: {}", modality, e);
                     }
                     count += 1;
-                    if count.is_multiple_of(BATCH_SIZE as u64) {
+                    if count.is_multiple_of(DEFAULT_CHUNK as u64) {
                         if let Some(ref p) = ptx {
                             let elapsed = start.elapsed().as_secs_f64().max(1e-9);
                             let _ = p.send(ProgressEvent {

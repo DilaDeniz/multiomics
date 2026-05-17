@@ -12,6 +12,8 @@ use epigenomics_core::{analyze_bed, EpigenomicsSummary};
 use integration_layer::{run_integration, IntegrationSummary};
 
 use crate::args::Cli;
+use crate::compare::run_comparison;
+use crate::config::BioomicsConfig;
 use crate::output::{build_multiqc_output, write_html_report, write_json, MultiQcOutput};
 use crate::tui::app::{Phase, SharedState};
 
@@ -19,12 +21,13 @@ use crate::tui::app::{Phase, SharedState};
 ///
 /// Phases 1–3 run concurrently via `std::thread::scope`; phase 4 (integration)
 /// depends on all three and runs sequentially after them.
-pub fn run_pipeline(cli: &Cli, state: Option<SharedState>) -> Result<MultiQcOutput> {
+pub fn run_pipeline(cli: &Cli, cfg: &BioomicsConfig, state: Option<SharedState>) -> Result<MultiQcOutput> {
     let start = Instant::now();
 
     let threads = cli.threads.unwrap_or_else(num_cpus);
     ThreadPoolBuilder::new()
         .num_threads(threads)
+        .stack_size(cfg.performance.thread_stack_bytes)
         .build_global()
         .ok();
 
@@ -195,6 +198,24 @@ pub fn run_pipeline(cli: &Cli, state: Option<SharedState>) -> Result<MultiQcOutp
 
         result
     };
+
+    // Optional: comparison mode (tumor-vs-normal / treatment-vs-control)
+    if cli.has_compare() {
+        log::info!("Running comparison mode");
+        match run_comparison(cli, cfg, &genomics, &transcriptomics, &epigenomics) {
+            Ok(cmp) => {
+                for insight in &cmp.insights {
+                    push_insight(&state, insight.clone());
+                }
+                log::info!(
+                    "Comparison: variant burden ratio={:.2}, Δmeth={:+.1}%",
+                    cmp.genomics.variant_burden_ratio,
+                    cmp.epigenomics.delta_global_meth,
+                );
+            }
+            Err(e) => log::warn!("Comparison failed: {:#}", e),
+        }
+    }
 
     let elapsed_secs = start.elapsed().as_secs();
     let output = build_multiqc_output(

@@ -37,7 +37,11 @@ pub fn scran_size_factors(matrix: &CsrMatrix, pool_sizes: &[usize]) -> Result<Ve
     order.sort_by_key(|&i| lib_sizes[i]);
 
     // Compute pseudo-reference: geometric mean of library sizes (log-space mean)
-    let log_ref: f64 = lib_sizes.iter().map(|&l| (l as f64 + 1.0).ln()).sum::<f64>() / n as f64;
+    let log_ref: f64 = lib_sizes
+        .iter()
+        .map(|&l| (l as f64 + 1.0).ln())
+        .sum::<f64>()
+        / n as f64;
     let geo_ref = log_ref.exp();
 
     // Per-cell reference ratio (library size / geo_mean)

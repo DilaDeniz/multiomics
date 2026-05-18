@@ -79,7 +79,10 @@ pub fn run_scrna_pipeline(
     let knn = build_knn_graph(&embedding, k_neighbors);
 
     // 7. Leiden clustering
-    log::info!("Running Leiden clustering (resolution={})", leiden_resolution);
+    log::info!(
+        "Running Leiden clustering (resolution={})",
+        leiden_resolution
+    );
     let cluster_labels = leiden_cluster(&knn, leiden_resolution);
     let n_clusters = cluster_labels.iter().max().copied().unwrap_or(0) + 1;
     log::info!("Found {} clusters", n_clusters);
@@ -101,10 +104,8 @@ pub fn run_scrna_pipeline(
     // Top 3 markers per cluster by p-value
     let mut top_markers: Vec<ClusterMarker> = Vec::new();
     for cid in 0..n_clusters {
-        let mut cluster_markers: Vec<&ClusterMarker> = all_markers
-            .iter()
-            .filter(|m| m.cluster == cid)
-            .collect();
+        let mut cluster_markers: Vec<&ClusterMarker> =
+            all_markers.iter().filter(|m| m.cluster == cid).collect();
         cluster_markers.sort_by(|a, b| {
             a.p_value
                 .partial_cmp(&b.p_value)
@@ -118,10 +119,7 @@ pub fn run_scrna_pipeline(
     // Compute medians for summary
     let passing_qc: Vec<&CellQc> = qc_metrics.iter().filter(|c| c.pass).collect();
     let mut gene_counts: Vec<f64> = passing_qc.iter().map(|c| c.n_genes as f64).collect();
-    let mut count_totals: Vec<f64> = passing_qc
-        .iter()
-        .map(|c| c.total_counts as f64)
-        .collect();
+    let mut count_totals: Vec<f64> = passing_qc.iter().map(|c| c.total_counts as f64).collect();
     let median_genes = median_f64(&mut gene_counts);
     let median_counts = median_f64(&mut count_totals);
 

@@ -82,9 +82,7 @@ pub fn default_qc_filter(qc: &mut [CellQc]) {
 
 /// Rebuild the matrix keeping only cells where `qc[j].pass == true`.
 pub fn filter_cells(matrix: &CsrMatrix, qc: &[CellQc]) -> CsrMatrix {
-    let keep: Vec<usize> = (0..matrix.n_cols)
-        .filter(|&j| qc[j].pass)
-        .collect();
+    let keep: Vec<usize> = (0..matrix.n_cols).filter(|&j| qc[j].pass).collect();
 
     // Build a mapping old_col → new_col (u32::MAX means dropped)
     let mut col_map = vec![u32::MAX; matrix.n_cols];
@@ -108,10 +106,7 @@ pub fn filter_cells(matrix: &CsrMatrix, qc: &[CellQc]) -> CsrMatrix {
         indptr[row + 1] = indices.len() as u32;
     }
 
-    let barcodes = keep
-        .iter()
-        .map(|&j| matrix.barcodes[j].clone())
-        .collect();
+    let barcodes = keep.iter().map(|&j| matrix.barcodes[j].clone()).collect();
 
     CsrMatrix {
         n_rows: matrix.n_rows,

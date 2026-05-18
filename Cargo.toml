@@ -6,6 +6,7 @@ members = [
     "transcriptomics_core",
     "epigenomics_core",
     "atacseq_core",
+    "scrna_core",
     "integration_layer",
     "cli",
     "pybioomics",

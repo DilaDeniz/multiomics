@@ -10,9 +10,9 @@ pub use fastq::{parse_fastq, FastqSummary};
 pub use types::{ChromDensity, GenomicsSummary, TiTvClass, VariantRecord};
 pub use vcf::parse_vcf;
 
-pub mod pileup;
 pub mod genotyper;
-pub use genotyper::{call_variants, call_variants_from_bam, GenotypeCall, Genotype};
+pub mod pileup;
+pub use genotyper::{call_variants, call_variants_from_bam, Genotype, GenotypeCall};
 pub use pileup::{build_pileup, PileupBase, PileupColumn};
 
 use anyhow::Result;

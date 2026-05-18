@@ -69,11 +69,7 @@ pub struct GenotypeCall {
 /// 3. Computes log-likelihoods under hom-ref, het, and hom-alt.
 /// 4. Applies a Hardy-Weinberg prior with θ = 0.001.
 /// 5. Emits a [`GenotypeCall`] when `QUAL >= min_qual` and call ≠ HomRef.
-pub fn call_variants(
-    pileup: &[PileupColumn],
-    min_depth: u32,
-    min_qual: f32,
-) -> Vec<GenotypeCall> {
+pub fn call_variants(pileup: &[PileupColumn], min_depth: u32, min_qual: f32) -> Vec<GenotypeCall> {
     let mut calls = Vec::new();
 
     for col in pileup {
@@ -163,11 +159,7 @@ pub fn call_variants(
 /// Compute log-likelihoods for hom-ref, het, and hom-alt under Li 2011.
 ///
 /// Returns `(ln_L_hom_ref, ln_L_het, ln_L_hom_alt)`.
-pub fn genotype_likelihoods(
-    bases: &[PileupBase],
-    ref_base: u8,
-    alt_base: u8,
-) -> (f64, f64, f64) {
+pub fn genotype_likelihoods(bases: &[PileupBase], ref_base: u8, alt_base: u8) -> (f64, f64, f64) {
     let mut ln_hom_ref = 0.0_f64;
     let mut ln_het = 0.0_f64;
     let mut ln_hom_alt = 0.0_f64;
@@ -258,7 +250,12 @@ mod tests {
     use crate::pileup::PileupBase;
 
     fn make_base(b: u8, q: u8) -> PileupBase {
-        PileupBase { base: b, base_qual: q, mapq: 60, is_rev: false }
+        PileupBase {
+            base: b,
+            base_qual: q,
+            mapq: 60,
+            is_rev: false,
+        }
     }
 
     #[test]

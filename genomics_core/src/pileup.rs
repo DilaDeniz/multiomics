@@ -86,9 +86,7 @@ pub fn build_pileup(
         .build_from_path(bam_path)
         .with_context(|| format!("cannot open BAM file: {}", bam_path.display()))?;
 
-    let header = reader
-        .read_header()
-        .context("failed to read BAM header")?;
+    let header = reader.read_header().context("failed to read BAM header")?;
 
     // Collect all (chrom_idx, pos, base, qual, mapq, strand) tuples.
     let mut tuples: Vec<BaseTuple> = Vec::new();
@@ -139,9 +137,7 @@ pub fn build_pileup(
             let len = op.len();
 
             match op.kind() {
-                CigarKind::Match
-                | CigarKind::SequenceMatch
-                | CigarKind::SequenceMismatch => {
+                CigarKind::Match | CigarKind::SequenceMatch | CigarKind::SequenceMismatch => {
                     for k in 0..len {
                         let qi = q_idx + k;
                         // Sequence returns raw IUPAC bytes; normalize to ACGTN.
@@ -193,10 +189,7 @@ pub fn build_pileup(
 
         // Find the end of this (chrom, pos) group.
         let mut j = i;
-        while j < tuples.len()
-            && tuples[j].chrom_idx == chrom_idx
-            && tuples[j].pos == pos
-        {
+        while j < tuples.len() && tuples[j].chrom_idx == chrom_idx && tuples[j].pos == pos {
             j += 1;
         }
 
@@ -258,8 +251,18 @@ mod tests {
             pos: 100,
             ref_base: b'A',
             bases: vec![
-                PileupBase { base: b'A', base_qual: 30, mapq: 60, is_rev: false },
-                PileupBase { base: b'G', base_qual: 25, mapq: 60, is_rev: true },
+                PileupBase {
+                    base: b'A',
+                    base_qual: 30,
+                    mapq: 60,
+                    is_rev: false,
+                },
+                PileupBase {
+                    base: b'G',
+                    base_qual: 25,
+                    mapq: 60,
+                    is_rev: true,
+                },
             ],
         };
         assert_eq!(col.depth(), 2);

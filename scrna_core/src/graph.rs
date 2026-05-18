@@ -102,10 +102,7 @@ pub fn build_knn_graph(embedding: &Array2<f32>, k: usize) -> KnnGraph {
             })
             .collect();
 
-        dists.sort_by(|a, b| {
-            a.1.partial_cmp(&b.1)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
+        dists.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
         dists.truncate(k_actual);
         neighbors.push(dists.into_iter().map(|(c, _)| c).collect());
     }

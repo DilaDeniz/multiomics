@@ -65,12 +65,11 @@ fn open_reader(dir: &Path, stem: &str) -> Result<Box<dyn BufRead>> {
     let gz_path = dir.join(format!("{stem}.gz"));
     let plain_path = dir.join(stem);
     if gz_path.exists() {
-        let f = File::open(&gz_path)
-            .with_context(|| format!("opening {}", gz_path.display()))?;
+        let f = File::open(&gz_path).with_context(|| format!("opening {}", gz_path.display()))?;
         Ok(Box::new(BufReader::new(GzDecoder::new(f))))
     } else {
-        let f = File::open(&plain_path)
-            .with_context(|| format!("opening {}", plain_path.display()))?;
+        let f =
+            File::open(&plain_path).with_context(|| format!("opening {}", plain_path.display()))?;
         Ok(Box::new(BufReader::new(f)))
     }
 }

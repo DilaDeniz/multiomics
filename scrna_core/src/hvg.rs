@@ -40,10 +40,7 @@ pub fn select_hvg(norm_matrix: &Array2<f32>, n_top: usize) -> Vec<usize> {
         .collect();
 
     // For each bin, collect log(variance) values; compute mean and std
-    let log_vars: Vec<f64> = variances
-        .iter()
-        .map(|&v| (v as f64 + 1e-10).ln())
-        .collect();
+    let log_vars: Vec<f64> = variances.iter().map(|&v| (v as f64 + 1e-10).ln()).collect();
 
     let mut bin_log_vars: Vec<Vec<f64>> = vec![Vec::new(); N_BINS];
     for (g, &b) in bin_of.iter().enumerate() {
@@ -108,7 +105,13 @@ pub fn gene_stats(matrix: &Array2<f32>) -> (Vec<f32>, Vec<f32>) {
 
     let variances: Vec<f32> = m2
         .iter()
-        .map(|&s| if n_cells > 1 { (s / (n_cells - 1) as f64) as f32 } else { 0.0 })
+        .map(|&s| {
+            if n_cells > 1 {
+                (s / (n_cells - 1) as f64) as f32
+            } else {
+                0.0
+            }
+        })
         .collect();
 
     let means_f32: Vec<f32> = means.iter().map(|&m| m as f32).collect();

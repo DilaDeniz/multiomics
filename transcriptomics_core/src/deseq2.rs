@@ -292,8 +292,7 @@ pub fn deseq2_differential_expression(matrix: &NormalizedMatrix) -> Vec<DiffExpr
 
             // Raw (non-log) means for reporting
             let mean_s1 = norm_row[..split].iter().sum::<f64>() / split.max(1) as f64;
-            let mean_s2 =
-                norm_row[split..].iter().sum::<f64>() / (n_samples - split).max(1) as f64;
+            let mean_s2 = norm_row[split..].iter().sum::<f64>() / (n_samples - split).max(1) as f64;
 
             let (p_value, padj) = if can_test {
                 let pval = welch_t_test(&g1, &g2).map(|(_, p)| p).unwrap_or(f64::NAN);
@@ -529,11 +528,7 @@ fn fit_dispersion_trend(dispersions: &[f64], means: &[f64]) -> DispersionTrend {
 /// Shrink MLE dispersions toward the trend using empirical Bayes log-normal prior.
 ///
 /// log(α_shrunk) = weighted average of log(α_MLE) and log(α_trend).
-fn shrink_dispersions(
-    mle_dispersions: &[f64],
-    means: &[f64],
-    trend: &DispersionTrend,
-) -> Vec<f64> {
+fn shrink_dispersions(mle_dispersions: &[f64], means: &[f64], trend: &DispersionTrend) -> Vec<f64> {
     let n_samples_approx = 6_usize; // reasonable default; not critical for shrinkage direction
 
     // Compute log dispersions for genes with valid MLE
@@ -548,8 +543,11 @@ fn shrink_dispersions(
     let sigma2_prior = if log_mlep.len() >= 2 {
         let n = log_mlep.len() as f64;
         let mean_log = log_mlep.iter().sum::<f64>() / n;
-        let var_log =
-            log_mlep.iter().map(|&x| (x - mean_log).powi(2)).sum::<f64>() / (n - 1.0).max(1.0);
+        let var_log = log_mlep
+            .iter()
+            .map(|&x| (x - mean_log).powi(2))
+            .sum::<f64>()
+            / (n - 1.0).max(1.0);
         (var_log - var_sampling).max(0.0)
     } else {
         0.0
@@ -1200,11 +1198,7 @@ mod tests {
         assert_eq!(analysis.results.len(), 4);
 
         // G1 should be up (positive LFC)
-        let g1 = analysis
-            .results
-            .iter()
-            .find(|r| r.gene_id == "G1")
-            .unwrap();
+        let g1 = analysis.results.iter().find(|r| r.gene_id == "G1").unwrap();
         assert!(
             g1.log2_fold_change > 0.0,
             "G1 should be up-regulated, got lfc={}",
@@ -1212,11 +1206,7 @@ mod tests {
         );
 
         // G3 should be down (negative LFC)
-        let g3 = analysis
-            .results
-            .iter()
-            .find(|r| r.gene_id == "G3")
-            .unwrap();
+        let g3 = analysis.results.iter().find(|r| r.gene_id == "G3").unwrap();
         assert!(
             g3.log2_fold_change < 0.0,
             "G3 should be down-regulated, got lfc={}",
@@ -1225,11 +1215,7 @@ mod tests {
 
         // All p-values should be finite (not NaN, not infinite)
         for r in &analysis.results {
-            assert!(
-                r.p_value.is_finite(),
-                "p_value NaN for gene {}",
-                r.gene_id
-            );
+            assert!(r.p_value.is_finite(), "p_value NaN for gene {}", r.gene_id);
         }
     }
 

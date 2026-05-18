@@ -87,8 +87,7 @@ pub fn gsea_preranked(
         .iter()
         .enumerate()
         .filter_map(|(pw_idx, &(pid, pname, pgenes))| {
-            let pathway_set: AHashSet<String> =
-                pgenes.iter().map(|g| g.to_uppercase()).collect();
+            let pathway_set: AHashSet<String> = pgenes.iter().map(|g| g.to_uppercase()).collect();
 
             let n_hits = ranked_genes
                 .iter()

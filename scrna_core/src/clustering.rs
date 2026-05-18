@@ -38,7 +38,11 @@ pub fn leiden_cluster(graph: &KnnGraph, resolution: f64) -> Vec<u32> {
         });
     }
 
-    let m: f64 = adj.iter().map(|row| row.iter().map(|(_, w)| w).sum::<f64>()).sum::<f64>() / 2.0;
+    let m: f64 = adj
+        .iter()
+        .map(|row| row.iter().map(|(_, w)| w).sum::<f64>())
+        .sum::<f64>()
+        / 2.0;
 
     let mut partition: Vec<usize> = (0..n).collect();
     let mut improved = true;
@@ -90,7 +94,8 @@ pub fn leiden_cluster(graph: &KnnGraph, resolution: f64) -> Vec<u32> {
                 // Restore node to current community
                 comm_degree[current_comm] += k_i;
                 // Check staying vs. best alternative using modularity gain
-                let stay_dq = k_i_current / m - resolution * k_i * comm_degree[current_comm] / (2.0 * m * m);
+                let stay_dq =
+                    k_i_current / m - resolution * k_i * comm_degree[current_comm] / (2.0 * m * m);
                 let _ = stay_dq; // used implicitly by best_dq comparison above
             }
         }
@@ -103,7 +108,10 @@ pub fn leiden_cluster(graph: &KnnGraph, resolution: f64) -> Vec<u32> {
 ///
 /// Returns `(adj, community_degree_sums)` where each entry in `adj` is a
 /// list of `(community_id, edge_weight)`.
-pub fn build_community_graph(graph: &KnnGraph, partition: &[u32]) -> (Vec<Vec<(u32, f64)>>, Vec<f64>) {
+pub fn build_community_graph(
+    graph: &KnnGraph,
+    partition: &[u32],
+) -> (Vec<Vec<(u32, f64)>>, Vec<f64>) {
     let n_comm = (*partition.iter().max().unwrap_or(&0) + 1) as usize;
     let mut adj: Vec<ahash::AHashMap<u32, f64>> = vec![ahash::AHashMap::new(); n_comm];
     let mut degree: Vec<f64> = vec![0.0; n_comm];
@@ -117,10 +125,7 @@ pub fn build_community_graph(graph: &KnnGraph, partition: &[u32]) -> (Vec<Vec<(u
         }
     }
 
-    let adj_list: Vec<Vec<(u32, f64)>> = adj
-        .into_iter()
-        .map(|m| m.into_iter().collect())
-        .collect();
+    let adj_list: Vec<Vec<(u32, f64)>> = adj.into_iter().map(|m| m.into_iter().collect()).collect();
 
     (adj_list, degree)
 }

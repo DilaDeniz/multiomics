@@ -16,3 +16,5 @@ needletail        = { workspace = true }
 log               = { workspace = true }
 ahash             = { workspace = true }
 memchr            = { workspace = true }
+noodles-bam       = "0.68"
+noodles-sam       = "0.65"

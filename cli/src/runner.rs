@@ -241,6 +241,41 @@ pub fn run_pipeline(
         }
     }
 
+    // Optional: gene quantification from BAM + GTF
+    if let (Some(bam_path), Some(gtf_path)) = (&cli.bam, &cli.gtf) {
+        use transcriptomics_core::{quantify, summarize_quant};
+        log::info!(
+            "Running gene quantification: BAM='{}', GTF='{}'",
+            bam_path.display(),
+            gtf_path.display()
+        );
+        match quantify(bam_path, gtf_path, "unstranded", 10) {
+            Ok(counts) => {
+                let total_reads: u64 = counts.values().sum();
+                let summary = summarize_quant(&counts, total_reads);
+                log::info!(
+                    "Quant: {} genes detected, {:.1}% assigned, top gene: {}",
+                    summary.n_genes_detected,
+                    summary.assignment_rate * 100.0,
+                    summary
+                        .top_genes
+                        .first()
+                        .map(|(g, _)| g.as_str())
+                        .unwrap_or("none"),
+                );
+                push_insight(
+                    &state,
+                    format!(
+                        "[INFO] Quant: {} genes detected, {:.1}% reads assigned",
+                        summary.n_genes_detected,
+                        summary.assignment_rate * 100.0,
+                    ),
+                );
+            }
+            Err(e) => log::warn!("Gene quantification failed: {e}"),
+        }
+    }
+
     // Optional: FASTQ QC
     if let Some(ref fastq_path) = cli.fastq {
         log::info!("Running FASTQ QC: '{}'", fastq_path.display());

@@ -8,14 +8,14 @@ use ratatui::{
 
 use super::app::{AppState, Phase};
 
-/// Render the full BioMultiOmics TUI to the given frame.
+/// Render the full Multiomics TUI to the given frame.
 pub fn render(frame: &mut Frame, state: &AppState) {
     let area = frame.size();
 
     // Outer block
     let outer = Block::default()
         .title(Span::styled(
-            " BioMultiOmics ",
+            " Multiomics ",
             Style::default()
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),

@@ -1,4 +1,4 @@
-{% set name = "BioMultiOmics" %}
+{% set name = "multiomics" %}
 {% set version = "0.1.0" %}
 
 package:
@@ -7,7 +7,7 @@ package:
 
 source:
   url: https://github.com/DilaDeniz/{{ name }}/archive/refs/tags/v{{ version }}.tar.gz
-  sha256: <FILL_IN_AFTER_TAGGING>
+  sha256: 0000000000000000000000000000000000000000000000000000000000000000
 
 build:
   number: 0
@@ -22,26 +22,26 @@ requirements:
 
 test:
   commands:
-    - bioomics --version | grep '{{ version }}'
-    - bioomics --genomics "${RECIPE_DIR}/test_data/minimal.vcf"
-               --transcriptomics "${RECIPE_DIR}/test_data/minimal.tsv"
-               --epigenomics "${RECIPE_DIR}/test_data/minimal.bed"
-               --output "${TMPDIR}/bioomics_test"
-               --json --no-ml
+    - multiomics --version | grep '{{ version }}'
+    - multiomics --genomics "${RECIPE_DIR}/test_data/minimal.vcf"
+                 --transcriptomics "${RECIPE_DIR}/test_data/minimal.tsv"
+                 --epigenomics "${RECIPE_DIR}/test_data/minimal.bed"
+                 --output "${TMPDIR}/multiomics_test"
+                 --json
 
 about:
   home: "https://github.com/DilaDeniz/{{ name }}"
-  license: Apache-2.0
+  license: MIT
   license_file: LICENSE
-  summary: "Production-grade multi-omics analysis: VCF + TSV + BED → integrated HTML/JSON report."
+  summary: "High-performance multi-omics analysis: VCF + TSV + BED → integrated HTML/JSON report."
   description: |
-    BioMultiOmics is a high-performance multi-omics analysis tool written in Rust.
-    It ingests genomic variants (VCF), expression matrices (TSV), and methylation
-    data (BED) simultaneously using lock-free parallel processing, and produces
-    an integrated HTML report, MultiQC-compatible JSON, and a live terminal UI.
-    Features include Welch t-test + BH FDR differential expression, Fisher's exact
-    pathway enrichment against 75+ KEGG/custom pathways, CpG island detection,
-    Pearson/Spearman cross-modality correlation, and PCA.
+    Multiomics is a fast, multi-threaded tool for integrated analysis of
+    VCF (genomics), TSV/BAM (transcriptomics), and BED (epigenomics) data
+    simultaneously. It produces self-contained HTML reports, MultiQC-compatible
+    JSON, pathway enrichment (KEGG/GMT), PCA, cross-modality correlation,
+    DESeq2 normalization, GSEA pre-ranked, CNV analysis, and a real-time
+    terminal UI. Uses HyperLogLog for memory-efficient cardinality estimation
+    and rayon parallel fold for lock-free multi-core processing.
 
 extra:
   additional-platforms:

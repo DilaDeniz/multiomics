@@ -1,12 +1,12 @@
 [package]
-name              = "bioomics"
+name              = "multiomics"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description       = "BioMultiOmics — production multi-omics analysis CLI"
+description       = "Multiomics — production multi-omics analysis CLI"
 
 [[bin]]
-name = "bioomics"
+name = "multiomics"
 path = "src/main.rs"
 
 [features]

@@ -41,14 +41,14 @@ fn warn_disabled_features(_cli: &Cli) {
     #[cfg(not(feature = "atac"))]
     if _cli.atac.is_some() {
         log::warn!(
-            "--atac supplied but bioomics was compiled without the 'atac' feature (rebuild with --features atac)"
+            "--atac supplied but multiomics was compiled without the 'atac' feature (rebuild with --features atac)"
         );
     }
 
     #[cfg(not(feature = "cnv"))]
     if _cli.cnv.is_some() {
         log::warn!(
-            "--cnv supplied but bioomics was compiled without the 'cnv' feature (rebuild with --features cnv)"
+            "--cnv supplied but multiomics was compiled without the 'cnv' feature (rebuild with --features cnv)"
         );
     }
 }
@@ -94,9 +94,9 @@ fn main() -> Result<()> {
             "clinical"
         );
         println!();
-        println!("Use: bioomics --preset cancer --genomics ...");
+        println!("Use: multiomics --preset cancer --genomics ...");
         println!("Combine with --config to override specific fields:");
-        println!("  bioomics --preset cancer --config my_tweaks.toml --genomics ...");
+        println!("  multiomics --preset cancer --config my_tweaks.toml --genomics ...");
         println!();
         print_compiled_features();
         return Ok(());

@@ -177,33 +177,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "bioomics"
-version = "0.1.0"
-dependencies = [
- "ahash",
- "anyhow",
- "atacseq_core",
- "biomics_core",
- "chrono",
- "clap",
- "crossbeam-channel",
- "crossterm",
- "env_logger",
- "epigenomics_core",
- "genomics_core",
- "integration_layer",
- "log",
- "mimalloc",
- "num_cpus",
- "ratatui",
- "rayon",
- "serde",
- "serde_json",
- "toml",
- "transcriptomics_core",
-]
-
-[[package]]
 name = "bit-vec"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1166,6 +1139,33 @@ dependencies = [
  "log",
  "wasi",
  "windows-sys 0.48.0",
+]
+
+[[package]]
+name = "multiomics"
+version = "0.1.0"
+dependencies = [
+ "ahash",
+ "anyhow",
+ "atacseq_core",
+ "biomics_core",
+ "chrono",
+ "clap",
+ "crossbeam-channel",
+ "crossterm",
+ "env_logger",
+ "epigenomics_core",
+ "genomics_core",
+ "integration_layer",
+ "log",
+ "mimalloc",
+ "num_cpus",
+ "ratatui",
+ "rayon",
+ "serde",
+ "serde_json",
+ "toml",
+ "transcriptomics_core",
 ]
 
 [[package]]

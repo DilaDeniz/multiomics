@@ -4,10 +4,10 @@ use clap::Parser;
 
 use crate::config;
 
-/// BioMultiOmics — parallel multi-omics analysis: VCF + TSV + BED → HTML/JSON report.
+/// Multiomics — parallel multi-omics analysis: VCF + TSV + BED → HTML/JSON report.
 #[derive(Parser, Debug, Clone)]
 #[command(
-    name = "bioomics",
+    name = "multiomics",
     version,
     about = "Parallel multi-omics analysis: VCF + TSV + BED → integrated HTML/JSON report",
     long_about = None,
@@ -84,7 +84,7 @@ pub struct Cli {
 
     // ── Output ────────────────────────────────────────────────────────────────
     /// Output directory (created if it does not exist)
-    #[arg(long, value_name = "DIR", default_value = "./bioomics_out")]
+    #[arg(long, value_name = "DIR", default_value = "./multiomics_out")]
     pub output: PathBuf,
 
     /// Number of parallel worker threads (default: all logical cores)

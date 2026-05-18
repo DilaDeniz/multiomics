@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
@@ -24,26 +27,21 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+
+      - name: Versions
+        run: rustc --version && cargo --version
+
       - name: Build workspace
         run: cargo build --workspace --exclude pybioomics
+
       - name: Run tests
         run: cargo test --workspace --exclude pybioomics
+
       - name: Clippy
         run: cargo clippy --workspace --exclude pybioomics -- -D warnings
-      - name: Format check
-        run: cargo fmt --check
 
-  validate:
-    name: Mathematical validation
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - name: DESeq2 numerical validation
-        run: cargo test -p transcriptomics_core -- deseq2 --nocapture
-      - name: GSEA property validation
-        run: cargo test -p integration_layer -- gsea --nocapture
+      - name: Format check
+        run: cargo fmt --all --check
 
   release:
     name: Release binary (${{ matrix.target }})
@@ -63,9 +61,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
+      - name: Install musl tools
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        run: sudo apt-get install -y musl-tools
       - name: Build release
-        run: |
-          cargo build --release --bin multiomics --target ${{ matrix.target }}
+        run: cargo build --release --bin multiomics --target ${{ matrix.target }}
       - name: Upload binary
         uses: actions/upload-artifact@v4
         with:
@@ -76,6 +76,9 @@ jobs:
     name: Docker build
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: read
+      packages: write
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3

@@ -9,6 +9,7 @@ use integration_layer::{Insight, InsightLevel, IntegrationSummary};
 use transcriptomics_core::TranscriptomicsSummary;
 
 use super::circos::generate_circos_svg;
+use super::svg::{bar_chart_svg, heatmap_svg, histogram_svg, scatter_svg, volcano_svg};
 
 /// Generate a self-contained HTML report and write it to `{output_dir}/report.html`.
 ///
@@ -264,30 +265,19 @@ fn html_variant_density_chart(g: &GenomicsSummary) -> String {
     let mut chroms: Vec<(&String, u64)> = g.per_chrom.iter().map(|(k, v)| (k, v.total)).collect();
     chroms.sort_by(|a, b| chrom_sort_key(a.0).cmp(&chrom_sort_key(b.0)));
 
-    format!(
-        r#"<canvas id="varDensityChart"></canvas>
-<script>
-window._varDensityData = {{
-  labels: [{}],
-  snps:   [{}],
-  indels: [{}]
-}};
-</script>"#,
-        chroms
-            .iter()
-            .map(|(c, _)| format!("\"{}\"", c))
-            .collect::<Vec<_>>()
-            .join(","),
-        chroms
-            .iter()
-            .map(|(c, _)| g.per_chrom[*c].snps.to_string())
-            .collect::<Vec<_>>()
-            .join(","),
-        chroms
-            .iter()
-            .map(|(c, _)| g.per_chrom[*c].indels.to_string())
-            .collect::<Vec<_>>()
-            .join(","),
+    let labels: Vec<&str> = chroms.iter().map(|(c, _)| c.as_str()).collect();
+    let values: Vec<f64> = chroms
+        .iter()
+        .map(|(c, _)| g.per_chrom[*c].total as f64)
+        .collect();
+
+    bar_chart_svg(
+        "Variant Density by Chromosome",
+        &labels,
+        &values,
+        "#4e79a7",
+        900,
+        300,
     )
 }
 

@@ -1,7 +1,7 @@
 //! TOML configuration file support.
 //!
-//! Load with `--config bioomics.toml`. CLI flags override config values.
-//! Run `bioomics --dump-config` to print defaults.
+//! Load with `--config multiomics.toml`. CLI flags override config values.
+//! Run `multiomics --dump-config` to print defaults.
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -279,7 +279,7 @@ impl Default for IntegrationConfig {
 impl Default for OutputConfig {
     fn default() -> Self {
         Self {
-            report_title: "BioMultiOmics Report".into(),
+            report_title: "Multiomics Report".into(),
             include_raw_data: false,
             color_scheme: "dark".into(),
             max_tui_insights: 12,

@@ -56,7 +56,7 @@ fn generate_html(
 <body>
 <div class="container">
   <header>
-    <h1>🧬 BioMultiOmics Report</h1>
+    <h1>🧬 Multiomics Report</h1>
     <p class="subtitle">Generated: {ts} &nbsp;|&nbsp; Tool version: {ver}</p>
   </header>
   {summary_cards}
@@ -92,7 +92,7 @@ fn generate_html(
   {insights_section}
   {pathway_table}
   <footer>
-    <p>BioMultiOmics &copy; 2026 — Apache 2.0 License —
+    <p>Multiomics &copy; 2026 — Apache 2.0 License —
        <a href="https://github.com/diladeniz/multiomics">github.com/diladeniz/multiomics</a></p>
   </footer>
 </div>
@@ -127,7 +127,7 @@ fn html_head() -> String {
     r#"<head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>BioMultiOmics Report</title>
+<title>Multiomics Report</title>
 <style>
   :root {
     --bg: #0d1117; --surface: #161b22; --border: #30363d;

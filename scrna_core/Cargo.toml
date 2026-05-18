@@ -1,0 +1,17 @@
+[package]
+name              = "scrna_core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description       = "Single-cell RNA-seq analysis: MEX I/O, QC, scran normalization, HVG, Leiden clustering, DE"
+
+[dependencies]
+biomics_core  = { path = "../biomics_core" }
+anyhow        = { workspace = true }
+rayon         = { workspace = true }
+serde         = { workspace = true }
+ndarray       = { workspace = true }
+ahash         = { workspace = true }
+log           = { workspace = true }
+memchr        = { workspace = true }
+flate2        = "1.0"

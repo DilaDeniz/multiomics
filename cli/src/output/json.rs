@@ -95,10 +95,10 @@ pub struct ReportMetadata {
 pub struct MultiQcOutput {
     pub report_general_stats_data: Vec<HashMap<String, GeneralStats>>,
     pub report_general_stats_headers: HashMap<String, ColumnMeta>,
-    pub bioomics_genomics: JsonGenomicsSection,
-    pub bioomics_transcriptomics: JsonTranscriptomicsSection,
-    pub bioomics_epigenomics: JsonEpigenomicsSection,
-    pub bioomics_integration: JsonIntegrationSection,
+    pub multiomics_genomics: JsonGenomicsSection,
+    pub multiomics_transcriptomics: JsonTranscriptomicsSection,
+    pub multiomics_epigenomics: JsonEpigenomicsSection,
+    pub multiomics_integration: JsonIntegrationSection,
     pub metadata: ReportMetadata,
 }
 
@@ -124,7 +124,7 @@ pub fn build_multiqc_output(
     };
 
     let mut general_map = HashMap::new();
-    general_map.insert("bioomics".to_string(), general);
+    general_map.insert("multiomics".to_string(), general);
 
     let mut headers = HashMap::new();
     headers.insert(
@@ -184,7 +184,7 @@ pub fn build_multiqc_output(
     MultiQcOutput {
         report_general_stats_data: vec![general_map],
         report_general_stats_headers: headers,
-        bioomics_genomics: JsonGenomicsSection {
+        multiomics_genomics: JsonGenomicsSection {
             total_variants: genomics.total_variants,
             snp_count: genomics.snp_count,
             indel_count: genomics.indel_count,
@@ -195,7 +195,7 @@ pub fn build_multiqc_output(
             af_histogram: genomics.af_histogram.clone(),
             per_chrom,
         },
-        bioomics_transcriptomics: JsonTranscriptomicsSection {
+        multiomics_transcriptomics: JsonTranscriptomicsSection {
             total_genes: transcr.total_genes,
             expressed_genes: transcr.expressed_genes,
             sample_count: transcr.sample_count,
@@ -203,7 +203,7 @@ pub fn build_multiqc_output(
             top_expressed: transcr.top_100_expressed.clone(),
             diff_expr_count: transcr.diff_expr.as_ref().map(|de| de.len()),
         },
-        bioomics_epigenomics: JsonEpigenomicsSection {
+        multiomics_epigenomics: JsonEpigenomicsSection {
             total_sites: epigen.total_sites,
             global_methylation_pct: epigen.global_methylation_pct,
             cpg_islands_detected: epigen.cpg_islands.len(),
@@ -211,7 +211,7 @@ pub fn build_multiqc_output(
             hypomethylated_regions: epigen.hypomethylated.len(),
             per_chrom_methylation,
         },
-        bioomics_integration: JsonIntegrationSection {
+        multiomics_integration: JsonIntegrationSection {
             correlation_matrix: integration.correlation_matrix.clone(),
             pca_points: integration.pca.points.clone(),
             pca_explained_variance: integration.pca.explained_variance_ratio.clone(),
@@ -219,7 +219,7 @@ pub fn build_multiqc_output(
             insights: integration.insights.clone(),
         },
         metadata: ReportMetadata {
-            tool: "bioomics",
+            tool: "multiomics",
             version: env!("CARGO_PKG_VERSION"),
             generated_at: Utc::now(),
             threads_used,
@@ -228,9 +228,9 @@ pub fn build_multiqc_output(
     }
 }
 
-/// Write a `MultiQcOutput` to `{output_dir}/multiqc_bioomics.json`.
+/// Write a `MultiQcOutput` to `{output_dir}/multiqc_multiomics.json`.
 pub fn write_json(output: &MultiQcOutput, output_dir: &Path) -> Result<()> {
-    let path = output_dir.join("multiqc_bioomics.json");
+    let path = output_dir.join("multiqc_multiomics.json");
     let file = std::fs::File::create(&path)
         .with_context(|| format!("Cannot create JSON output '{}'", path.display()))?;
     serde_json::to_writer_pretty(file, output)

@@ -177,33 +177,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "bioomics"
-version = "0.1.0"
-dependencies = [
- "ahash",
- "anyhow",
- "atacseq_core",
- "biomics_core",
- "chrono",
- "clap",
- "crossbeam-channel",
- "crossterm",
- "env_logger",
- "epigenomics_core",
- "genomics_core",
- "integration_layer",
- "log",
- "mimalloc",
- "num_cpus",
- "ratatui",
- "rayon",
- "serde",
- "serde_json",
- "toml",
- "transcriptomics_core",
-]
-
-[[package]]
 name = "bit-vec"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -663,6 +636,8 @@ dependencies = [
  "memchr",
  "memmap2",
  "needletail",
+ "noodles-bam",
+ "noodles-sam",
  "rayon",
  "serde",
 ]
@@ -1166,6 +1141,33 @@ dependencies = [
  "log",
  "wasi",
  "windows-sys 0.48.0",
+]
+
+[[package]]
+name = "multiomics"
+version = "0.1.0"
+dependencies = [
+ "ahash",
+ "anyhow",
+ "atacseq_core",
+ "biomics_core",
+ "chrono",
+ "clap",
+ "crossbeam-channel",
+ "crossterm",
+ "env_logger",
+ "epigenomics_core",
+ "genomics_core",
+ "integration_layer",
+ "log",
+ "mimalloc",
+ "num_cpus",
+ "ratatui",
+ "rayon",
+ "serde",
+ "serde_json",
+ "toml",
+ "transcriptomics_core",
 ]
 
 [[package]]
@@ -1736,6 +1738,21 @@ name = "scopeguard"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
+
+[[package]]
+name = "scrna_core"
+version = "0.1.0"
+dependencies = [
+ "ahash",
+ "anyhow",
+ "biomics_core",
+ "flate2",
+ "log",
+ "memchr",
+ "ndarray",
+ "rayon",
+ "serde",
+]
 
 [[package]]
 name = "serde"

@@ -41,9 +41,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: DESeq2 numerical validation
-        run: cargo test -p transcriptomics_core deseq2_validation -- --nocapture
+        run: cargo test -p transcriptomics_core -- deseq2 --nocapture
       - name: GSEA property validation
-        run: cargo test -p integration_layer gsea_validation -- --nocapture
+        run: cargo test -p integration_layer -- gsea --nocapture
 
   release:
     name: Release binary (${{ matrix.target }})
@@ -54,10 +54,10 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-musl
-            binary: bioomics
+            binary: multiomics
           - os: macos-latest
             target: aarch64-apple-darwin
-            binary: bioomics
+            binary: multiomics
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -65,11 +65,11 @@ jobs:
           targets: ${{ matrix.target }}
       - name: Build release
         run: |
-          cargo build --release --bin bioomics --target ${{ matrix.target }}
+          cargo build --release --bin multiomics --target ${{ matrix.target }}
       - name: Upload binary
         uses: actions/upload-artifact@v4
         with:
-          name: bioomics-${{ matrix.target }}
+          name: multiomics-${{ matrix.target }}
           path: target/${{ matrix.target }}/release/${{ matrix.binary }}
 
   docker:

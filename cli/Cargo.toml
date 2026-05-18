@@ -30,6 +30,8 @@ genomics_core        = { path = "../genomics_core" }
 transcriptomics_core = { path = "../transcriptomics_core" }
 epigenomics_core     = { path = "../epigenomics_core" }
 integration_layer    = { path = "../integration_layer" }
+scrna_core           = { path = "../scrna_core" }
+ndarray              = { workspace = true }
 atacseq_core         = { path = "../atacseq_core", optional = true }
 anyhow               = { workspace = true }
 rayon                = { workspace = true }

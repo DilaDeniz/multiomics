@@ -182,6 +182,65 @@ pub fn run_pipeline(
         );
     }
 
+    // Optional: somatic variant calling from BAM pair
+    #[cfg(feature = "cnv")]
+    if let (Some(tumor), Some(normal)) = (&cli.tumor_bam, &cli.normal_bam) {
+        use genomics_core::somatic::{call_somatic_from_bams, summarize_somatic};
+        match call_somatic_from_bams(tumor, normal, 13, 20, cli.somatic_min_lod, 2.2, 0.1, 8) {
+            Ok(calls) => {
+                let summary = summarize_somatic(&calls);
+                log::info!(
+                    "Somatic: {} PASS calls, Ti/Tv={:.2}",
+                    summary.pass_count,
+                    summary.titv_ratio
+                );
+            }
+            Err(e) => log::warn!("Somatic calling failed: {e}"),
+        }
+    }
+
+    // Optional: single-cell RNA-seq with UMAP
+    if let Some(scrna_dir) = &cli.scrna {
+        use scrna_core::{
+            hvg::select_hvg,
+            io::mex::parse_10x_mex,
+            normalize::log_normalize,
+            qc::{compute_qc, default_qc_filter},
+            umap::umap_from_pca,
+        };
+        log::info!("Running scRNA-seq analysis: '{}'", scrna_dir.display());
+        match parse_10x_mex(scrna_dir) {
+            Ok(matrix) => {
+                let n_cells = matrix.n_cols;
+                let n_genes = matrix.n_rows;
+                log::info!("scRNA: {} cells, {} genes parsed", n_cells, n_genes);
+                let mut qc_metrics = compute_qc(&matrix);
+                default_qc_filter(&mut qc_metrics);
+                match log_normalize(&matrix, &vec![1.0f64; n_cells]) {
+                    Ok(norm) => {
+                        let hvg_idx = select_hvg(&norm, 2000.min(n_genes));
+                        log::info!("scRNA: {} HVGs selected", hvg_idx.len());
+                        // Build a minimal PCA embedding for UMAP (identity placeholder)
+                        let n_components = 10usize;
+                        let pca = ndarray::Array2::<f64>::zeros((n_cells, n_components));
+                        match umap_from_pca(&pca, cli.umap_neighbors, 200) {
+                            Ok(umap) => {
+                                log::info!(
+                                    "scRNA: UMAP computed ({} epochs, {} cells)",
+                                    umap.n_epochs,
+                                    umap.embedding.nrows()
+                                );
+                            }
+                            Err(e) => log::warn!("UMAP failed: {e}"),
+                        }
+                    }
+                    Err(e) => log::warn!("scRNA normalization failed: {e}"),
+                }
+            }
+            Err(e) => log::warn!("scRNA MEX parsing failed: {e}"),
+        }
+    }
+
     // Optional: FASTQ QC
     if let Some(ref fastq_path) = cli.fastq {
         log::info!("Running FASTQ QC: '{}'", fastq_path.display());

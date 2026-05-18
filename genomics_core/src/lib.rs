@@ -1,11 +1,16 @@
 pub mod accum;
 pub mod cnv;
+pub mod cnv_coverage;
 pub mod fastq;
 pub mod types;
 pub mod vcf;
 
 pub use accum::GenomicsAccum;
 pub use cnv::{parse_cnv_vcf, summarize_cnv, CnvRecord, CnvSummary};
+pub use cnv_coverage::{
+    compute_depth_bins, segment_bins, summarize_coverage_cnv, CnvSegment, CoverageCnvSummary,
+    DepthBin,
+};
 pub use fastq::{parse_fastq, FastqSummary};
 pub use types::{ChromDensity, GenomicsSummary, TiTvClass, VariantRecord};
 pub use vcf::parse_vcf;

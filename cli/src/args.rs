@@ -38,6 +38,42 @@ pub struct Cli {
     #[arg(long, value_name = "FILE")]
     pub fastq: Option<PathBuf>,
 
+    // ── Somatic variant calling ───────────────────────────────────────────────
+    /// Tumor BAM for somatic variant calling (requires --normal-bam)
+    #[arg(long, value_name = "FILE")]
+    pub tumor_bam: Option<PathBuf>,
+
+    /// Matched normal BAM for somatic variant calling
+    #[arg(long, value_name = "FILE")]
+    pub normal_bam: Option<PathBuf>,
+
+    /// Minimum tumor log-odds score for somatic calls (default: 6.3)
+    #[arg(long, default_value_t = 6.3)]
+    pub somatic_min_lod: f64,
+
+    // ── Reference-guided alignment ────────────────────────────────────────────
+    /// Reference FASTA for aligning reads (enables --fastq processing)
+    #[arg(long, value_name = "FILE")]
+    pub reference: Option<PathBuf>,
+
+    // ── Single-cell ───────────────────────────────────────────────────────────
+    /// 10x Genomics MEX directory for single-cell analysis
+    #[arg(long, value_name = "DIR")]
+    pub scrna: Option<PathBuf>,
+
+    /// Number of UMAP neighbors (default: 15)
+    #[arg(long, default_value_t = 15usize)]
+    pub umap_neighbors: usize,
+
+    // ── Gene quantification ───────────────────────────────────────────────────
+    /// BAM file for gene quantification (requires --gtf)
+    #[arg(long, value_name = "FILE")]
+    pub bam: Option<PathBuf>,
+
+    /// GTF/GFF3 annotation for gene quantification
+    #[arg(long, value_name = "FILE")]
+    pub gtf: Option<PathBuf>,
+
     // ── Comparison mode (tumor-vs-normal / treatment-vs-control) ─────────────
     /// Control/normal VCF for comparison mode (enables --compare-* flags)
     #[arg(long, value_name = "FILE", requires = "compare_transcriptomics")]

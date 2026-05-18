@@ -61,6 +61,238 @@ pub struct GenotypeCall {
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
+// ── Assembled variant calling ─────────────────────────────────────────────────
+
+/// Call variants using local de novo assembly (GATK HaplotypeCaller-style).
+///
+/// Identifies active regions in the pileup, reassembles candidate haplotypes
+/// with a De Bruijn graph, scores each read against each haplotype with the
+/// pair-HMM forward algorithm, genotypes by maximising the diploid likelihood,
+/// then extracts variant calls via Smith-Waterman alignment to the reference.
+/// Non-active positions are handled by the standard pileup-based caller.
+///
+/// # Arguments
+/// * `pileup`     – Pre-built pileup (see [`crate::pileup::build_pileup`]).
+/// * `reads`      – All reads in the region as [`ActiveRead`] records.
+/// * `ref_seq`    – Optional reference sequence for the pileup region.
+/// * `min_depth`  – Minimum read depth to emit a call.
+/// * `min_qual`   – Minimum Phred-scaled quality to emit a call.
+pub fn call_variants_assembled(
+    pileup: &[crate::pileup::PileupColumn],
+    reads: &[crate::assembly::ActiveRead],
+    ref_seq: Option<&[u8]>,
+    min_depth: u32,
+    min_qual: f32,
+) -> Vec<GenotypeCall> {
+    use crate::assembly::{assemble_haplotypes, find_active_regions};
+    use crate::pairhmm::pair_hmm_log_prob;
+
+    const K_SIZES: &[usize] = &[10, 15, 20, 25];
+    const MAX_HAPLOTYPES: usize = 16;
+
+    let active_regions = find_active_regions(pileup, reads, 200, 0.05);
+    let mut calls: Vec<GenotypeCall> = Vec::new();
+
+    // Track pileup positions that fall inside an active region so we can skip
+    // them for the pileup-based caller pass.
+    let mut active_positions: std::collections::HashSet<(String, u64)> =
+        std::collections::HashSet::new();
+
+    for region in &active_regions {
+        for col in pileup {
+            if col.chrom == region.chrom && col.pos >= region.start && col.pos < region.end {
+                active_positions.insert((col.chrom.clone(), col.pos));
+            }
+        }
+
+        let ref_slice = ref_seq.unwrap_or(&[]);
+        if ref_slice.is_empty() || region.reads.is_empty() {
+            continue;
+        }
+
+        let haplotypes = assemble_haplotypes(region, ref_slice, K_SIZES, MAX_HAPLOTYPES);
+        if haplotypes.len() < 2 {
+            continue;
+        }
+
+        // For each pair of haplotypes (hap1, hap2) compute diploid likelihood.
+        let best_pair = best_haplotype_pair(&region.reads, &haplotypes, pair_hmm_log_prob);
+
+        let (hap1_idx, hap2_idx) = match best_pair {
+            Some(p) => p,
+            None => continue,
+        };
+
+        // Extract variants from each best haplotype vs reference.
+        let chrom = &region.chrom;
+        for &hi in &[hap1_idx, hap2_idx] {
+            if hi == 0 {
+                continue; // haplotype 0 is always the reference
+            }
+            let variant_calls = extract_variants_from_haplotype(
+                &haplotypes[hi],
+                ref_slice,
+                chrom,
+                region.start,
+                min_depth,
+                min_qual,
+                region.reads.len() as u32,
+            );
+            for vc in variant_calls {
+                if !calls.iter().any(|c| c.chrom == vc.chrom && c.pos == vc.pos) {
+                    calls.push(vc);
+                }
+            }
+        }
+    }
+
+    // Run pileup-based caller on non-active positions.
+    let non_active_pileup: Vec<crate::pileup::PileupColumn> = pileup
+        .iter()
+        .filter(|col| !active_positions.contains(&(col.chrom.clone(), col.pos)))
+        .cloned()
+        .collect();
+
+    let mut pileup_calls = call_variants(&non_active_pileup, min_depth, min_qual);
+    calls.append(&mut pileup_calls);
+
+    // Sort and deduplicate by (chrom, pos).
+    calls.sort_unstable_by(|a, b| a.chrom.cmp(&b.chrom).then(a.pos.cmp(&b.pos)));
+    calls.dedup_by(|a, b| a.chrom == b.chrom && a.pos == b.pos);
+    calls
+}
+
+/// Find the diploid haplotype pair maximising
+/// `Σ_reads log_sum_exp( P(read|hap1), P(read|hap2) ) / 2`.
+///
+/// Returns indices into `haplotypes` or `None` if the haplotype set is empty.
+fn best_haplotype_pair(
+    reads: &[crate::assembly::ActiveRead],
+    haplotypes: &[Vec<u8>],
+    hmm_fn: impl Fn(&[u8], &[u8], &[u8]) -> f64,
+) -> Option<(usize, usize)> {
+    use crate::pairhmm::log_sum_exp;
+
+    let nh = haplotypes.len();
+    if nh == 0 {
+        return None;
+    }
+
+    // Pre-compute log P(read | hap) for all (read, hap) pairs.
+    let lp: Vec<Vec<f64>> = reads
+        .iter()
+        .map(|r| {
+            haplotypes
+                .iter()
+                .map(|h| hmm_fn(&r.seq, &r.quals, h))
+                .collect()
+        })
+        .collect();
+
+    let mut best_score = f64::NEG_INFINITY;
+    let mut best_i = 0;
+    let mut best_j = 0;
+
+    for i in 0..nh {
+        for j in i..nh {
+            let score: f64 = lp
+                .iter()
+                .map(|read_lp| log_sum_exp(read_lp[i], read_lp[j]) - std::f64::consts::LN_2)
+                .sum();
+            if score > best_score {
+                best_score = score;
+                best_i = i;
+                best_j = j;
+            }
+        }
+    }
+
+    Some((best_i, best_j))
+}
+
+/// Align a haplotype to the reference using Smith-Waterman and emit a
+/// [`GenotypeCall`] for each aligned difference (SNP or indel).
+fn extract_variants_from_haplotype(
+    hap: &[u8],
+    ref_seq: &[u8],
+    chrom: &str,
+    region_start: u64,
+    min_depth: u32,
+    min_qual: f32,
+    depth: u32,
+) -> Vec<GenotypeCall> {
+    use crate::assembly::smith_waterman;
+
+    if depth < min_depth {
+        return Vec::new();
+    }
+
+    let (aligned_hap, aligned_ref) = smith_waterman(hap, ref_seq);
+    let mut calls = Vec::new();
+    let mut ref_offset: u64 = 0;
+
+    let mut i = 0;
+    while i < aligned_hap.len() && i < aligned_ref.len() {
+        let h = aligned_hap[i];
+        let r = aligned_ref[i];
+
+        if h == b'-' {
+            // Deletion in haplotype (gap vs reference).
+            let pos = region_start + ref_offset;
+            calls.push(GenotypeCall {
+                chrom: chrom.to_string(),
+                pos,
+                ref_base: r,
+                alt_base: b'-',
+                genotype: Genotype::Het,
+                qual: min_qual,
+                depth,
+                allele_freq: 0.5,
+                pl: [0, 0, 255],
+            });
+            ref_offset += 1;
+        } else if r == b'-' {
+            // Insertion in haplotype.
+            let pos = region_start + ref_offset;
+            calls.push(GenotypeCall {
+                chrom: chrom.to_string(),
+                pos,
+                ref_base: b'-',
+                alt_base: h,
+                genotype: Genotype::Het,
+                qual: min_qual,
+                depth,
+                allele_freq: 0.5,
+                pl: [0, 0, 255],
+            });
+            // ref_offset does not advance for an insertion
+        } else if h != r {
+            // SNP
+            let pos = region_start + ref_offset;
+            calls.push(GenotypeCall {
+                chrom: chrom.to_string(),
+                pos,
+                ref_base: r,
+                alt_base: h,
+                genotype: Genotype::Het,
+                qual: min_qual,
+                depth,
+                allele_freq: 0.5,
+                pl: [0, 0, 255],
+            });
+            ref_offset += 1;
+        } else {
+            ref_offset += 1;
+        }
+        i += 1;
+    }
+
+    calls
+        .into_iter()
+        .filter(|c| c.qual >= min_qual)
+        .collect()
+}
+
 /// Call variants from a pre-built pileup.
 ///
 /// For each [`PileupColumn`] the function:

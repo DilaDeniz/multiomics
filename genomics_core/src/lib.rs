@@ -10,9 +10,15 @@ pub use fastq::{parse_fastq, FastqSummary};
 pub use types::{ChromDensity, GenomicsSummary, TiTvClass, VariantRecord};
 pub use vcf::parse_vcf;
 
+pub mod assembly;
 pub mod genotyper;
+pub mod pairhmm;
 pub mod pileup;
-pub use genotyper::{call_variants, call_variants_from_bam, Genotype, GenotypeCall};
+pub use assembly::{assemble_haplotypes, find_active_regions, ActiveRead, ActiveRegion};
+pub use genotyper::{
+    call_variants, call_variants_assembled, call_variants_from_bam, Genotype, GenotypeCall,
+};
+pub use pairhmm::{log_sum_exp, pair_hmm_log_prob};
 pub use pileup::{build_pileup, PileupBase, PileupColumn};
 
 use anyhow::Result;

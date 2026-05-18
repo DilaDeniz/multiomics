@@ -1,9 +1,11 @@
 pub mod accum;
 pub mod narrowpeak;
+pub mod peaks;
 pub mod types;
 
 pub use accum::AtacAccum;
 pub use narrowpeak::parse_narrowpeak;
+pub use peaks::{call_peaks, summarize_peaks, CalledPeak, PeakSummary};
 pub use types::{AtacPeak, AtacSummary, ChromPeakStats};
 
 use anyhow::Result;

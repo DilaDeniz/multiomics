@@ -134,11 +134,11 @@ pub fn compute_depth_bins(
     let mut bins: Vec<DepthBin> = Vec::new();
     for (chrom_idx, (chrom_name, chrom_len)) in chroms.iter().enumerate() {
         let n_bins = n_bins_per_chrom[chrom_idx];
-        for bin_idx in 0..n_bins {
+        for (bin_idx, &count) in counts[chrom_idx].iter().enumerate().take(n_bins) {
             let start = bin_idx as u64 * window_size;
             let end = (start + window_size).min(*chrom_len);
             let actual_size = (end - start) as f64;
-            let depth = counts[chrom_idx][bin_idx] as f64 / actual_size;
+            let depth = count as f64 / actual_size;
             bins.push(DepthBin {
                 chrom: chrom_name.clone(),
                 start,
@@ -160,7 +160,7 @@ pub fn compute_depth_bins(
         let mut depths: Vec<f64> = bins.iter().map(|b| b.depth).collect();
         depths.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
         let n = depths.len();
-        if n % 2 == 0 {
+        if n.is_multiple_of(2) {
             (depths[n / 2 - 1] + depths[n / 2]) / 2.0
         } else {
             depths[n / 2]
@@ -314,7 +314,7 @@ pub fn summarize_coverage_cnv(bins: &[DepthBin], segments: &[CnvSegment]) -> Cov
         let n = depths.len();
         if n == 0 {
             0.0
-        } else if n % 2 == 0 {
+        } else if n.is_multiple_of(2) {
             (depths[n / 2 - 1] + depths[n / 2]) / 2.0
         } else {
             depths[n / 2]

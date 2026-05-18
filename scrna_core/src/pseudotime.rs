@@ -111,7 +111,11 @@ pub fn compute_pseudotime(
         // Eigenvalue estimate: ||T v_k|| / ||v_k|| ≈ column norm of T@V / 1 (already normalized)
         // After convergence, T@V ≈ lambda * V, so lambda ≈ (T@V)[:,k] dot V[:,k]
         let tv_col = sparse_matvec_single(&t, &v, col_idx);
-        let lam: f64 = tv_col.iter().zip(v.column(col_idx).iter()).map(|(a, b)| a * b).sum();
+        let lam: f64 = tv_col
+            .iter()
+            .zip(v.column(col_idx).iter())
+            .map(|(a, b)| a * b)
+            .sum();
         eigenvalues[k] = lam.abs().max(1e-12);
         for i in 0..n_cells {
             diffusion_map[[i, k]] = v[[i, col_idx]];
@@ -194,10 +198,7 @@ fn symmetrize(mut w: Vec<Vec<(usize, f64)>>, _n_cells: usize) -> Vec<Vec<(usize,
 }
 
 /// Sparse matrix-vector product: result[i,:] = sum_j T[i,j] * v[j,:].
-pub fn sparse_matvec(
-    adjacency: &[Vec<(usize, f64)>],
-    v: &Array2<f64>,
-) -> Array2<f64> {
+pub fn sparse_matvec(adjacency: &[Vec<(usize, f64)>], v: &Array2<f64>) -> Array2<f64> {
     let n = adjacency.len();
     let cols = v.ncols();
     let mut out = Array2::<f64>::zeros((n, cols));
@@ -212,11 +213,7 @@ pub fn sparse_matvec(
 }
 
 /// Sparse matrix-vector product for a single column of v.
-fn sparse_matvec_single(
-    adjacency: &[Vec<(usize, f64)>],
-    v: &Array2<f64>,
-    col: usize,
-) -> Vec<f64> {
+fn sparse_matvec_single(adjacency: &[Vec<(usize, f64)>], v: &Array2<f64>, col: usize) -> Vec<f64> {
     let n = adjacency.len();
     let mut out = vec![0.0f64; n];
     for i in 0..n {
@@ -261,10 +258,7 @@ fn most_peripheral_cell(pca: &Array2<f32>) -> usize {
 }
 
 fn euclidean_dist_sq(a: &[f32], b: &[f32]) -> f32 {
-    a.iter()
-        .zip(b.iter())
-        .map(|(x, y)| (x - y) * (x - y))
-        .sum()
+    a.iter().zip(b.iter()).map(|(x, y)| (x - y) * (x - y)).sum()
 }
 
 /// Initialize a random `[n, m]` matrix with xorshift RNG.

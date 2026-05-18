@@ -32,11 +32,11 @@ use std::sync::LazyLock;
 static LN_TRANS: LazyLock<[f64; 6]> = LazyLock::new(|| {
     [
         (1.0 - 2.0 * GAP_OPEN).ln(), // M → M
-        GAP_OPEN.ln(),                // M → I
-        GAP_OPEN.ln(),                // M → D  (== M → I by symmetry)
-        (1.0 - GAP_EXTEND).ln(),      // I → M  (also D → M)
-        GAP_EXTEND.ln(),              // I → I  (also D → D)
-        0.25_f64.ln(),                // insertion emission (uniform)
+        GAP_OPEN.ln(),               // M → I
+        GAP_OPEN.ln(),               // M → D  (== M → I by symmetry)
+        (1.0 - GAP_EXTEND).ln(),     // I → M  (also D → M)
+        GAP_EXTEND.ln(),             // I → I  (also D → D)
+        0.25_f64.ln(),               // insertion emission (uniform)
     ]
 });
 
@@ -65,7 +65,7 @@ pub fn pair_hmm_log_prob(read_seq: &[u8], read_qual: &[u8], hap: &[u8]) -> f64 {
     let _ = LN_MM; // suppress unused warning on the placeholder
 
     let n = read_seq.len(); // read length
-    let m = hap.len();      // haplotype length
+    let m = hap.len(); // haplotype length
 
     if n == 0 || m == 0 {
         return f64::NEG_INFINITY;
@@ -81,7 +81,7 @@ pub fn pair_hmm_log_prob(read_seq: &[u8], read_qual: &[u8], hap: &[u8]) -> f64 {
 
     // Initialise: start in M at (0,0) with prob ≈ 1.
     fm[idx(0, 0)] = t[LN_MM_IDX]; // accounts for first M→M self transition
-    // Allow leading deletions (consume haplotype without read bases).
+                                  // Allow leading deletions (consume haplotype without read bases).
     fd[idx(1, 0)] = t[LN_MD_IDX] + t[LN_XX_IDX];
     for i in 2..=m {
         let prev = fd[idx(i - 1, 0)];
@@ -215,7 +215,10 @@ mod tests {
     #[test]
     fn pair_hmm_empty_inputs() {
         assert_eq!(pair_hmm_log_prob(b"", b"", b"ACGT"), f64::NEG_INFINITY);
-        assert_eq!(pair_hmm_log_prob(b"ACGT", &[30u8; 4], b""), f64::NEG_INFINITY);
+        assert_eq!(
+            pair_hmm_log_prob(b"ACGT", &[30u8; 4], b""),
+            f64::NEG_INFINITY
+        );
     }
 
     #[test]

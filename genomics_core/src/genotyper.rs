@@ -287,10 +287,7 @@ fn extract_variants_from_haplotype(
         i += 1;
     }
 
-    calls
-        .into_iter()
-        .filter(|c| c.qual >= min_qual)
-        .collect()
+    calls.into_iter().filter(|c| c.qual >= min_qual).collect()
 }
 
 /// Call variants from a pre-built pileup.

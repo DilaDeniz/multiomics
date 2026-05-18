@@ -111,12 +111,7 @@ impl DeBruijnGraph {
     /// The reconstructed sequence starts with the full `source` k-mer, then
     /// appends the last base of each subsequent k-mer.  Maximum path length is
     /// capped at 1000 bases to prevent exponential blowup.
-    pub fn find_paths(
-        &self,
-        source: &[u8],
-        sink: &[u8],
-        max_paths: usize,
-    ) -> Vec<Vec<u8>> {
+    pub fn find_paths(&self, source: &[u8], sink: &[u8], max_paths: usize) -> Vec<Vec<u8>> {
         const MAX_LEN: usize = 1000;
         let mut results: Vec<Vec<u8>> = Vec::new();
         // Stack entries: (current k-mer, sequence assembled so far).
@@ -213,10 +208,7 @@ pub fn find_active_regions(
         .map(|(chrom, start, end)| {
             let region_reads = reads
                 .iter()
-                .filter(|r| {
-                    r.ref_start < end
-                        && r.ref_start + r.seq.len() as u64 > start
-                })
+                .filter(|r| r.ref_start < end && r.ref_start + r.seq.len() as u64 > start)
                 .cloned()
                 .collect();
             ActiveRegion {
@@ -341,10 +333,7 @@ pub fn smith_waterman(query: &[u8], reference: &[u8]) -> (Vec<u8>, Vec<u8>) {
             };
             let diag = h[idx(i - 1, j - 1)].saturating_add(score_diag);
 
-            let cell = 0i32
-                .max(diag)
-                .max(ix[idx(i, j)])
-                .max(iy[idx(i, j)]);
+            let cell = 0i32.max(diag).max(ix[idx(i, j)]).max(iy[idx(i, j)]);
             h[idx(i, j)] = cell;
 
             // Record traceback direction.
@@ -470,8 +459,18 @@ mod tests {
             pos: 100,
             ref_base: b'A',
             bases: vec![
-                PileupBase { base: b'A', base_qual: 30, mapq: 60, is_rev: false },
-                PileupBase { base: b'G', base_qual: 30, mapq: 60, is_rev: false },
+                PileupBase {
+                    base: b'A',
+                    base_qual: 30,
+                    mapq: 60,
+                    is_rev: false,
+                },
+                PileupBase {
+                    base: b'G',
+                    base_qual: 30,
+                    mapq: 60,
+                    is_rev: false,
+                },
             ],
         };
         let reads: Vec<ActiveRead> = Vec::new();

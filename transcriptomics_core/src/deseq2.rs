@@ -100,6 +100,19 @@ pub struct DeseqAnalysis {
     pub n_filtered: usize,
 }
 
+/// Per-gene result from a likelihood-ratio test comparing full vs. reduced model.
+#[derive(Debug, Clone)]
+pub struct LrtResult {
+    pub gene_id: String,
+    pub base_mean: f64,
+    /// LRT statistic: 2 × (ll_full − ll_reduced).
+    pub stat: f64,
+    /// Degrees of freedom = n_full_factors − n_reduced_factors.
+    pub df: usize,
+    pub p_value: f64,
+    pub padj: f64,
+}
+
 // ── Core estimation functions ─────────────────────────────────────────────────
 
 /// Estimate per-sample size factors using the DESeq2 median-of-ratios method.
@@ -355,6 +368,9 @@ pub fn deseq2_differential_expression(matrix: &NormalizedMatrix) -> Vec<DiffExpr
 ///
 /// `counts[gene][sample]` — raw integer counts as f64.
 /// `group0` and `group1` — indices into the sample dimension.
+///
+/// Internally delegates to `run_deseq2_design` with a two-group design matrix
+/// and a contrast of `[0, 1]` (testing the treatment coefficient).
 pub fn run_deseq2(
     counts: &[Vec<f64>],
     gene_ids: &[String],
@@ -386,49 +402,102 @@ pub fn run_deseq2(
         }
     }
 
-    // ── Step 1: size factors ──────────────────────────────────────────────────
-    let size_factors = estimate_size_factors(counts, sample_names)
-        .context("run_deseq2: size-factor estimation failed")?;
-    let sf = &size_factors.factors;
+    let design = design_matrix_two_group(group0, group1, n_samples);
+    let contrast = vec![0.0, 1.0];
+    run_deseq2_design(counts, gene_ids, &design, &contrast, sample_names)
+        .context("run_deseq2: general design pipeline failed")
+}
 
+// ── General multi-factor design: public API ───────────────────────────────────
+
+/// Run the DESeq2 NB-GLM pipeline with an arbitrary design matrix.
+///
+/// Caller constructs `design_matrix[sample][factor]` (e.g. via
+/// `design_matrix_two_group`, `design_matrix_with_batch`, or
+/// `interaction_design_matrix`).  `contrast` selects the linear combination of
+/// coefficients to test (Wald test).
+pub fn run_deseq2_design(
+    counts: &[Vec<f64>],
+    gene_ids: &[String],
+    design_matrix: &[Vec<f64>],
+    contrast: &[f64],
+    sample_names: &[String],
+) -> Result<DeseqAnalysis> {
+    if counts.is_empty() {
+        bail!("run_deseq2_design: count matrix is empty");
+    }
+    if gene_ids.len() != counts.len() {
+        bail!(
+            "run_deseq2_design: {} gene IDs but {} count rows",
+            gene_ids.len(),
+            counts.len()
+        );
+    }
+    let n_samples = sample_names.len();
+    if design_matrix.len() != n_samples {
+        bail!(
+            "run_deseq2_design: design matrix has {} rows but {} samples",
+            design_matrix.len(),
+            n_samples
+        );
+    }
+    if n_samples == 0 {
+        bail!("run_deseq2_design: no samples");
+    }
+    let n_factors = design_matrix[0].len();
+    if n_factors == 0 {
+        bail!("run_deseq2_design: design matrix has no columns");
+    }
+    if contrast.len() != n_factors {
+        bail!(
+            "run_deseq2_design: contrast length {} != n_factors {}",
+            contrast.len(),
+            n_factors
+        );
+    }
+
+    // Step 1: size factors
+    let size_factors = estimate_size_factors(counts, sample_names)
+        .context("run_deseq2_design: size-factor estimation failed")?;
+    let sf = &size_factors.factors;
     let n_genes = counts.len();
 
-    // ── Step 2: gene-wise MLE dispersions (method of moments) ────────────────
-    let mle_dispersions = compute_mle_dispersions(counts, sf, group0, group1);
+    // Derive group0/group1 from first non-intercept column for dispersion MoM
+    // (heuristic: treat col 1 as the primary treatment indicator)
+    let (group0_def, group1_def) = groups_from_design(design_matrix, n_samples);
 
-    // ── Step 3: dispersion trend fitting α = a₀ + a₁/μ ──────────────────────
+    // Step 2: MLE dispersions
+    let mle_dispersions = compute_mle_dispersions(counts, sf, &group0_def, &group1_def);
+
+    // Step 3: dispersion trend
     let gene_means = compute_gene_means(counts, sf);
     let trend = fit_dispersion_trend(&mle_dispersions, &gene_means);
 
-    // ── Step 4: MAP dispersion shrinkage ─────────────────────────────────────
+    // Step 4: MAP shrinkage
     let map_dispersions = shrink_dispersions(&mle_dispersions, &gene_means, &trend);
 
-    // ── Step 5 + 6: IRLS NB-GLM fit + Wald test ──────────────────────────────
+    // Steps 5+6: general IRLS + Wald contrast test
     let mut results: Vec<DeseqResult> = (0..n_genes)
         .map(|g| {
-            fit_gene_nb_glm(
+            fit_gene_nb_glm_general(
                 g,
                 gene_ids,
                 counts,
                 sf,
-                group0,
-                group1,
+                design_matrix,
+                contrast,
                 map_dispersions[g],
                 &gene_means,
+                &group0_def,
+                &group1_def,
             )
         })
         .collect();
 
-    // ── Step 7: Cook's distance outlier flagging ──────────────────────────────
-    flag_outliers(&mut results, counts, sf, group0, group1);
-
-    // ── Step 8: Independent filtering ────────────────────────────────────────
+    // Steps 7-9: reuse existing helpers (Cook's, filtering, LFC shrinkage, BH)
+    flag_outliers(&mut results, counts, sf, &group0_def, &group1_def);
     let n_filtered = independent_filtering(&mut results);
-
-    // ── Step 9: LFC shrinkage ─────────────────────────────────────────────────
     apply_lfc_shrinkage(&mut results);
-
-    // BH correction over non-outlier, non-filtered genes
     apply_bh_correction(&mut results);
 
     let n_significant = results.iter().filter(|r| r.padj < 0.05).count();
@@ -440,6 +509,518 @@ pub fn run_deseq2(
         n_significant,
         n_filtered,
     })
+}
+
+/// Likelihood-ratio test comparing full vs. reduced model across all genes.
+///
+/// Fits both models via IRLS and computes the chi-squared LRT statistic.
+/// Returns one `LrtResult` per gene, BH-adjusted.
+pub fn lrt_test(
+    counts: &[Vec<f64>],
+    gene_ids: &[String],
+    full_design: &[Vec<f64>],
+    reduced_design: &[Vec<f64>],
+    sample_names: &[String],
+) -> Result<Vec<LrtResult>> {
+    if counts.is_empty() {
+        bail!("lrt_test: count matrix is empty");
+    }
+    let n_samples = sample_names.len();
+    if full_design.len() != n_samples || reduced_design.len() != n_samples {
+        bail!("lrt_test: design matrix row count != n_samples");
+    }
+    let p_full = full_design[0].len();
+    let p_reduced = reduced_design[0].len();
+    if p_reduced >= p_full {
+        bail!("lrt_test: reduced model must have fewer factors than full model");
+    }
+    let df = p_full - p_reduced;
+
+    let size_factors =
+        estimate_size_factors(counts, sample_names).context("lrt_test: size-factor estimation")?;
+    let sf = &size_factors.factors;
+    let gene_means = compute_gene_means(counts, sf);
+
+    let (group0_def, group1_def) = groups_from_design(full_design, n_samples);
+    let mle_disp = compute_mle_dispersions(counts, sf, &group0_def, &group1_def);
+    let trend = fit_dispersion_trend(&mle_disp, &gene_means);
+    let map_disp = shrink_dispersions(&mle_disp, &gene_means, &trend);
+
+    let mut lrt_results: Vec<LrtResult> = (0..counts.len())
+        .map(|g| {
+            compute_lrt_for_gene(
+                g,
+                gene_ids,
+                counts,
+                sf,
+                full_design,
+                reduced_design,
+                map_disp[g],
+                &gene_means,
+                df,
+            )
+        })
+        .collect();
+
+    // BH correction over finite p-values
+    let eligible: Vec<usize> = lrt_results
+        .iter()
+        .enumerate()
+        .filter(|(_, r)| r.p_value.is_finite())
+        .map(|(i, _)| i)
+        .collect();
+    if !eligible.is_empty() {
+        let pvals: Vec<f64> = eligible.iter().map(|&i| lrt_results[i].p_value).collect();
+        let padj_vals = biomics_core::statistics::benjamini_hochberg(&pvals);
+        for (ei, &orig_i) in eligible.iter().enumerate() {
+            lrt_results[orig_i].padj = padj_vals[ei];
+        }
+    }
+    for r in lrt_results.iter_mut() {
+        if r.padj.is_nan() {
+            r.padj = 1.0;
+        }
+    }
+
+    Ok(lrt_results)
+}
+
+// ── Design matrix builders ────────────────────────────────────────────────────
+
+/// Build a two-group design matrix: intercept + treatment indicator.
+///
+/// Columns: [1, x] where x=0 for group0 samples, x=1 for group1 samples.
+pub fn design_matrix_two_group(
+    group0: &[usize],
+    group1: &[usize],
+    n_samples: usize,
+) -> Vec<Vec<f64>> {
+    let mut dm = vec![vec![0.0_f64; 2]; n_samples];
+    for &j in group0 {
+        dm[j][0] = 1.0; // intercept
+        dm[j][1] = 0.0; // treatment
+    }
+    for &j in group1 {
+        dm[j][0] = 1.0; // intercept
+        dm[j][1] = 1.0; // treatment
+    }
+    dm
+}
+
+/// Build a design matrix with intercept, treatment, and batch dummy variables.
+///
+/// Corresponds to the R formula `~ batch + condition`.
+/// Columns: [1, treatment, batch_1, batch_2, ..., batch_{B-1}]
+/// (reference batch = 0; omitted to avoid collinearity).
+pub fn design_matrix_with_batch(group: &[u32], batch: &[u32]) -> Vec<Vec<f64>> {
+    let n = group.len();
+    debug_assert_eq!(n, batch.len(), "group and batch must have same length");
+    let n_batches = batch.iter().copied().max().unwrap_or(0) as usize + 1;
+    // Number of columns: intercept + treatment + (n_batches - 1) batch dummies
+    let n_cols = 2 + n_batches.saturating_sub(1);
+    let mut dm = vec![vec![0.0_f64; n_cols]; n];
+    for i in 0..n {
+        dm[i][0] = 1.0; // intercept
+        dm[i][1] = group[i] as f64; // treatment
+        let b = batch[i] as usize;
+        if b > 0 && b < n_batches {
+            dm[i][1 + b] = 1.0; // batch dummy (reference batch=0 omitted)
+        }
+    }
+    dm
+}
+
+/// Build a design matrix with intercept, treatment, batch, and treatment×batch
+/// interaction.
+///
+/// Corresponds to the R formula `~ batch + condition + batch:condition`.
+/// Columns: [1, treatment, batch_1, ..., batch_{B-1},
+///           treatment×batch_1, ..., treatment×batch_{B-1}]
+pub fn interaction_design_matrix(group: &[u32], batch: &[u32]) -> Vec<Vec<f64>> {
+    let n = group.len();
+    debug_assert_eq!(n, batch.len(), "group and batch must have same length");
+    let n_batches = batch.iter().copied().max().unwrap_or(0) as usize + 1;
+    let n_batch_dummies = n_batches.saturating_sub(1);
+    // intercept + treatment + batch_dummies + interaction_dummies
+    let n_cols = 2 + n_batch_dummies * 2;
+    let mut dm = vec![vec![0.0_f64; n_cols]; n];
+    for i in 0..n {
+        dm[i][0] = 1.0;
+        let t = group[i] as f64;
+        dm[i][1] = t;
+        let b = batch[i] as usize;
+        if b > 0 && b < n_batches {
+            dm[i][1 + b] = 1.0; // batch dummy
+            dm[i][1 + n_batch_dummies + b] = t; // interaction: treatment × batch
+        }
+    }
+    dm
+}
+
+// ── General IRLS solver ───────────────────────────────────────────────────────
+
+/// Fit NB-GLM coefficients via IRLS using a general design matrix.
+///
+/// Returns `(beta, vcov)` where `vcov = (X^T W X)^{-1}` (Love et al. 2014).
+#[allow(clippy::needless_range_loop)]
+fn general_irls(
+    counts: &[f64],
+    size_factors: &[f64],
+    design: &[Vec<f64>],
+    alpha: f64,
+    max_iter: usize,
+    tol: f64,
+) -> Result<(Vec<f64>, Vec<Vec<f64>>)> {
+    let n = counts.len();
+    let p = design[0].len();
+    if n == 0 || p == 0 {
+        bail!("general_irls: empty input");
+    }
+    if n < p {
+        bail!("general_irls: more parameters ({p}) than observations ({n})");
+    }
+
+    // Initialise: mu_j = (count_j + 0.5) / size_factor_j
+    let mut mu: Vec<f64> = counts
+        .iter()
+        .zip(size_factors.iter())
+        .map(|(&k, &s)| (k + 0.5) / s.max(1e-12))
+        .collect();
+
+    let mut beta: Vec<f64> = vec![0.0; p];
+    // Warm-start intercept from log mean
+    let log_mean = mu.iter().map(|&m| m.ln()).sum::<f64>() / n as f64;
+    beta[0] = log_mean;
+
+    let mut vcov = vec![vec![0.0_f64; p]; p];
+
+    for _iter in 0..max_iter {
+        // Build X^T W X (p×p) and X^T W z (p-vector) — WLS normal equations.
+        let mut xtwx = vec![vec![0.0_f64; p]; p];
+        let mut xtwz = vec![0.0_f64; p];
+
+        for j in 0..n {
+            let mu_j = mu[j].max(1e-12);
+            // NB working weight: w_j = 1/(1/mu_j + alpha)  (Love et al. 2014 eq. 6)
+            let w = 1.0 / (1.0 / mu_j + alpha);
+            // Working response: z_j = log(mu_j) - log(s_j) + (k_j - mu_j)/mu_j
+            let z = mu_j.ln() - size_factors[j].max(1e-12).ln() + (counts[j] - mu_j) / mu_j;
+
+            for a in 0..p {
+                xtwz[a] += w * design[j][a] * z;
+                for b in 0..=a {
+                    xtwx[a][b] += w * design[j][a] * design[j][b];
+                }
+            }
+        }
+        // Symmetrise lower triangle
+        for a in 0..p {
+            for b in (a + 1)..p {
+                xtwx[a][b] = xtwx[b][a];
+            }
+        }
+
+        // Cholesky decomposition of X^T W X, then solve + invert
+        let l = cholesky_decompose(&xtwx)?;
+        let new_beta = cholesky_solve(&l, &xtwz);
+        vcov = cholesky_inverse(&l);
+
+        // Convergence check
+        let delta = new_beta
+            .iter()
+            .zip(beta.iter())
+            .map(|(nb, ob)| (nb - ob).abs())
+            .fold(0.0_f64, f64::max);
+        beta = new_beta;
+
+        // Update mu_j = s_j * exp(X[j,:] · beta)
+        for j in 0..n {
+            let eta: f64 = design[j]
+                .iter()
+                .zip(beta.iter())
+                .map(|(&x, &b)| x * b)
+                .sum();
+            mu[j] = size_factors[j].max(1e-12) * eta.exp();
+        }
+
+        if delta < tol {
+            break;
+        }
+    }
+
+    Ok((beta, vcov))
+}
+
+/// Cholesky decomposition L such that L L^T = A (lower triangular).
+///
+/// Standard Cholesky-Banachiewicz algorithm.
+fn cholesky_decompose(a: &[Vec<f64>]) -> Result<Vec<Vec<f64>>> {
+    let p = a.len();
+    let mut l = vec![vec![0.0_f64; p]; p];
+    for i in 0..p {
+        for j in 0..=i {
+            let sum: f64 = (0..j).map(|k| l[i][k] * l[j][k]).sum();
+            if i == j {
+                let diag = a[i][i] - sum;
+                if diag <= 0.0 {
+                    bail!("cholesky_decompose: matrix not positive-definite at diagonal [{i}]");
+                }
+                l[i][j] = diag.sqrt();
+            } else {
+                l[i][j] = (a[i][j] - sum) / l[j][j];
+            }
+        }
+    }
+    Ok(l)
+}
+
+/// Solve L L^T x = b via forward then backward substitution.
+fn cholesky_solve(l: &[Vec<f64>], b: &[f64]) -> Vec<f64> {
+    let p = l.len();
+    // Forward substitution: L y = b
+    let mut y = vec![0.0_f64; p];
+    for i in 0..p {
+        let sum: f64 = (0..i).map(|k| l[i][k] * y[k]).sum();
+        y[i] = (b[i] - sum) / l[i][i];
+    }
+    // Backward substitution: L^T x = y
+    let mut x = vec![0.0_f64; p];
+    for i in (0..p).rev() {
+        let sum: f64 = ((i + 1)..p).map(|k| l[k][i] * x[k]).sum();
+        x[i] = (y[i] - sum) / l[i][i];
+    }
+    x
+}
+
+/// Compute (L L^T)^{-1} = L^{-T} L^{-1} via triangular inversion.
+///
+/// Only required for the p×p vcov matrix (typically p ≤ 10).
+fn cholesky_inverse(l: &[Vec<f64>]) -> Vec<Vec<f64>> {
+    let p = l.len();
+    // Invert lower triangular L in-place by solving L * E_i = e_i for each column
+    let mut linv = vec![vec![0.0_f64; p]; p];
+    for j in 0..p {
+        linv[j][j] = 1.0 / l[j][j];
+        for i in (j + 1)..p {
+            let sum: f64 = (j..i).map(|k| l[i][k] * linv[k][j]).sum();
+            linv[i][j] = -sum / l[i][i];
+        }
+    }
+    // vcov = L^{-T} L^{-1}  (symmetric product)
+    let mut vcov = vec![vec![0.0_f64; p]; p];
+    for i in 0..p {
+        for j in 0..=i {
+            let dot: f64 = (i..p).map(|k| linv[k][i] * linv[k][j]).sum();
+            vcov[i][j] = dot;
+            vcov[j][i] = dot;
+        }
+    }
+    vcov
+}
+
+/// Wald test for a linear contrast of NB-GLM coefficients.
+///
+/// Returns `(effect_size, se, p_value)`.
+/// effect_size = c^T β, var = c^T Σ c, z = effect_size / se.
+fn wald_test_contrast(beta: &[f64], vcov: &[Vec<f64>], contrast: &[f64]) -> (f64, f64, f64) {
+    let effect: f64 = contrast.iter().zip(beta.iter()).map(|(&c, &b)| c * b).sum();
+    let var: f64 = contrast
+        .iter()
+        .enumerate()
+        .map(|(i, &ci)| {
+            contrast
+                .iter()
+                .enumerate()
+                .map(|(j, &cj)| ci * vcov[i][j] * cj)
+                .sum::<f64>()
+        })
+        .sum();
+    let se = var.max(0.0).sqrt();
+    let z = if se > 0.0 { effect / se } else { 0.0 };
+    let p = 2.0 * normal_cdf(-z.abs());
+    (effect, se, p)
+}
+
+/// Chi-squared p-value P(χ²(df) > stat).
+///
+/// Special cases for df=1,2; Wilson-Hilferty cube-root approximation for df>2.
+fn chi2_pvalue(stat: f64, df: usize) -> f64 {
+    if stat <= 0.0 {
+        return 1.0;
+    }
+    match df {
+        0 => 1.0,
+        // df=1: p = erfc(sqrt(stat/2)/sqrt(2)) = 2*Phi(-sqrt(stat))
+        1 => 2.0 * normal_cdf(-(stat.sqrt())),
+        // df=2: exact — p = exp(-stat/2)
+        2 => (-stat / 2.0).exp(),
+        // df>2: Wilson-Hilferty cube-root normal approximation
+        _ => {
+            let d = df as f64;
+            let z = ((stat / d).cbrt() - (1.0 - 2.0 / (9.0 * d))) / (2.0 / (9.0 * d)).sqrt();
+            normal_cdf(-z).clamp(0.0, 1.0)
+        }
+    }
+}
+
+/// NB log-likelihood for one gene given fitted mu values.
+///
+/// Uses the negative-binomial log-pmf: Σ_j [k_j*log(mu_j) - (k_j+1/α)*log(1+α*mu_j) + lgamma(k_j+1/α) - lgamma(k_j+1) - lgamma(1/α)]
+/// The lgamma terms involving only data cancel in the LRT difference, so we
+/// return only the model-dependent part.
+fn nb_loglik(counts: &[f64], mu: &[f64], alpha: f64) -> f64 {
+    // Model-dependent part: Σ [ k*log(mu) - (k + 1/α)*log(1 + α*mu) ]
+    let inv_alpha = 1.0 / alpha.max(1e-12);
+    counts
+        .iter()
+        .zip(mu.iter())
+        .map(|(&k, &m)| {
+            let m = m.max(1e-12);
+            k * m.ln() - (k + inv_alpha) * (1.0 + alpha * m).ln()
+        })
+        .sum()
+}
+
+/// Compute fitted mu values from design matrix and beta coefficients.
+fn fitted_mu(design: &[Vec<f64>], beta: &[f64], size_factors: &[f64]) -> Vec<f64> {
+    design
+        .iter()
+        .zip(size_factors.iter())
+        .map(|(row, &s)| {
+            let eta: f64 = row.iter().zip(beta.iter()).map(|(&x, &b)| x * b).sum();
+            s.max(1e-12) * eta.exp()
+        })
+        .collect()
+}
+
+// ── Internal helpers for general design ──────────────────────────────────────
+
+/// Derive group0/group1 from a design matrix for dispersion MoM.
+///
+/// Uses the second column (index 1) as the treatment indicator if it exists;
+/// otherwise puts all samples in group0.
+#[allow(clippy::needless_range_loop)]
+fn groups_from_design(design: &[Vec<f64>], n_samples: usize) -> (Vec<usize>, Vec<usize>) {
+    let mut g0 = Vec::new();
+    let mut g1 = Vec::new();
+    for j in 0..n_samples {
+        if design[j].len() > 1 && design[j][1] > 0.5 {
+            g1.push(j);
+        } else {
+            g0.push(j);
+        }
+    }
+    if g0.is_empty() || g1.is_empty() {
+        // Degenerate: put everything in g0 to avoid crashing downstream
+        let all: Vec<usize> = (0..n_samples).collect();
+        return (all.clone(), vec![all[0]]);
+    }
+    (g0, g1)
+}
+
+/// Fit one gene with the general IRLS and return a `DeseqResult`.
+#[allow(clippy::too_many_arguments)]
+fn fit_gene_nb_glm_general(
+    g: usize,
+    gene_ids: &[String],
+    counts: &[Vec<f64>],
+    sf: &[f64],
+    design: &[Vec<f64>],
+    contrast: &[f64],
+    dispersion: f64,
+    gene_means: &[f64],
+    group0: &[usize],
+    group1: &[usize],
+) -> DeseqResult {
+    let row = &counts[g];
+    let base_mean = gene_means[g];
+    let alpha = dispersion.max(1e-8);
+    let log2 = std::f64::consts::LN_2;
+
+    let mean_g0 = {
+        let s: f64 = group0.iter().map(|&j| row[j] / sf[j]).sum();
+        s / group0.len().max(1) as f64
+    };
+    let mean_g1 = {
+        let s: f64 = group1.iter().map(|&j| row[j] / sf[j]).sum();
+        s / group1.len().max(1) as f64
+    };
+
+    let counts_gene: Vec<f64> = row.to_vec();
+    match general_irls(&counts_gene, sf, design, alpha, IRLS_MAX_ITER, IRLS_TOL) {
+        Err(_) => make_na_result(&gene_ids[g], base_mean, mean_g0, mean_g1, dispersion),
+        Ok((beta, vcov)) => {
+            let (effect, se, p_value) = wald_test_contrast(&beta, &vcov, contrast);
+            let stat = if se > 0.0 { effect / se } else { 0.0 };
+            DeseqResult {
+                gene_id: gene_ids[g].clone(),
+                base_mean,
+                log2_fold_change: effect / log2,
+                lfc_shrunk: effect / log2,
+                lfc_se: se / log2,
+                stat,
+                p_value,
+                padj: f64::NAN,
+                mean_group0: mean_g0,
+                mean_group1: mean_g1,
+                dispersion,
+                outlier: false,
+            }
+        }
+    }
+}
+
+/// Compute LRT result for one gene.
+#[allow(clippy::too_many_arguments)]
+fn compute_lrt_for_gene(
+    g: usize,
+    gene_ids: &[String],
+    counts: &[Vec<f64>],
+    sf: &[f64],
+    full_design: &[Vec<f64>],
+    reduced_design: &[Vec<f64>],
+    dispersion: f64,
+    gene_means: &[f64],
+    df: usize,
+) -> LrtResult {
+    let row: Vec<f64> = counts[g].to_vec();
+    let alpha = dispersion.max(1e-8);
+    let base_mean = gene_means[g];
+
+    let na = LrtResult {
+        gene_id: gene_ids[g].clone(),
+        base_mean,
+        stat: f64::NAN,
+        df,
+        p_value: f64::NAN,
+        padj: f64::NAN,
+    };
+
+    let Ok((beta_full, _)) = general_irls(&row, sf, full_design, alpha, IRLS_MAX_ITER, IRLS_TOL)
+    else {
+        return na;
+    };
+    let Ok((beta_red, _)) = general_irls(&row, sf, reduced_design, alpha, IRLS_MAX_ITER, IRLS_TOL)
+    else {
+        return na;
+    };
+
+    let mu_full = fitted_mu(full_design, &beta_full, sf);
+    let mu_red = fitted_mu(reduced_design, &beta_red, sf);
+
+    let ll_full = nb_loglik(&row, &mu_full, alpha);
+    let ll_red = nb_loglik(&row, &mu_red, alpha);
+    let stat = (2.0 * (ll_full - ll_red)).max(0.0);
+    let p_value = chi2_pvalue(stat, df);
+
+    LrtResult {
+        gene_id: gene_ids[g].clone(),
+        base_mean,
+        stat,
+        df,
+        p_value,
+        padj: f64::NAN,
+    }
 }
 
 // ── Step 2: gene-wise MLE dispersions ────────────────────────────────────────
@@ -586,7 +1167,7 @@ const IRLS_TOL: f64 = 1e-8;
 const IRLS_MAX_ITER: usize = 50;
 
 /// Fit a 2-group NB-GLM for one gene via IRLS and compute the Wald z-statistic.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, dead_code)]
 fn fit_gene_nb_glm(
     g: usize,
     gene_ids: &[String],

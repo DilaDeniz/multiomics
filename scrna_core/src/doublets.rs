@@ -208,13 +208,7 @@ fn knn_doublet_scores_sim(
 
 /// Score cell `i`: fraction of its k nearest neighbors (among all cells except itself)
 /// that are simulated (index >= n_real).
-fn score_cell(
-    embedding: &Array2<f32>,
-    i: usize,
-    n_real: usize,
-    n_total: usize,
-    k: usize,
-) -> f32 {
+fn score_cell(embedding: &Array2<f32>, i: usize, n_real: usize, n_total: usize, k: usize) -> f32 {
     let row_i = embedding.row(i);
     let slice_i = row_i.as_slice().unwrap_or(&[]);
 

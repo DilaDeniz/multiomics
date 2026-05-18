@@ -247,11 +247,7 @@ pub fn kmeans_pp_init(data: &Array2<f32>, k: usize) -> Array2<f32> {
 
 /// Relative Frobenius norm: ||A - B||_F / ||B||_F.
 fn frobenius_relative(a: &Array2<f32>, b: &Array2<f32>) -> f32 {
-    let diff_sq: f32 = a
-        .iter()
-        .zip(b.iter())
-        .map(|(x, y)| (x - y) * (x - y))
-        .sum();
+    let diff_sq: f32 = a.iter().zip(b.iter()).map(|(x, y)| (x - y) * (x - y)).sum();
     let b_sq: f32 = b.iter().map(|x| x * x).sum::<f32>().max(1e-12);
     (diff_sq / b_sq).sqrt()
 }

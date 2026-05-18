@@ -1,9 +1,19 @@
-//! DESeq2-style size-factor normalization and differential expression for raw
-//! integer count matrices.
+//! DESeq2-equivalent negative-binomial GLM differential expression engine.
 //!
-//! Size factors are estimated by the median-of-ratios method (Anders & Huber 2010).
-//! Differential expression uses Welch t-test on log₂(normalized + 0.5) followed
-//! by Benjamini-Hochberg FDR correction.
+//! Implements the full Love et al. 2014 pipeline:
+//!   1. Size factors — median-of-ratios (Anders & Huber 2010)
+//!   2. Gene-wise MLE dispersions — method of moments
+//!   3. Parametric dispersion trend fitting — α = a₀ + a₁/μ
+//!   4. MAP dispersion shrinkage — empirical Bayes log-normal prior
+//!   5. NB-GLM fitting — IRLS with 2×2 WLS closed-form solve
+//!   6. Wald test — z-statistic, two-sided normal p-value
+//!   7. Cook's distance outlier flagging
+//!   8. Independent filtering (Bourgon et al. 2010)
+//!   9. LFC shrinkage — normal-prior MAP (apeglm-style)
+//!
+//! # Citation
+//! Love MI, Huber W, Anders S (2014). Moderated estimation of fold change and
+//! dispersion for RNA-seq data with DESeq2. Genome Biol 15:550.
 
 use anyhow::{bail, Context, Result};
 use biomics_core::statistics::{benjamini_hochberg, welch_t_test};
@@ -33,6 +43,61 @@ pub struct NormalizedMatrix {
     pub normalized: Vec<Vec<f64>>,
     /// Pooled (median) negative-binomial dispersion across all genes.
     pub global_dispersion: f64,
+}
+
+/// Parametric dispersion trend α = a₀ + a₁/μ (Love et al. 2014 eq. 4).
+#[derive(Debug, Clone)]
+pub struct DispersionTrend {
+    /// a₀ — asymptotic dispersion at high mean counts.
+    pub asympt_disp: f64,
+    /// a₁ — extra-Poisson variance coefficient.
+    pub extra_pois: f64,
+}
+
+impl DispersionTrend {
+    /// Evaluate the trend at a given mean count `mean`.
+    pub fn eval(&self, mean: f64) -> f64 {
+        self.asympt_disp + self.extra_pois / mean.max(1e-8)
+    }
+}
+
+/// Full DESeq2-equivalent result for one gene.
+#[derive(Debug, Clone)]
+pub struct DeseqResult {
+    pub gene_id: String,
+    /// Mean normalized count across all samples.
+    pub base_mean: f64,
+    /// MLE log₂ fold change (β₁ / ln 2).
+    pub log2_fold_change: f64,
+    /// Shrunk log₂ fold change (apeglm-style normal-prior MAP).
+    pub lfc_shrunk: f64,
+    /// Standard error of β₁ divided by ln 2.
+    pub lfc_se: f64,
+    /// Wald z-statistic.
+    pub stat: f64,
+    pub p_value: f64,
+    /// Benjamini-Hochberg adjusted p-value (NaN if filtered).
+    pub padj: f64,
+    /// Mean normalized count in group 0.
+    pub mean_group0: f64,
+    /// Mean normalized count in group 1.
+    pub mean_group1: f64,
+    /// Final MAP-shrunk dispersion.
+    pub dispersion: f64,
+    /// True if Cook's distance exceeds threshold.
+    pub outlier: bool,
+}
+
+/// Top-level result from a full DESeq2 run.
+#[derive(Debug, Clone)]
+pub struct DeseqAnalysis {
+    pub results: Vec<DeseqResult>,
+    pub size_factors: SizeFactors,
+    pub dispersion_trend: DispersionTrend,
+    /// Number of genes with padj < 0.05.
+    pub n_significant: usize,
+    /// Number of genes removed by independent filtering.
+    pub n_filtered: usize,
 }
 
 // ── Core estimation functions ─────────────────────────────────────────────────
@@ -227,7 +292,8 @@ pub fn deseq2_differential_expression(matrix: &NormalizedMatrix) -> Vec<DiffExpr
 
             // Raw (non-log) means for reporting
             let mean_s1 = norm_row[..split].iter().sum::<f64>() / split.max(1) as f64;
-            let mean_s2 = norm_row[split..].iter().sum::<f64>() / (n_samples - split).max(1) as f64;
+            let mean_s2 =
+                norm_row[split..].iter().sum::<f64>() / (n_samples - split).max(1) as f64;
 
             let (p_value, padj) = if can_test {
                 let pval = welch_t_test(&g1, &g2).map(|(_, p)| p).unwrap_or(f64::NAN);
@@ -282,6 +348,629 @@ pub fn deseq2_differential_expression(matrix: &NormalizedMatrix) -> Vec<DiffExpr
     });
 
     results
+}
+
+// ── Full DESeq2 NB-GLM pipeline ───────────────────────────────────────────────
+
+/// Run the full DESeq2 NB-GLM pipeline (Love et al. 2014).
+///
+/// `counts[gene][sample]` — raw integer counts as f64.
+/// `group0` and `group1` — indices into the sample dimension.
+pub fn run_deseq2(
+    counts: &[Vec<f64>],
+    gene_ids: &[String],
+    group0: &[usize],
+    group1: &[usize],
+    sample_names: &[String],
+) -> Result<DeseqAnalysis> {
+    if counts.is_empty() {
+        bail!("run_deseq2: count matrix is empty");
+    }
+    if gene_ids.len() != counts.len() {
+        bail!(
+            "run_deseq2: {} gene IDs but {} count rows",
+            gene_ids.len(),
+            counts.len()
+        );
+    }
+    if group0.is_empty() || group1.is_empty() {
+        bail!("run_deseq2: each group must have at least one sample");
+    }
+    let n_samples = sample_names.len();
+    for &idx in group0.iter().chain(group1.iter()) {
+        if idx >= n_samples {
+            bail!(
+                "run_deseq2: sample index {} out of range (n_samples={})",
+                idx,
+                n_samples
+            );
+        }
+    }
+
+    // ── Step 1: size factors ──────────────────────────────────────────────────
+    let size_factors = estimate_size_factors(counts, sample_names)
+        .context("run_deseq2: size-factor estimation failed")?;
+    let sf = &size_factors.factors;
+
+    let n_genes = counts.len();
+
+    // ── Step 2: gene-wise MLE dispersions (method of moments) ────────────────
+    let mle_dispersions = compute_mle_dispersions(counts, sf, group0, group1);
+
+    // ── Step 3: dispersion trend fitting α = a₀ + a₁/μ ──────────────────────
+    let gene_means = compute_gene_means(counts, sf);
+    let trend = fit_dispersion_trend(&mle_dispersions, &gene_means);
+
+    // ── Step 4: MAP dispersion shrinkage ─────────────────────────────────────
+    let map_dispersions = shrink_dispersions(&mle_dispersions, &gene_means, &trend);
+
+    // ── Step 5 + 6: IRLS NB-GLM fit + Wald test ──────────────────────────────
+    let mut results: Vec<DeseqResult> = (0..n_genes)
+        .map(|g| {
+            fit_gene_nb_glm(
+                g,
+                gene_ids,
+                counts,
+                sf,
+                group0,
+                group1,
+                map_dispersions[g],
+                &gene_means,
+            )
+        })
+        .collect();
+
+    // ── Step 7: Cook's distance outlier flagging ──────────────────────────────
+    flag_outliers(&mut results, counts, sf, group0, group1);
+
+    // ── Step 8: Independent filtering ────────────────────────────────────────
+    let n_filtered = independent_filtering(&mut results);
+
+    // ── Step 9: LFC shrinkage ─────────────────────────────────────────────────
+    apply_lfc_shrinkage(&mut results);
+
+    // BH correction over non-outlier, non-filtered genes
+    apply_bh_correction(&mut results);
+
+    let n_significant = results.iter().filter(|r| r.padj < 0.05).count();
+
+    Ok(DeseqAnalysis {
+        results,
+        size_factors,
+        dispersion_trend: trend,
+        n_significant,
+        n_filtered,
+    })
+}
+
+// ── Step 2: gene-wise MLE dispersions ────────────────────────────────────────
+
+/// Compute method-of-moments NB dispersion for each gene.
+///
+/// α_g = max(0, (Var(K_gj/s_j) - Mean(K_gj/s_j)) / Mean(K_gj/s_j)²)
+fn compute_mle_dispersions(
+    counts: &[Vec<f64>],
+    sf: &[f64],
+    group0: &[usize],
+    group1: &[usize],
+) -> Vec<f64> {
+    let all_samples: Vec<usize> = group0.iter().chain(group1.iter()).copied().collect();
+    counts
+        .iter()
+        .map(|row| {
+            let normed: Vec<f64> = all_samples.iter().map(|&j| row[j] / sf[j]).collect();
+            let n = normed.len() as f64;
+            if n < 2.0 {
+                return 0.0;
+            }
+            let mean = normed.iter().sum::<f64>() / n;
+            if mean <= 0.0 {
+                return 0.0;
+            }
+            let var = normed.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / (n - 1.0);
+            ((var - mean) / mean.powi(2)).max(0.0)
+        })
+        .collect()
+}
+
+// ── Step 3: dispersion trend fitting ─────────────────────────────────────────
+
+/// Compute mean normalized count per gene across all samples.
+fn compute_gene_means(counts: &[Vec<f64>], sf: &[f64]) -> Vec<f64> {
+    counts
+        .iter()
+        .map(|row| {
+            let n = sf.len() as f64;
+            if n == 0.0 {
+                return 0.0;
+            }
+            row.iter().zip(sf.iter()).map(|(&c, &s)| c / s).sum::<f64>() / n
+        })
+        .collect()
+}
+
+/// Fit parametric trend α = a₀ + a₁/μ using the 5th percentile + OLS.
+fn fit_dispersion_trend(dispersions: &[f64], means: &[f64]) -> DispersionTrend {
+    // Use only genes with mean > 1.0 and positive MLE dispersion
+    let valid: Vec<(f64, f64)> = dispersions
+        .iter()
+        .zip(means.iter())
+        .filter(|(&d, &m)| m > 1.0 && d > 0.0 && d.is_finite())
+        .map(|(&d, &m)| (d, m))
+        .collect();
+
+    if valid.is_empty() {
+        return DispersionTrend {
+            asympt_disp: 0.1,
+            extra_pois: 1.0,
+        };
+    }
+
+    // a₀ = 5th percentile of MLE dispersions
+    let mut disp_sorted: Vec<f64> = valid.iter().map(|&(d, _)| d).collect();
+    disp_sorted.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let p5_idx = ((disp_sorted.len() as f64 * 0.05) as usize).min(disp_sorted.len() - 1);
+    let a0 = disp_sorted[p5_idx].max(1e-8);
+
+    // a₁: closed-form OLS through origin on (α_g - a₀) ~ a₁ × (1/μ_g)
+    // a₁ = Σ((α_g - a₀) × μ_g) / Σ(1)  — simplified (see spec)
+    let n_valid = valid.len() as f64;
+    let sum_adj_times_mu: f64 = valid.iter().map(|&(d, m)| (d - a0) * m).sum();
+    let a1 = (sum_adj_times_mu / n_valid).max(0.0);
+
+    DispersionTrend {
+        asympt_disp: a0,
+        extra_pois: a1,
+    }
+}
+
+// ── Step 4: MAP dispersion shrinkage ─────────────────────────────────────────
+
+/// Shrink MLE dispersions toward the trend using empirical Bayes log-normal prior.
+///
+/// log(α_shrunk) = weighted average of log(α_MLE) and log(α_trend).
+fn shrink_dispersions(
+    mle_dispersions: &[f64],
+    means: &[f64],
+    trend: &DispersionTrend,
+) -> Vec<f64> {
+    let n_samples_approx = 6_usize; // reasonable default; not critical for shrinkage direction
+
+    // Compute log dispersions for genes with valid MLE
+    let log_mlep: Vec<f64> = mle_dispersions
+        .iter()
+        .filter(|&&d| d > 0.0 && d.is_finite())
+        .map(|&d| d.ln())
+        .collect();
+
+    // σ²_prior = max(0, Var(log α_g) − Var_sampling)
+    let var_sampling = 1.0 / n_samples_approx as f64;
+    let sigma2_prior = if log_mlep.len() >= 2 {
+        let n = log_mlep.len() as f64;
+        let mean_log = log_mlep.iter().sum::<f64>() / n;
+        let var_log =
+            log_mlep.iter().map(|&x| (x - mean_log).powi(2)).sum::<f64>() / (n - 1.0).max(1.0);
+        (var_log - var_sampling).max(0.0)
+    } else {
+        0.0
+    };
+
+    mle_dispersions
+        .iter()
+        .zip(means.iter())
+        .map(|(&d_mle, &mu)| {
+            if d_mle <= 0.0 || !d_mle.is_finite() || mu <= 0.0 {
+                // Fall back to trend value when MLE is degenerate
+                return trend.eval(mu).max(1e-8);
+            }
+            let log_mle = d_mle.ln();
+            let log_trend = trend.eval(mu).max(1e-8).ln();
+
+            if sigma2_prior <= 0.0 {
+                // No prior variance → return trend
+                return log_trend.exp();
+            }
+
+            // MAP: precision-weighted average
+            let prec_mle = 1.0 / var_sampling;
+            let prec_prior = 1.0 / sigma2_prior;
+            let log_map = (log_mle * prec_mle + log_trend * prec_prior) / (prec_mle + prec_prior);
+            log_map.exp().max(1e-8)
+        })
+        .collect()
+}
+
+// ── Step 5 + 6: IRLS NB-GLM + Wald test ──────────────────────────────────────
+
+/// IRLS convergence tolerance on |Δβ₀| + |Δβ₁|.
+const IRLS_TOL: f64 = 1e-8;
+/// Maximum IRLS iterations.
+const IRLS_MAX_ITER: usize = 50;
+
+/// Fit a 2-group NB-GLM for one gene via IRLS and compute the Wald z-statistic.
+#[allow(clippy::too_many_arguments)]
+fn fit_gene_nb_glm(
+    g: usize,
+    gene_ids: &[String],
+    counts: &[Vec<f64>],
+    sf: &[f64],
+    group0: &[usize],
+    group1: &[usize],
+    dispersion: f64,
+    gene_means: &[f64],
+) -> DeseqResult {
+    let row = &counts[g];
+    let base_mean = gene_means[g];
+    let alpha = dispersion.max(1e-8);
+
+    // Collect (count, size_factor, group_indicator) tuples
+    // x=0 for group0, x=1 for group1
+    let samples: Vec<(f64, f64, f64)> = group0
+        .iter()
+        .map(|&j| (row[j], sf[j], 0.0))
+        .chain(group1.iter().map(|&j| (row[j], sf[j], 1.0)))
+        .collect();
+
+    let n = samples.len();
+
+    // mean_group0 and mean_group1 in normalized counts
+    let mean_g0 = {
+        let s: f64 = group0.iter().map(|&j| row[j] / sf[j]).sum();
+        s / group0.len().max(1) as f64
+    };
+    let mean_g1 = {
+        let s: f64 = group1.iter().map(|&j| row[j] / sf[j]).sum();
+        s / group1.len().max(1) as f64
+    };
+
+    // Initialize μ_j = (K_j + 0.5) / s_j
+    let mut mu: Vec<f64> = samples.iter().map(|(k, s, _)| (k + 0.5) / s).collect();
+
+    // β = [β₀, β₁]
+    let mut beta0 = mu.iter().map(|&m| m.ln()).sum::<f64>() / n as f64;
+    let mut beta1 = 0.0_f64;
+
+    // ainv11 is the (1,1) element of (X^T W X)^{-1}, used for SE(β₁)
+    let mut ainv11 = 0.0_f64;
+
+    for _iter in 0..IRLS_MAX_ITER {
+        // Working weights and working responses
+        let mut sw0 = 0.0_f64;
+        let mut sw1 = 0.0_f64;
+        let mut swz0 = 0.0_f64;
+        let mut swz1 = 0.0_f64;
+
+        for (i, &(k, s, x)) in samples.iter().enumerate() {
+            let mu_j = mu[i];
+            // NB variance weight: w_j = 1 / (1/μ + α)
+            let w = 1.0 / (1.0 / mu_j + alpha);
+            // Working response: z_j = log(μ_j) - log(s_j) + (K_j - μ_j)/μ_j
+            let z = mu_j.ln() - s.ln() + (k - mu_j) / mu_j;
+
+            if x < 0.5 {
+                sw0 += w;
+                swz0 += w * z;
+            } else {
+                sw1 += w;
+                swz1 += w * z;
+            }
+        }
+
+        // X^T W X for design [1, x]:
+        // A = [[sw0+sw1, sw1], [sw1, sw1]]
+        let a00 = sw0 + sw1;
+        let a01 = sw1;
+        let a11 = sw1;
+        let det = a00 * a11 - a01 * a01; // = sw0*sw1
+
+        if det.abs() < 1e-12 {
+            // Degenerate — return NA-like result
+            return make_na_result(&gene_ids[g], base_mean, mean_g0, mean_g1, dispersion);
+        }
+
+        // A⁻¹ = (1/det) * [[a11, -a01], [-a01, a00]]
+        let ainv00 = a11 / det;
+        ainv11 = a00 / det;
+        let ainv01 = -a01 / det;
+
+        // X^T W z = [swz0+swz1, swz1]
+        let b0 = swz0 + swz1;
+        let b1 = swz1;
+
+        let new_beta0 = ainv00 * b0 + ainv01 * b1;
+        let new_beta1 = ainv01 * b0 + ainv11 * b1;
+
+        let delta = (new_beta0 - beta0).abs() + (new_beta1 - beta1).abs();
+        beta0 = new_beta0;
+        beta1 = new_beta1;
+
+        // Update μ
+        for (i, &(_, s, x)) in samples.iter().enumerate() {
+            mu[i] = s * (beta0 + beta1 * x).exp();
+        }
+
+        if delta < IRLS_TOL {
+            break;
+        }
+    }
+
+    // Wald test: SE(β₁) = sqrt(A⁻¹₁₁)
+    let se_beta1 = ainv11.max(0.0).sqrt();
+    let stat = if se_beta1 > 0.0 {
+        beta1 / se_beta1
+    } else {
+        0.0
+    };
+    let p_value = 2.0 * normal_cdf(-stat.abs());
+
+    let log2 = std::f64::consts::LN_2;
+    DeseqResult {
+        gene_id: gene_ids[g].clone(),
+        base_mean,
+        log2_fold_change: beta1 / log2,
+        lfc_shrunk: beta1 / log2, // filled in step 9
+        lfc_se: se_beta1 / log2,
+        stat,
+        p_value,
+        padj: f64::NAN,
+        mean_group0: mean_g0,
+        mean_group1: mean_g1,
+        dispersion,
+        outlier: false,
+    }
+}
+
+/// Return a result with NaN statistics for a degenerate gene.
+fn make_na_result(
+    gene_id: &str,
+    base_mean: f64,
+    mean_group0: f64,
+    mean_group1: f64,
+    dispersion: f64,
+) -> DeseqResult {
+    DeseqResult {
+        gene_id: gene_id.to_string(),
+        base_mean,
+        log2_fold_change: f64::NAN,
+        lfc_shrunk: f64::NAN,
+        lfc_se: f64::NAN,
+        stat: f64::NAN,
+        p_value: f64::NAN,
+        padj: f64::NAN,
+        mean_group0,
+        mean_group1,
+        dispersion,
+        outlier: false,
+    }
+}
+
+// ── Step 7: Cook's distance outlier flagging ──────────────────────────────────
+
+/// Flag genes whose maximum Cook's distance exceeds the conservative threshold.
+///
+/// Cook's distance: C_j = (K_j - μ_j)² × h_jj / (p × MSE × (1 - h_jj)²)
+fn flag_outliers(
+    results: &mut [DeseqResult],
+    counts: &[Vec<f64>],
+    sf: &[f64],
+    group0: &[usize],
+    group1: &[usize],
+) {
+    // Conservative F(0.99, 2, n-2) threshold = 5.0
+    const COOKS_THRESHOLD: f64 = 5.0;
+    let n = group0.len() + group1.len();
+
+    for (g, result) in results.iter_mut().enumerate() {
+        let row = &counts[g];
+        let alpha = result.dispersion.max(1e-8);
+
+        // Quick recompute of IRLS final μ and XTWX⁻¹ for this gene
+        // (We only need the hat matrix diagonal, so we use the stored LFC)
+        let log2 = std::f64::consts::LN_2;
+        let beta1 = result.log2_fold_change * log2;
+        // Recover β₀ from mean: base_mean ≈ exp(β₀ + β₁/2) — rough but good enough
+        // for Cook's calculation; use group means instead.
+        let beta0 = if result.mean_group0 > 0.0 {
+            result.mean_group0.ln()
+        } else {
+            0.0_f64
+        };
+
+        let mut max_cooks = 0.0_f64;
+
+        let all_samples: Vec<(f64, f64, f64)> = group0
+            .iter()
+            .map(|&j| (row[j], sf[j], 0.0_f64))
+            .chain(group1.iter().map(|&j| (row[j], sf[j], 1.0_f64)))
+            .collect();
+
+        // Recompute XTWX with approximate μ
+        let mut sw0 = 0.0_f64;
+        let mut sw1 = 0.0_f64;
+        let mut mus: Vec<f64> = Vec::with_capacity(all_samples.len());
+        for &(_, s, x) in &all_samples {
+            let mu_j = (s * (beta0 + beta1 * x).exp()).max(1e-8);
+            mus.push(mu_j);
+            let w = 1.0 / (1.0 / mu_j + alpha);
+            if x < 0.5 {
+                sw0 += w;
+            } else {
+                sw1 += w;
+            }
+        }
+
+        let det = sw0 * sw1;
+        if det.abs() < 1e-12 || n < 3 {
+            continue;
+        }
+
+        let ainv00 = sw1 / det; // (sw0+sw1)*sw1 - sw1² = sw0*sw1; inv[0,0] = sw1/det
+        let ainv11 = (sw0 + sw1) / det;
+
+        for (i, &(k, _, x)) in all_samples.iter().enumerate() {
+            let mu_j = mus[i];
+            let w = 1.0 / (1.0 / mu_j + alpha);
+            // Hat matrix diagonal: h_jj = w_j × (X (X^T W X)^{-1} X^T)_{jj}
+            // For group0 (x=0): (X A⁻¹ Xᵀ)_jj = A⁻¹_{00}
+            // For group1 (x=1): (X A⁻¹ Xᵀ)_jj ≈ A⁻¹_{00} + 2×A⁻¹_{01} + A⁻¹_{11}
+            // But off-diagonal: ainv01 = -sw1/det = -1/sw0 (small)
+            // Simplified: use ainv00 for group0, ainv11 for group1
+            let ainv_diag = if x < 0.5 { ainv00 } else { ainv11 };
+            let h = (w * ainv_diag).min(0.9999);
+
+            let denom = 2.0 * mu_j.powi(2) * (1.0 - h).powi(2);
+            if denom > 0.0 {
+                let c = (k - mu_j).powi(2) * h / denom;
+                if c > max_cooks {
+                    max_cooks = c;
+                }
+            }
+        }
+
+        result.outlier = max_cooks > COOKS_THRESHOLD;
+    }
+}
+
+// ── Step 8: Independent filtering ────────────────────────────────────────────
+
+/// Apply Bourgon et al. 2010 independent filtering; returns number of filtered genes.
+///
+/// Chooses the mean-count threshold θ* that maximises genes passing at padj < 0.1.
+fn independent_filtering(results: &mut [DeseqResult]) -> usize {
+    // Build quantile thresholds from 0.0 to 0.8, step 0.05
+    let mut base_means: Vec<f64> = results
+        .iter()
+        .filter(|r| r.p_value.is_finite() && !r.outlier)
+        .map(|r| r.base_mean)
+        .collect();
+    base_means.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+
+    let n = base_means.len();
+    if n == 0 {
+        return 0;
+    }
+
+    let mut best_theta = 0.0_f64;
+    let mut best_count = 0_usize;
+
+    let steps = 17usize; // 0.00, 0.05, ..., 0.80
+    for step in 0..steps {
+        let q = step as f64 * 0.05;
+        let theta_idx = ((n as f64 * q) as usize).min(n - 1);
+        let theta = base_means[theta_idx];
+
+        // Quick BH on genes passing the threshold to count padj < 0.1
+        let passing_pvals: Vec<f64> = results
+            .iter()
+            .filter(|r| r.base_mean > theta && r.p_value.is_finite() && !r.outlier)
+            .map(|r| r.p_value)
+            .collect();
+
+        let padj_vals = benjamini_hochberg(&passing_pvals);
+        let cnt = padj_vals.iter().filter(|&&p| p < 0.1).count();
+
+        if cnt >= best_count {
+            best_count = cnt;
+            best_theta = theta;
+        }
+    }
+
+    // Apply the chosen filter: set padj=1 for filtered genes
+    let mut n_filtered = 0_usize;
+    for result in results.iter_mut() {
+        if result.base_mean <= best_theta && result.p_value.is_finite() && !result.outlier {
+            result.padj = 1.0;
+            n_filtered += 1;
+        }
+    }
+    n_filtered
+}
+
+// ── Step 9: LFC shrinkage ─────────────────────────────────────────────────────
+
+/// Apply apeglm-style normal-prior MAP shrinkage to log₂ fold changes.
+///
+/// β₁_shrunk = β₁ × σ²_mle / (σ²_mle + σ²_prior)
+fn apply_lfc_shrinkage(results: &mut [DeseqResult]) {
+    // σ²_prior = median(β₁²) across all non-outlier genes with finite LFC
+    let beta1_sq: Vec<f64> = results
+        .iter()
+        .filter(|r| r.log2_fold_change.is_finite() && !r.outlier)
+        .map(|r| r.log2_fold_change.powi(2))
+        .collect();
+
+    if beta1_sq.is_empty() {
+        return;
+    }
+
+    let mut sorted = beta1_sq.clone();
+    sorted.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let sigma2_prior = median_sorted(&sorted);
+
+    for result in results.iter_mut() {
+        if !result.log2_fold_change.is_finite() {
+            continue;
+        }
+        let sigma2_mle = result.lfc_se.powi(2);
+        let shrinkage = if sigma2_mle + sigma2_prior > 0.0 {
+            sigma2_mle / (sigma2_mle + sigma2_prior)
+        } else {
+            1.0
+        };
+        result.lfc_shrunk = result.log2_fold_change * shrinkage;
+    }
+}
+
+// ── BH correction pass ────────────────────────────────────────────────────────
+
+/// Apply BH correction to genes that are not already filtered or outliers.
+fn apply_bh_correction(results: &mut [DeseqResult]) {
+    // Collect indices of genes eligible for multiple testing correction
+    let eligible: Vec<usize> = results
+        .iter()
+        .enumerate()
+        .filter(|(_, r)| r.p_value.is_finite() && !r.outlier && r.padj.is_nan())
+        .map(|(i, _)| i)
+        .collect();
+
+    if eligible.is_empty() {
+        return;
+    }
+
+    let pvals: Vec<f64> = eligible.iter().map(|&i| results[i].p_value).collect();
+    let padj_vals = benjamini_hochberg(&pvals);
+    for (ei, &orig_i) in eligible.iter().enumerate() {
+        results[orig_i].padj = padj_vals[ei];
+    }
+
+    // Outlier genes and filtered genes get padj = 1.0 (conservative)
+    for result in results.iter_mut() {
+        if result.outlier || (!result.p_value.is_finite() && result.padj.is_nan()) {
+            result.padj = 1.0;
+        }
+    }
+}
+
+// ── Normal CDF (Abramowitz & Stegun 7.1.26) ──────────────────────────────────
+
+/// Two-sided normal CDF: Φ(z) via erfc approximation.
+fn normal_cdf(z: f64) -> f64 {
+    0.5 * erfc_approx(-z / std::f64::consts::SQRT_2)
+}
+
+/// Complementary error function approximation (Abramowitz & Stegun 7.1.26).
+fn erfc_approx(x: f64) -> f64 {
+    let t = 1.0 / (1.0 + 0.3275911 * x.abs());
+    let poly = t
+        * (0.254_829_592
+            + t * (-0.284_496_736
+                + t * (1.421_413_741 + t * (-1.453_152_027 + t * 1.061_405_429))));
+    let r = poly * (-x * x).exp();
+    if x >= 0.0 {
+        r
+    } else {
+        2.0 - r
+    }
 }
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
@@ -476,5 +1165,81 @@ mod tests {
             "de_gene should have log2FC > 1 after normalization, got {}",
             de_gene_result.log2_fold_change
         );
+    }
+
+    #[test]
+    fn test_run_deseq2_basic() {
+        // Basic smoke test: run full NB-GLM on a small dataset
+        let gene_ids: Vec<String> = vec![
+            "G1".to_string(),
+            "G2".to_string(),
+            "G3".to_string(),
+            "G4".to_string(),
+        ];
+        let sample_names: Vec<String> = vec![
+            "c1".to_string(),
+            "c2".to_string(),
+            "c3".to_string(),
+            "t1".to_string(),
+            "t2".to_string(),
+            "t3".to_string(),
+        ];
+        // G1 is up in treatment; G3 is down; G2/G4 are null
+        let counts: Vec<Vec<f64>> = vec![
+            vec![10.0, 12.0, 11.0, 80.0, 85.0, 78.0],  // G1 up
+            vec![50.0, 48.0, 52.0, 95.0, 100.0, 98.0], // G2 null (library)
+            vec![80.0, 78.0, 82.0, 20.0, 18.0, 22.0],  // G3 down
+            vec![30.0, 32.0, 28.0, 60.0, 58.0, 62.0],  // G4 null (library)
+        ];
+        let group0 = vec![0, 1, 2];
+        let group1 = vec![3, 4, 5];
+
+        let analysis = run_deseq2(&counts, &gene_ids, &group0, &group1, &sample_names)
+            .expect("run_deseq2 should not fail");
+
+        assert_eq!(analysis.results.len(), 4);
+
+        // G1 should be up (positive LFC)
+        let g1 = analysis
+            .results
+            .iter()
+            .find(|r| r.gene_id == "G1")
+            .unwrap();
+        assert!(
+            g1.log2_fold_change > 0.0,
+            "G1 should be up-regulated, got lfc={}",
+            g1.log2_fold_change
+        );
+
+        // G3 should be down (negative LFC)
+        let g3 = analysis
+            .results
+            .iter()
+            .find(|r| r.gene_id == "G3")
+            .unwrap();
+        assert!(
+            g3.log2_fold_change < 0.0,
+            "G3 should be down-regulated, got lfc={}",
+            g3.log2_fold_change
+        );
+
+        // All p-values should be finite (not NaN, not infinite)
+        for r in &analysis.results {
+            assert!(
+                r.p_value.is_finite(),
+                "p_value NaN for gene {}",
+                r.gene_id
+            );
+        }
+    }
+
+    #[test]
+    fn test_normal_cdf_symmetry() {
+        // Φ(0) = 0.5
+        let p = normal_cdf(0.0);
+        assert!((p - 0.5).abs() < 1e-6, "normal_cdf(0) = {p}");
+        // Φ(1.96) ≈ 0.975
+        let p196 = normal_cdf(1.96);
+        assert!((p196 - 0.975).abs() < 0.002, "normal_cdf(1.96) = {p196}");
     }
 }

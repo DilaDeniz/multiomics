@@ -21,6 +21,9 @@ pub use genotyper::{
 pub use pairhmm::{log_sum_exp, pair_hmm_log_prob};
 pub use pileup::{build_pileup, PileupBase, PileupColumn};
 
+pub mod aligner;
+pub use aligner::{Alignment, ReferenceIndex};
+
 pub mod somatic;
 pub use somatic::{
     call_somatic_from_bams, call_somatic_variants, summarize_somatic, SomaticCall, SomaticSummary,

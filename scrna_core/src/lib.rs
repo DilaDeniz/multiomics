@@ -10,19 +10,25 @@
 
 pub mod clustering;
 pub mod de;
+pub mod doublets;
 pub mod graph;
+pub mod harmony;
 pub mod hvg;
 pub mod io;
 pub mod normalize;
+pub mod pseudotime;
 pub mod qc;
 pub mod types;
 
 pub use clustering::leiden_cluster;
 pub use de::{find_cluster_markers, ClusterMarker};
+pub use doublets::{detect_doublets, DoubletScores};
 pub use graph::{build_knn_graph, KnnGraph};
+pub use harmony::{harmony_integrate, HarmonyResult};
 pub use hvg::select_hvg;
 pub use io::mex::{parse_10x_mex, CsrMatrix};
 pub use normalize::{log_normalize, scran_size_factors};
+pub use pseudotime::{compute_pseudotime, PseudotimeResult};
 pub use qc::{compute_qc, default_qc_filter, filter_cells, CellQc};
 pub use types::SingleCellSummary;
 

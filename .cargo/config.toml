@@ -1,3 +1,8 @@
+[env]
+# Run cargo test with a single test thread to avoid rayon thread-pool
+# deadlocks when parallel tests all try to use rayon concurrently.
+RUST_TEST_THREADS = "1"
+
 [build]
 # Default: x86-64-v3 (AVX2) — safe for most modern x86 CPUs and containers.
 # This avoids SIGILL in environments that lack AVX-512 (x86-64-v4).

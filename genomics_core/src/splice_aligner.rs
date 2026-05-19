@@ -207,7 +207,7 @@ impl SpliceIndex {
             let attrs = fields[8];
             // Extract transcript_id "..." from attributes.
             let tx_id = if let Some(pos) = attrs.find("transcript_id") {
-                let rest = &attrs[pos + 13..].trim_start_matches(|c: char| c == ' ');
+                let rest = &attrs[pos + 13..].trim_start_matches(' ');
                 let rest = rest.trim_start_matches('"');
                 let end_q = rest.find('"').unwrap_or(rest.len());
                 rest[..end_q].to_owned()
@@ -309,7 +309,7 @@ impl SpliceIndex {
             let qry_gap = (b.qpos as i64) - (a.qpos as i64 + k as i64);
             // Candidate intron: large ref gap, tiny query gap.
             if ref_gap > MIN_INTRON as i64 && qry_gap.abs() <= 2 {
-                let donor_pos = a.rpos as usize + k as usize; // first base of intron
+                let donor_pos = a.rpos as usize + k; // first base of intron
                 let acceptor_pos = b.rpos as usize; // first base of exon after intron
                 if is_gt_ag(&self.genome, donor_pos, acceptor_pos) {
                     novel_junctions.push(SpliceJunction {
@@ -516,7 +516,7 @@ fn is_gt_ag(genome: &[u8], donor_pos: usize, acceptor_pos: usize) -> bool {
     let a1 = genome[acceptor_pos - 2].to_ascii_uppercase();
     let a2 = genome[acceptor_pos - 1].to_ascii_uppercase();
 
-    let donor_ok = (d1 == b'G' && d2 == b'T') || (d1 == b'G' && d2 == b'C');
+    let donor_ok = d1 == b'G' && (d2 == b'T' || d2 == b'C');
     let acceptor_ok = a1 == b'A' && a2 == b'G';
     donor_ok && acceptor_ok
 }
@@ -653,18 +653,24 @@ fn chain_seeds_splice(seeds: &[Seed], k: usize) -> Vec<Seed> {
             if sorted[j].qpos <= sorted[i].qpos {
                 continue;
             }
-            let dr = (sorted[j].rpos - sorted[i].rpos) as i64;
-            let dq = (sorted[j].qpos - sorted[i].qpos) as i64;
+            // Gap sizes: how many bases are skipped between the END of seed i and START of seed j.
+            let dr_gap = (sorted[j].rpos as i64) - (sorted[i].rpos as i64 + k as i64);
+            let dq_gap = (sorted[j].qpos as i64) - (sorted[i].qpos as i64 + k as i64);
+
             // Allow large ref gaps (introns) but keep query gap small.
-            if dq > k as i64 * 4 {
-                continue; // big query gap – unlikely to be a valid intron read
+            // A valid intron: large ref gap, effectively zero query gap.
+            let is_intron_gap = dr_gap > MIN_INTRON as i64 && dq_gap.abs() <= 2;
+
+            if !is_intron_gap {
+                // For normal (non-intron) extension, require diagonal consistency.
+                if dq_gap < 0 || dq_gap > k as i64 * 4 {
+                    continue;
+                }
+                if (dr_gap - dq_gap).abs() > k as i64 * 2 {
+                    continue;
+                }
             }
-            // Diagonal consistency for non-intron chains: |Δref - Δquery| <= k*2
-            // For intron chains: ref gap >> query gap is allowed.
-            let is_intron_gap = dr > MIN_INTRON as i64 && dq.abs() <= 2;
-            if !is_intron_gap && (dr - dq).abs() > k as i64 * 2 {
-                continue;
-            }
+
             let score = dp[i] + k as i64;
             if score > dp[j] {
                 dp[j] = score;
@@ -945,8 +951,7 @@ fn count_mismatches(query: &[u8], reference: &[u8], cigar: &str) -> u32 {
                 'M' => {
                     for _ in 0..n {
                         if qi < query.len() && ri < reference.len() {
-                            if query[qi].to_ascii_uppercase() != reference[ri].to_ascii_uppercase()
-                            {
+                            if !query[qi].eq_ignore_ascii_case(&reference[ri]) {
                                 mismatches += 1;
                             }
                             qi += 1;
@@ -973,10 +978,23 @@ mod tests {
     ///
     /// Layout: exon1 (200 bp) | intron (1000 bp, starts GT, ends AG) | exon2 (200 bp)
     fn make_spliced_fasta() -> (Vec<u8>, Vec<u8>, usize, usize) {
-        // Exon sequences (ACGT cycle, non-repetitive enough for k=16).
-        let exon_bases = b"ACGTACGTACGTACGT"; // 16-bp period
-        let exon1: Vec<u8> = (0..200).map(|i| exon_bases[i % 16]).collect();
-        let exon2: Vec<u8> = (0..200).map(|i| exon_bases[(i + 4) % 16]).collect();
+        // Generate distinct pseudo-random (but deterministic) exon sequences.
+        // Using an LCG avoids any external RNG dependency; different seeds produce
+        // sequences that share no k=16 substrings with each other or with the intron.
+        fn lcg_seq(seed: u64, len: usize) -> Vec<u8> {
+            let bases: &[u8] = b"ACGT";
+            let mut s = seed;
+            (0..len)
+                .map(|_| {
+                    s = s
+                        .wrapping_mul(6364136223846793005)
+                        .wrapping_add(1442695040888963407);
+                    bases[((s >> 33) as usize) % 4]
+                })
+                .collect()
+        }
+        let exon1 = lcg_seq(0xDEAD_BEEF_1234_5678, 200);
+        let exon2 = lcg_seq(0xCAFE_BABE_8765_4321, 200);
 
         // Intron: starts with GT, ends with AG, rest is filler.
         let mut intron = Vec::with_capacity(1000);

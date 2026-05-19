@@ -299,19 +299,47 @@ pub fn run_pipeline(
         }
     }
 
-    // Optional: proteomics database search
-    let proteomics_summary =
-        if let (Some(mzml_path), Some(fasta_path)) = (&cli.proteomics, &cli.fasta) {
+    // Optional: proteomics database search (single or multi-file)
+    let proteomics_summary = if let Some(fasta_path) = &cli.fasta {
+        // Collect mzML paths: explicit files + optional directory expansion.
+        let mut mzml_paths: Vec<std::path::PathBuf> = cli.proteomics.clone();
+        if let Some(dir) = &cli.proteomics_dir {
+            mzml_paths.extend(collect_mzml_dir(dir));
+        }
+
+        if !mzml_paths.is_empty() {
             log::info!(
-                "Running proteomics: mzML='{}', FASTA='{}'",
-                mzml_path.display(),
+                "Running proteomics: {} mzML file(s), FASTA='{}'",
+                mzml_paths.len(),
                 fasta_path.display()
             );
-            let mzml_data = std::fs::read(mzml_path)
-                .with_context(|| format!("reading mzML: {}", mzml_path.display()))?;
+
+            // Read all mzML files; use rayon for parallel I/O on large sets.
+            let read_results: Vec<anyhow::Result<Vec<u8>>> = mzml_paths
+                .iter()
+                .map(|p| std::fs::read(p).with_context(|| format!("reading mzML: {}", p.display())))
+                .collect();
+
+            let mut mzml_bufs: Vec<Vec<u8>> = Vec::with_capacity(mzml_paths.len());
+            for result in read_results {
+                match result {
+                    Ok(buf) => mzml_bufs.push(buf),
+                    Err(e) => {
+                        log::warn!("Skipping mzML file: {e:#}");
+                    }
+                }
+            }
+
             let fasta_data = std::fs::read(fasta_path)
                 .with_context(|| format!("reading FASTA: {}", fasta_path.display()))?;
-            match proteomics_core::run_proteomics(&mzml_data, &fasta_data, cli.proteomics_fdr) {
+
+            let mzml_slices: Vec<&[u8]> = mzml_bufs.iter().map(|b| b.as_slice()).collect();
+
+            match proteomics_core::run_proteomics_multi(
+                &mzml_slices,
+                &fasta_data,
+                cli.proteomics_fdr,
+            ) {
                 Ok(prot) => {
                     push_insight(
                         &state,
@@ -341,7 +369,10 @@ pub fn run_pipeline(
             }
         } else {
             None
-        };
+        }
+    } else {
+        None
+    };
 
     push_genomics_insights(&genomics, &state);
     push_transcriptomics_insights(&transcriptomics, &state);
@@ -583,4 +614,25 @@ fn num_cpus() -> usize {
     std::thread::available_parallelism()
         .map(|n| n.get())
         .unwrap_or(4)
+}
+
+/// Collect all *.mzML / *.mzml files from a directory (non-recursive).
+fn collect_mzml_dir(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        log::warn!("Cannot read proteomics-dir: {}", dir.display());
+        return Vec::new();
+    };
+    let mut paths: Vec<std::path::PathBuf> = entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| {
+            p.is_file()
+                && p.extension()
+                    .and_then(|e| e.to_str())
+                    .map(|e| e.eq_ignore_ascii_case("mzml"))
+                    .unwrap_or(false)
+        })
+        .collect();
+    paths.sort(); // deterministic order
+    paths
 }

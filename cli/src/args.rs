@@ -39,9 +39,14 @@ pub struct Cli {
     pub fastq: Option<PathBuf>,
 
     // ── Proteomics ────────────────────────────────────────────────────────────
-    /// mzML file for proteomics database search (requires --fasta)
-    #[arg(long, value_name = "FILE")]
-    pub proteomics: Option<PathBuf>,
+    /// One or more mzML files for proteomics database search (requires --fasta).
+    /// Pass multiple files to run a multi-file experiment-level search.
+    #[arg(long, value_name = "FILE", num_args = 1..)]
+    pub proteomics: Vec<PathBuf>,
+
+    /// Directory containing *.mzML files (alternative to listing files individually)
+    #[arg(long, value_name = "DIR")]
+    pub proteomics_dir: Option<PathBuf>,
 
     /// Protein database FASTA for proteomics search
     #[arg(long, value_name = "FILE")]

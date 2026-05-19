@@ -2,12 +2,17 @@
 //!
 //! Implements mzML parsing, in-silico tryptic digest, database search
 //! (hyperscore, target-decoy FDR), and label-free XIC quantification.
+//! Supports both single-file and multi-file (multi-run) search: all mzML
+//! runs are processed in parallel and their PSMs merged before a single
+//! experiment-level FDR pass, which is the correct way to handle fractionated
+//! or replicated LC-MS/MS experiments.
 //!
 //! # Speed vs competitors
 //! - mzML parsing: streaming quick-xml, no DOM allocation.
-//! - Candidate lookup: 1-Da mass-bin index — O(1) per spectrum.
+//! - Candidate lookup: hybrid precursor bin + fragment vote index (Sage-inspired).
 //! - Scoring: binary-search fragment matching, no hash tables on the hot path.
 //! - Parallelism: rayon over spectra; each worker is stateless.
+//!   Multi-file: files are parsed and searched in parallel, then merged.
 //!
 //! # References
 //! - Craig R & Beavis RC (2004) TANDEM: matching proteins with tandem mass spectra.
@@ -32,32 +37,42 @@ pub use score::{b_ions, hyperscore, y_ions, FRAG_TOL_PPM};
 pub use search::{infer_proteins, search_spectra, PRECURSOR_TOL_PPM};
 pub use types::{aa_mass, Peptide, ProteinGroup, ProteomicsSummary, Psm, Spectrum, PROTON, WATER};
 
+use ahash::AHashSet;
 use anyhow::Result;
 
-/// Run the complete proteomics pipeline.
+/// Run the complete proteomics pipeline for a single mzML file.
 ///
-/// - `mzml_data`: raw mzML file bytes.
-/// - `fasta_data`: protein database FASTA bytes (target only; decoys generated internally).
-/// - `fdr_threshold`: FDR cutoff for reporting (e.g. 0.01 for 1 %).
+/// Convenience wrapper around [`run_proteomics_multi`] for the common
+/// single-file case.
 pub fn run_proteomics(
     mzml_data: &[u8],
     fasta_data: &[u8],
     fdr_threshold: f64,
 ) -> Result<ProteomicsSummary> {
-    // 1. Parse spectra.
-    log::info!("Parsing mzML...");
-    let mut spectra = parse_mzml(mzml_data)?;
-    let n_spectra_total = spectra.len() as u32;
-    let n_ms2 = spectra.iter().filter(|s| s.ms_level == 2).count() as u32;
-    log::info!("{n_spectra_total} spectra ({n_ms2} MS2)");
+    run_proteomics_multi(&[mzml_data], fasta_data, fdr_threshold)
+}
 
-    // 2. Pre-process MS2 spectra: filter noise, normalize.
-    for spec in spectra.iter_mut().filter(|s| s.ms_level == 2) {
-        spec.filter_noise(0.01);
-        spec.normalize();
+/// Run the complete proteomics pipeline across multiple mzML files.
+///
+/// All files are parsed and searched **in parallel**; PSMs from every run are
+/// pooled before a single experiment-level FDR pass. This is the correct
+/// approach for fractionated or replicated LC-MS/MS experiments.
+///
+/// - `mzml_slices`: raw bytes of each mzML file.
+/// - `fasta_data`: protein database FASTA (target only; decoys auto-generated).
+/// - `fdr_threshold`: FDR cutoff for reporting (e.g. 0.01 for 1 %).
+pub fn run_proteomics_multi(
+    mzml_slices: &[&[u8]],
+    fasta_data: &[u8],
+    fdr_threshold: f64,
+) -> Result<ProteomicsSummary> {
+    use rayon::prelude::*;
+
+    if mzml_slices.is_empty() {
+        anyhow::bail!("no mzML files provided");
     }
 
-    // 3. Build peptide index.
+    // 1. Build the peptide index once — shared (read-only) across all searches.
     log::info!("Digesting protein database...");
     let proteins = parse_fasta(fasta_data);
     let protein_names: Vec<String> = proteins.iter().map(|p| first_word(&p.header)).collect();
@@ -65,33 +80,59 @@ pub fn run_proteomics(
     log::info!("{} peptides (target+decoy)", peptides.len());
     let index = PeptideIndex::build(peptides);
 
-    // 4. Database search.
+    // 2. Parse all mzML files in parallel, pre-process MS2 peaks.
+    log::info!("Parsing {} mzML file(s)...", mzml_slices.len());
+    let per_file_results: Vec<anyhow::Result<Vec<Spectrum>>> = mzml_slices
+        .par_iter()
+        .map(|data| {
+            let mut spectra = parse_mzml(data)?;
+            for spec in spectra.iter_mut().filter(|s| s.ms_level == 2) {
+                spec.filter_noise(0.01);
+                spec.normalize();
+            }
+            Ok(spectra)
+        })
+        .collect();
+
+    // Propagate first parse error; accumulate totals.
+    let mut all_spectra: Vec<Spectrum> = Vec::new();
+    for result in per_file_results {
+        all_spectra.extend(result?);
+    }
+
+    let n_spectra_total = all_spectra.len() as u32;
+    let n_ms2 = all_spectra.iter().filter(|s| s.ms_level == 2).count() as u32;
+    log::info!("{n_spectra_total} total spectra across all runs ({n_ms2} MS2)");
+
+    // 3. Database search — rayon parallelism is over spectra within search_spectra.
     log::info!("Searching {n_ms2} MS2 spectra...");
-    let all_psms = search_spectra(
-        &spectra,
+    let mut all_psms = search_spectra(
+        &all_spectra,
         &index,
         &protein_names,
         FRAG_TOL_PPM,
         PRECURSOR_TOL_PPM,
     );
 
-    // 5. Filter to FDR threshold.
+    // 4. Experiment-level FDR (single pass over all runs combined).
+    assign_qvalues(&mut all_psms);
     let passing = filter_psms(&all_psms, fdr_threshold);
     let n_psms_1pct = passing.len() as u32;
-    let mut peptide_set: std::collections::HashSet<&str> = std::collections::HashSet::new();
+
+    let mut peptide_set: AHashSet<&str> = AHashSet::default();
     for p in &passing {
         peptide_set.insert(p.peptide.as_str());
     }
     let n_peptides_1pct = peptide_set.len() as u32;
 
-    // 6. Protein inference.
+    // 5. Protein inference.
     let protein_groups = infer_proteins(&passing);
     let n_proteins_1pct = protein_groups
         .iter()
         .filter(|p| !p.is_decoy && p.q_value <= fdr_threshold)
         .count() as u32;
 
-    // 7. Compute summary statistics.
+    // 6. Summary statistics.
     let median_hyperscore = median_f64(&passing.iter().map(|p| p.hyperscore).collect::<Vec<_>>());
     let score_histogram = build_histogram(&passing, 20);
     let top_proteins: Vec<ProteinGroup> = protein_groups
@@ -100,7 +141,6 @@ pub fn run_proteomics(
         .take(20)
         .collect();
 
-    // Cap PSMs for the HTML report.
     let psms_report: Vec<Psm> = passing.into_iter().take(5000).collect();
 
     log::info!(

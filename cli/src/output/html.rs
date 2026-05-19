@@ -6,6 +6,7 @@ use chrono::{DateTime, Utc};
 use epigenomics_core::EpigenomicsSummary;
 use genomics_core::GenomicsSummary;
 use integration_layer::{Insight, InsightLevel, IntegrationSummary};
+use proteomics_core::ProteomicsSummary;
 use transcriptomics_core::TranscriptomicsSummary;
 
 use super::circos::generate_circos_svg;
@@ -19,10 +20,18 @@ pub fn write_html_report(
     transcr: &TranscriptomicsSummary,
     epigen: &EpigenomicsSummary,
     integration: &IntegrationSummary,
+    proteomics: Option<&ProteomicsSummary>,
     generated_at: DateTime<Utc>,
     output_dir: &Path,
 ) -> Result<()> {
-    let html = generate_html(genomics, transcr, epigen, integration, generated_at);
+    let html = generate_html(
+        genomics,
+        transcr,
+        epigen,
+        integration,
+        proteomics,
+        generated_at,
+    );
     let path = output_dir.join("report.html");
     std::fs::write(&path, html)
         .with_context(|| format!("Cannot write HTML report to '{}'", path.display()))?;
@@ -35,6 +44,7 @@ fn generate_html(
     transcr: &TranscriptomicsSummary,
     epigen: &EpigenomicsSummary,
     integration: &IntegrationSummary,
+    proteomics: Option<&ProteomicsSummary>,
     generated_at: DateTime<Utc>,
 ) -> String {
     let head = html_head();
@@ -49,6 +59,7 @@ fn generate_html(
     let pca_chart = html_pca_chart(integration);
     let insights_section = html_insights(&integration.insights);
     let pathway_table = html_pathway_table(integration);
+    let proteomics_section = proteomics.map(html_proteomics_section).unwrap_or_default();
 
     format!(
         r#"<!DOCTYPE html>
@@ -96,6 +107,7 @@ fn generate_html(
   </div>
   {insights_section}
   {pathway_table}
+  {proteomics_section}
   <footer>
     <p>Multiomics &copy; 2026 — Apache 2.0 License —
        <a href="https://github.com/diladeniz/multiomics">github.com/diladeniz/multiomics</a></p>
@@ -121,6 +133,65 @@ fn generate_html(
         pca_chart = pca_chart,
         insights_section = insights_section,
         pathway_table = pathway_table,
+        proteomics_section = proteomics_section,
+    )
+}
+
+fn html_proteomics_section(p: &ProteomicsSummary) -> String {
+    let mut rows = String::new();
+    for prot in p.top_proteins.iter().take(20) {
+        rows.push_str(&format!(
+            "<tr><td>{}</td><td>{}</td><td>{}</td><td>{:.1}</td><td>{:.4}</td></tr>\n",
+            escape_html(&prot.protein),
+            prot.n_psms,
+            prot.n_unique_peptides,
+            prot.top_score,
+            prot.q_value,
+        ));
+    }
+
+    // Score histogram as a small bar chart.
+    let max_bin = p.score_histogram.iter().copied().max().unwrap_or(1).max(1);
+    let bars: String = p
+        .score_histogram
+        .iter()
+        .enumerate()
+        .map(|(i, &v)| {
+            let h = (v as f64 / max_bin as f64 * 80.0) as u32;
+            format!(
+                "<rect x=\"{x}\" y=\"{y}\" width=\"18\" height=\"{h}\" fill=\"#4e79a7\"/>",
+                x = i * 22 + 10,
+                y = 90u32.saturating_sub(h),
+                h = h,
+            )
+        })
+        .collect();
+
+    format!(
+        r#"<section class="section">
+  <h2>Proteomics</h2>
+  <div class="cards">
+    <div class="card"><div class="card-val">{ms2}</div><div class="card-lbl">MS2 Spectra</div></div>
+    <div class="card"><div class="card-val">{psms}</div><div class="card-lbl">PSMs (1% FDR)</div></div>
+    <div class="card"><div class="card-val">{peps}</div><div class="card-lbl">Peptides (1% FDR)</div></div>
+    <div class="card"><div class="card-val">{prots}</div><div class="card-lbl">Proteins (1% FDR)</div></div>
+    <div class="card"><div class="card-val">{score:.1}</div><div class="card-lbl">Median Hyperscore</div></div>
+  </div>
+  <h3>Hyperscore Distribution</h3>
+  <svg viewBox="0 0 470 100" xmlns="http://www.w3.org/2000/svg" style="max-width:500px">{bars}</svg>
+  <h3>Top Identified Proteins</h3>
+  <table>
+    <thead><tr><th>Protein</th><th>PSMs</th><th>Peptides</th><th>Top Score</th><th>q-value</th></tr></thead>
+    <tbody>{rows}</tbody>
+  </table>
+</section>"#,
+        ms2 = p.n_ms2,
+        psms = p.n_psms_1pct,
+        peps = p.n_peptides_1pct,
+        prots = p.n_proteins_1pct,
+        score = p.median_hyperscore,
+        bars = bars,
+        rows = rows,
     )
 }
 

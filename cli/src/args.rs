@@ -38,6 +38,19 @@ pub struct Cli {
     #[arg(long, value_name = "FILE")]
     pub fastq: Option<PathBuf>,
 
+    // ── Proteomics ────────────────────────────────────────────────────────────
+    /// mzML file for proteomics database search (requires --fasta)
+    #[arg(long, value_name = "FILE")]
+    pub proteomics: Option<PathBuf>,
+
+    /// Protein database FASTA for proteomics search
+    #[arg(long, value_name = "FILE")]
+    pub fasta: Option<PathBuf>,
+
+    /// FDR threshold for proteomics reporting [default: 0.01]
+    #[arg(long, default_value_t = 0.01f64)]
+    pub proteomics_fdr: f64,
+
     // ── Somatic variant calling ───────────────────────────────────────────────
     /// Tumor BAM for somatic variant calling (requires --normal-bam)
     #[arg(long, value_name = "FILE")]

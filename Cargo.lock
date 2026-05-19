@@ -161,6 +161,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 
 [[package]]
+name = "base64"
+version = "0.22.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
+
+[[package]]
 name = "biomics_core"
 version = "0.1.0"
 dependencies = [
@@ -1165,6 +1171,7 @@ dependencies = [
  "mimalloc",
  "ndarray",
  "num_cpus",
+ "proteomics_core",
  "ratatui",
  "rayon",
  "scrna_core",
@@ -1479,6 +1486,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "proteomics_core"
+version = "0.1.0"
+dependencies = [
+ "ahash",
+ "anyhow",
+ "base64",
+ "flate2",
+ "log",
+ "memchr",
+ "quick-xml",
+ "rayon",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "pybioomics"
 version = "0.1.0"
 dependencies = [
@@ -1554,6 +1577,16 @@ dependencies = [
  "pyo3-build-config",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "quick-xml"
+version = "0.36.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f7649a7b4df05aed9ea7ec6f628c67c9953a43869b8bc50929569b2999d443fe"
+dependencies = [
+ "memchr",
+ "serde",
 ]
 
 [[package]]

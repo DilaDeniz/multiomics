@@ -299,6 +299,50 @@ pub fn run_pipeline(
         }
     }
 
+    // Optional: proteomics database search
+    let proteomics_summary =
+        if let (Some(mzml_path), Some(fasta_path)) = (&cli.proteomics, &cli.fasta) {
+            log::info!(
+                "Running proteomics: mzML='{}', FASTA='{}'",
+                mzml_path.display(),
+                fasta_path.display()
+            );
+            let mzml_data = std::fs::read(mzml_path)
+                .with_context(|| format!("reading mzML: {}", mzml_path.display()))?;
+            let fasta_data = std::fs::read(fasta_path)
+                .with_context(|| format!("reading FASTA: {}", fasta_path.display()))?;
+            match proteomics_core::run_proteomics(&mzml_data, &fasta_data, cli.proteomics_fdr) {
+                Ok(prot) => {
+                    push_insight(
+                        &state,
+                        format!(
+                            "[INFO] Proteomics: {} PSMs, {} peptides, {} proteins at {:.0}% FDR",
+                            prot.n_psms_1pct,
+                            prot.n_peptides_1pct,
+                            prot.n_proteins_1pct,
+                            cli.proteomics_fdr * 100.0,
+                        ),
+                    );
+                    if let Some(top) = prot.top_proteins.first() {
+                        push_insight(
+                            &state,
+                            format!(
+                                "[INFO] Top protein: {} ({} PSMs, score={:.1})",
+                                top.protein, top.n_psms, top.top_score
+                            ),
+                        );
+                    }
+                    Some(prot)
+                }
+                Err(e) => {
+                    log::warn!("Proteomics search failed: {e:#}");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
     push_genomics_insights(&genomics, &state);
     push_transcriptomics_insights(&transcriptomics, &state);
     push_epigenomics_insights(&epigenomics, &state);
@@ -391,6 +435,7 @@ pub fn run_pipeline(
             &transcriptomics,
             &epigenomics,
             &integration,
+            proteomics_summary.as_ref(),
             Utc::now(),
             &cli.output,
         )?;

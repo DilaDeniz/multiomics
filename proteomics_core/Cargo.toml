@@ -1,0 +1,19 @@
+[package]
+name        = "proteomics_core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+anyhow     = { workspace = true }
+rayon      = { workspace = true }
+serde      = { workspace = true }
+serde_json = { workspace = true }
+log        = { workspace = true }
+ahash      = { workspace = true }
+memchr     = { workspace = true }
+quick-xml  = { workspace = true }
+base64     = { workspace = true }
+flate2     = { workspace = true }

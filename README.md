@@ -4,7 +4,7 @@
 [![Rust](https://img.shields.io/badge/Rust-1.80%2B-orange.svg)](https://www.rust-lang.org)
 [![Version](https://img.shields.io/badge/version-0.1.0-green.svg)](Cargo.toml)
 
-A parallel multi-omics analysis engine written in Rust. Ingests genomics (VCF/BAM), transcriptomics (TSV/BAM/GTF), epigenomics (BED), ATAC-seq (narrowPeak), single-cell (10x MEX), spatial transcriptomics (Visium), and copy-number variation data simultaneously and produces an integrated HTML report, MultiQC-compatible JSON, and a live terminal dashboard.
+A parallel multi-omics analysis engine written in Rust. Ingests genomics (VCF/BAM), transcriptomics (TSV/BAM/GTF), epigenomics (BED), ATAC-seq (narrowPeak), proteomics (mzML), single-cell (10x MEX), spatial transcriptomics (Visium), and copy-number variation data simultaneously and produces an integrated HTML report, MultiQC-compatible JSON, and a live terminal dashboard.
 
 2.6× faster than bcftools on VCF parsing. No Python or R runtime required.
 
@@ -57,6 +57,15 @@ A parallel multi-omics analysis engine written in Rust. Ingests genomics (VCF/BA
 - CITE-seq: antibody-derived tag (ADT) + RNA joint analysis
 - Weighted nearest neighbor (WNN) combined embedding (Hao et al. 2021)
 - Cell-cell communication: ligand-receptor scoring, communication probability matrix
+
+**Proteomics**
+- mzML parsing — streaming quick-xml, base64 + zlib binary array decoding (32-bit and 64-bit float)
+- In-silico tryptic digest — K/R|not-P cleavage, 0–2 missed cleavages, length 6–50
+- Database search — hyperscore (Craig & Beavis 2004, X!Tandem), precursor 10 ppm, fragment 20 ppm
+- 1-Da mass-bin peptide index — O(1) candidate lookup per spectrum (same principle as Sage)
+- Target-decoy competition FDR — reversed-sequence decoys, monotone q-value (Elias & Gygi 2007)
+- Label-free quantification — MS1 XIC extraction (±5 ppm, ±30 s), trapezoidal peak integration
+- Protein inference — PSM → peptide → protein group rollup with protein-level FDR
 
 **Integration**
 - Pearson cross-modality correlation, PCA via linfa-reduction
@@ -131,6 +140,9 @@ Primary inputs:
   --scrna <DIR>             10x MEX directory for single-cell analysis
   --fastq <FILE>            FASTQ for sequence-level QC
   --reference <FILE>        Reference FASTA for read alignment
+  --proteomics <FILE>       mzML for proteomics database search (requires --fasta)
+  --fasta <FILE>            Protein database FASTA for proteomics search
+  --proteomics-fdr <F>      FDR threshold for proteomics reporting [default: 0.01]
 
 Somatic variant calling:
   --tumor-bam <FILE>        Tumor BAM (requires --normal-bam)
@@ -263,6 +275,7 @@ genomics_core           — VCF parser, Ti/Tv, CNV (VCF+coverage), Bayesian SNP,
 transcriptomics_core    — TSV/BAM parser, DESeq2 NB-GLM, multi-factor design, BAM+GTF quant
 epigenomics_core        — BED parser, CpG island detector, long-read MM/ML parser
 atacseq_core            — narrowPeak parser, de novo peak calling (MACS2-style Poisson)
+proteomics_core         — mzML parser, tryptic digest, hyperscore search, target-decoy FDR, XIC quant
 scrna_core              — 10x MEX I/O, QC, scran normalization, HVG, Leiden, Wilcoxon DE,
                           UMAP, doublets, pseudotime, Harmony, RNA velocity,
                           spatial transcriptomics, CITE-seq WNN, cell-cell communication

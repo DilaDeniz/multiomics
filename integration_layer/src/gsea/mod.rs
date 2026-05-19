@@ -57,6 +57,11 @@ pub fn gsea_preranked(
     let n_genes = ranked_genes.len();
     let base_seed: u64 = 0xBEEF_CAFE_1234_5678;
 
+    // Normalize ranked gene names to uppercase once — avoids per-pathway allocation.
+    let ranked_upper_owned: Vec<String> =
+        ranked_genes.iter().map(|(g, _)| g.to_uppercase()).collect();
+    let ranked_upper_refs: Vec<&str> = ranked_upper_owned.iter().map(|s| s.as_str()).collect();
+
     // Build size-matched null distribution cache (one distribution per unique k).
     let mut null_cache = NullDistCache::new();
 
@@ -65,10 +70,12 @@ pub fn gsea_preranked(
         let mut sizes: Vec<usize> = pathways
             .iter()
             .map(|&(_, _, pgenes)| {
-                let set: AHashSet<String> = pgenes.iter().map(|g| g.to_uppercase()).collect();
-                ranked_genes
+                let set: AHashSet<&str> = pgenes.iter().copied().collect();
+                // Compare against pre-uppercased ranked list.
+                let set_upper: AHashSet<String> = set.iter().map(|g| g.to_uppercase()).collect();
+                ranked_upper_refs
                     .iter()
-                    .filter(|(g, _)| set.contains(g.as_str()))
+                    .filter(|&&g| set_upper.contains(g))
                     .count()
             })
             .filter(|&k| k >= min_size && k <= max_size)
@@ -87,20 +94,21 @@ pub fn gsea_preranked(
         .iter()
         .enumerate()
         .filter_map(|(pw_idx, &(pid, pname, pgenes))| {
+            // Pathway genes uppercased once per pathway.
             let pathway_set: AHashSet<String> = pgenes.iter().map(|g| g.to_uppercase()).collect();
 
-            let n_hits = ranked_genes
+            let n_hits = ranked_upper_refs
                 .iter()
-                .filter(|(g, _)| pathway_set.contains(g.as_str()))
+                .filter(|&&g| pathway_set.contains(g))
                 .count();
 
             if n_hits < min_size || n_hits > max_size {
                 return None;
             }
 
-            let is_hit: Vec<bool> = ranked_genes
+            let is_hit: Vec<bool> = ranked_upper_refs
                 .iter()
-                .map(|(g, _)| pathway_set.contains(g.as_str()))
+                .map(|&g| pathway_set.contains(g))
                 .collect();
 
             let (es, running_sum, peak_idx) = compute_es(&is_hit, n_hits);
@@ -124,16 +132,18 @@ pub fn gsea_preranked(
             let nes = null_cache.normalize_es(n_hits, es);
 
             let leading_edge: Vec<String> = if es >= 0.0 {
-                ranked_genes[..=peak_idx]
+                ranked_upper_refs[..=peak_idx]
                     .iter()
-                    .filter(|(g, _)| pathway_set.contains(g.as_str()))
-                    .map(|(g, _)| g.clone())
+                    .zip(ranked_genes[..=peak_idx].iter())
+                    .filter(|(&upper, _)| pathway_set.contains(upper))
+                    .map(|(_, (g, _))| g.clone())
                     .collect()
             } else {
-                ranked_genes[peak_idx..]
+                ranked_upper_refs[peak_idx..]
                     .iter()
-                    .filter(|(g, _)| pathway_set.contains(g.as_str()))
-                    .map(|(g, _)| g.clone())
+                    .zip(ranked_genes[peak_idx..].iter())
+                    .filter(|(&upper, _)| pathway_set.contains(upper))
+                    .map(|(_, (g, _))| g.clone())
                     .collect()
             };
 

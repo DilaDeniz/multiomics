@@ -5,6 +5,8 @@
 //! last amino acid in place so the K/R cleavage site is preserved, following
 //! the Prosit/Sage convention).
 
+use rayon::prelude::*;
+
 use crate::types::{aa_mass, Peptide, WATER};
 
 /// Parsed protein entry.
@@ -46,9 +48,11 @@ pub fn parse_fasta(data: &[u8]) -> Vec<Protein> {
     proteins
 }
 
-/// Generate target + decoy peptides from a protein list.
+/// Generate target + decoy peptides from a protein list in parallel.
 ///
-/// Parameters match common database-search defaults:
+/// Each protein is digested independently via rayon then merged. Decoy
+/// sequences are reversed (last AA fixed) to preserve the K/R tryptic
+/// terminus — same convention as Sage / Prosit. Parameters:
 /// - `max_missed`: 0–2 missed cleavages
 /// - `min_len` / `max_len`: peptide length filter
 pub fn digest(
@@ -57,62 +61,58 @@ pub fn digest(
     min_len: usize,
     max_len: usize,
 ) -> Vec<Peptide> {
-    let mut peptides: Vec<Peptide> = Vec::new();
+    proteins
+        .par_iter()
+        .enumerate()
+        .flat_map(|(prot_idx, prot)| {
+            let sites = cleavage_sites(&prot.sequence);
+            let segments = sites_to_segments(&sites, prot.sequence.len());
+            let prot_name = first_word(&prot.header);
+            let mut local: Vec<Peptide> = Vec::new();
 
-    for (prot_idx, prot) in proteins.iter().enumerate() {
-        let sites = cleavage_sites(&prot.sequence);
-        let segments = sites_to_segments(&sites, prot.sequence.len());
+            for mc in 0..=(max_missed as usize) {
+                for i in 0..segments.len() {
+                    let end_seg = i + mc;
+                    if end_seg >= segments.len() {
+                        break;
+                    }
+                    let seq_bytes = &prot.sequence[segments[i].0..segments[end_seg].1];
+                    if seq_bytes.len() < min_len || seq_bytes.len() > max_len {
+                        continue;
+                    }
+                    let mass = peptide_mass(seq_bytes);
+                    if mass <= 0.0 {
+                        continue;
+                    }
+                    let seq_str = String::from_utf8_lossy(seq_bytes).into_owned();
 
-        for mc in 0..=(max_missed as usize) {
-            for i in 0..segments.len() {
-                let end_seg = i + mc;
-                if end_seg >= segments.len() {
-                    break;
+                    local.push(Peptide {
+                        sequence: seq_str.clone(),
+                        mass,
+                        protein_idx: prot_idx as u32,
+                        is_decoy: false,
+                        missed_cleavages: mc as u8,
+                    });
+
+                    // Decoy: reversed sequence (last AA kept in place).
+                    let decoy_seq = reverse_peptide(seq_bytes);
+                    let decoy_str = String::from_utf8_lossy(&decoy_seq).into_owned();
+                    local.push(Peptide {
+                        sequence: format!("DECOY_{prot_name}_{decoy_str}"),
+                        mass,
+                        protein_idx: prot_idx as u32,
+                        is_decoy: true,
+                        missed_cleavages: mc as u8,
+                    });
                 }
-                let start = segments[i].0;
-                let end = segments[end_seg].1;
-                let seq_bytes = &prot.sequence[start..end];
-
-                if seq_bytes.len() < min_len || seq_bytes.len() > max_len {
-                    continue;
-                }
-                // Skip peptides with unknown residues.
-                let mass = peptide_mass(seq_bytes);
-                if mass <= 0.0 {
-                    continue;
-                }
-
-                let seq_str = String::from_utf8_lossy(seq_bytes).into_owned();
-                let prot_name = first_word(&prot.header);
-
-                // Target
-                peptides.push(Peptide {
-                    sequence: seq_str.clone(),
-                    mass,
-                    protein_idx: prot_idx as u32,
-                    is_decoy: false,
-                    missed_cleavages: mc as u8,
-                });
-
-                // Decoy (reversed, last AA fixed)
-                let decoy_seq = reverse_peptide(seq_bytes);
-                let decoy_str: String = format!("DECOY_{prot_name}_{seq_str}");
-                peptides.push(Peptide {
-                    sequence: decoy_str,
-                    mass,
-                    protein_idx: prot_idx as u32,
-                    is_decoy: true,
-                    missed_cleavages: mc as u8,
-                });
-                let _ = decoy_seq; // mass is identical to target
             }
-        }
-    }
-
-    peptides
+            local
+        })
+        .collect()
 }
 
 /// Compute the monoisotopic neutral mass of a peptide.
+#[inline]
 pub fn peptide_mass(seq: &[u8]) -> f64 {
     let mut mass = WATER;
     for &aa in seq {

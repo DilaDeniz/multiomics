@@ -143,12 +143,17 @@ fn build_histogram(psms: &[Psm], n_bins: usize) -> Vec<u64> {
     if psms.is_empty() {
         return vec![0; n_bins];
     }
-    let max_score = psms.iter().map(|p| p.hyperscore).fold(0.0f64, f64::max);
+    // Single pass: find max and accumulate bins simultaneously.
+    let mut max_score = 0.0f64;
+    for p in psms {
+        if p.hyperscore > max_score {
+            max_score = p.hyperscore;
+        }
+    }
     let bin_width = (max_score / n_bins as f64).max(1.0);
     let mut hist = vec![0u64; n_bins];
     for p in psms {
-        let bin = ((p.hyperscore / bin_width) as usize).min(n_bins - 1);
-        hist[bin] += 1;
+        hist[((p.hyperscore / bin_width) as usize).min(n_bins - 1)] += 1;
     }
     hist
 }

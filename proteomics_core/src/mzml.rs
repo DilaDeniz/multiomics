@@ -72,7 +72,7 @@ pub fn parse_mzml(data: &[u8]) -> Result<Vec<Spectrum>> {
 
             Ok(Event::Empty(ref e)) => {
                 // <cvParam .../> — most metadata lives here.
-                if let (Some(spec), true) = (current.as_mut(), true) {
+                if let Some(spec) = current.as_mut() {
                     let accession = attr_str(e, b"accession").unwrap_or_default();
                     let value = attr_str(e, b"value").unwrap_or_default();
                     match accession.as_str() {

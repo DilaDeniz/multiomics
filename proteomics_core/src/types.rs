@@ -5,6 +5,7 @@ pub const WATER: f64 = 18.010_564_684;
 
 /// Monoisotopic residue mass indexed by ASCII byte (`b'A'` = 65).
 /// Returns 0.0 for unknown residues.
+#[inline(always)]
 pub fn aa_mass(aa: u8) -> f64 {
     // Indexed as (aa - b'A') for A-Z range.
     const T: [f64; 26] = [

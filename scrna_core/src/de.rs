@@ -5,6 +5,7 @@
 //! samples. Adjusted p-values use Benjamini-Hochberg FDR correction.
 
 use ndarray::Array2;
+use rayon::prelude::*;
 
 /// Marker gene result for one cluster × gene pair.
 #[derive(Debug, Clone, serde::Serialize)]
@@ -51,61 +52,61 @@ pub fn find_cluster_markers(
         ids
     };
 
-    let mut all_markers: Vec<ClusterMarker> = Vec::new();
+    // Each cluster is independent — process them in parallel.
+    let all_markers: Vec<ClusterMarker> = cluster_ids
+        .par_iter()
+        .flat_map(|&cid| {
+            let in_cluster: Vec<usize> = (0..n_cells).filter(|&i| clusters[i] == cid).collect();
+            let in_rest: Vec<usize> = (0..n_cells).filter(|&i| clusters[i] != cid).collect();
 
-    for &cid in &cluster_ids {
-        let in_cluster: Vec<usize> = (0..n_cells).filter(|&i| clusters[i] == cid).collect();
-        let in_rest: Vec<usize> = (0..n_cells).filter(|&i| clusters[i] != cid).collect();
-
-        if in_cluster.is_empty() || in_rest.is_empty() {
-            continue;
-        }
-
-        let n1 = in_cluster.len();
-        let n2 = in_rest.len();
-
-        let mut markers: Vec<ClusterMarker> = Vec::new();
-
-        for g in 0..n_genes {
-            // Expression vectors
-            let group1: Vec<f32> = in_cluster.iter().map(|&i| norm_matrix[[i, g]]).collect();
-            let group2: Vec<f32> = in_rest.iter().map(|&i| norm_matrix[[i, g]]).collect();
-
-            // Minimum percent expressed filter
-            let pct_expr = group1.iter().filter(|&&v| v > 0.0).count() as f32 / n1 as f32;
-            if pct_expr < min_pct {
-                continue;
+            if in_cluster.is_empty() || in_rest.is_empty() {
+                return Vec::new();
             }
 
-            let mean_cluster = group1.iter().sum::<f32>() / n1 as f32;
-            let mean_rest = group2.iter().sum::<f32>() / n2 as f32;
+            let n1 = in_cluster.len();
+            let n2 = in_rest.len();
 
-            let lfc = ((mean_cluster as f64 + 1.0) / (mean_rest as f64 + 1.0)).log2();
+            // Within each cluster, test genes in parallel too.
+            let mut markers: Vec<ClusterMarker> = (0..n_genes)
+                .into_par_iter()
+                .filter_map(|g| {
+                    let group1: Vec<f32> =
+                        in_cluster.iter().map(|&i| norm_matrix[[i, g]]).collect();
+                    let group2: Vec<f32> = in_rest.iter().map(|&i| norm_matrix[[i, g]]).collect();
 
-            let (u_stat, p_value) = wilcoxon_ranksum(&group1, &group2);
-            let auc = u_stat / (n1 as f64 * n2 as f64);
+                    let pct_expr = group1.iter().filter(|&&v| v > 0.0).count() as f32 / n1 as f32;
+                    if pct_expr < min_pct {
+                        return None;
+                    }
 
-            let gene_name = feature_names
-                .get(g)
-                .cloned()
-                .unwrap_or_else(|| format!("gene_{g}"));
+                    let mean_cluster = group1.iter().sum::<f32>() / n1 as f32;
+                    let mean_rest = group2.iter().sum::<f32>() / n2 as f32;
+                    let lfc = ((mean_cluster as f64 + 1.0) / (mean_rest as f64 + 1.0)).log2();
 
-            markers.push(ClusterMarker {
-                gene_id: gene_name,
-                cluster: cid,
-                log2_fold_change: lfc,
-                mean_expr_cluster: mean_cluster,
-                mean_expr_rest: mean_rest,
-                p_value,
-                padj: p_value, // will be overwritten by BH below
-                auc,
-            });
-        }
+                    let (u_stat, p_value) = wilcoxon_ranksum(&group1, &group2);
+                    let auc = u_stat / (n1 as f64 * n2 as f64);
+                    let gene_name = feature_names
+                        .get(g)
+                        .cloned()
+                        .unwrap_or_else(|| format!("gene_{g}"));
 
-        // Benjamini-Hochberg FDR correction within cluster
-        bh_correct(&mut markers);
-        all_markers.extend(markers);
-    }
+                    Some(ClusterMarker {
+                        gene_id: gene_name,
+                        cluster: cid,
+                        log2_fold_change: lfc,
+                        mean_expr_cluster: mean_cluster,
+                        mean_expr_rest: mean_rest,
+                        p_value,
+                        padj: p_value,
+                        auc,
+                    })
+                })
+                .collect();
+
+            bh_correct(&mut markers);
+            markers
+        })
+        .collect();
 
     all_markers
 }

@@ -75,26 +75,38 @@ pub fn epigenomics_feature_vec(
 }
 
 /// Compute Pearson correlation between two 1D arrays of equal length.
+///
+/// Uses a single-pass numerically stable algorithm (Chan et al. 1979):
+/// accumulates Σ(x-x̄)(y-ȳ), Σ(x-x̄)², Σ(y-ȳ)² in one loop without
+/// pre-computing the means first.
 pub fn pearson_r(a: &Array1<f64>, b: &Array1<f64>) -> f64 {
     let n = a.len();
     if n == 0 {
         return 0.0;
     }
-    let mean_a = a.sum() / n as f64;
-    let mean_b = b.sum() / n as f64;
+    // Welford-style single-pass: track means and cross-products simultaneously.
+    let mut mean_a = 0.0f64;
+    let mut mean_b = 0.0f64;
+    let mut cov = 0.0f64;
+    let mut var_a = 0.0f64;
+    let mut var_b = 0.0f64;
 
-    let cov: f64 = a
-        .iter()
-        .zip(b.iter())
-        .map(|(x, y)| (x - mean_a) * (y - mean_b))
-        .sum();
-    let std_a: f64 = a.iter().map(|x| (x - mean_a).powi(2)).sum::<f64>().sqrt();
-    let std_b: f64 = b.iter().map(|y| (y - mean_b).powi(2)).sum::<f64>().sqrt();
+    for (k, (&x, &y)) in a.iter().zip(b.iter()).enumerate() {
+        let k1 = (k + 1) as f64;
+        let dx = x - mean_a;
+        let dy = y - mean_b;
+        mean_a += dx / k1;
+        mean_b += dy / k1;
+        cov += dx * (y - mean_b);
+        var_a += dx * (x - mean_a);
+        var_b += dy * (y - mean_b);
+    }
 
-    if std_a < 1e-12 || std_b < 1e-12 {
+    let denom = var_a.sqrt() * var_b.sqrt();
+    if denom < 1e-12 {
         0.0
     } else {
-        (cov / (std_a * std_b)).clamp(-1.0, 1.0)
+        (cov / denom).clamp(-1.0, 1.0)
     }
 }
 

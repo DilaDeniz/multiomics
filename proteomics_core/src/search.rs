@@ -8,6 +8,7 @@
 //!
 //! All spectra are processed in parallel via rayon.
 
+use ahash::{AHashMap, AHashSet};
 use rayon::prelude::*;
 
 use crate::fdr::assign_qvalues;
@@ -109,18 +110,12 @@ pub fn search_spectra(
 
 /// Protein inference: group PSMs by protein and compute protein-level q-values.
 pub fn infer_proteins(psms: &[Psm]) -> Vec<crate::types::ProteinGroup> {
-    use ahash::AHashMap;
-
-    let mut groups: AHashMap<&str, (u32, std::collections::HashSet<&str>, f64, bool)> =
-        AHashMap::default();
+    let mut groups: AHashMap<&str, (u32, AHashSet<&str>, f64, bool)> = AHashMap::default();
 
     for psm in psms {
-        let e = groups.entry(psm.protein.as_str()).or_insert((
-            0,
-            std::collections::HashSet::new(),
-            0.0,
-            psm.is_decoy,
-        ));
+        let e = groups
+            .entry(psm.protein.as_str())
+            .or_insert_with(|| (0, AHashSet::default(), 0.0, psm.is_decoy));
         e.0 += 1;
         e.1.insert(psm.peptide.as_str());
         if psm.hyperscore > e.2 {

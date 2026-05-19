@@ -46,9 +46,12 @@ pub fn leiden_cluster(graph: &KnnGraph, resolution: f64) -> Vec<u32> {
 
     let mut partition: Vec<usize> = (0..n).collect();
     let mut improved = true;
+    let mut n_passes = 0usize;
+    const MAX_PASSES: usize = 50;
 
-    while improved {
+    while improved && n_passes < MAX_PASSES {
         improved = false;
+        n_passes += 1;
 
         // Community degree sums
         let mut comm_degree: Vec<f64> = vec![0.0; n];

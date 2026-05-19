@@ -211,7 +211,7 @@ pub fn run_wnn(
             if denom < 1e-15 {
                 0.5
             } else {
-                sr / denom
+                (sr / denom).clamp(1e-6, 1.0 - 1e-6)
             }
         })
         .collect();

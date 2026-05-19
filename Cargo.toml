@@ -26,7 +26,7 @@ crossbeam-channel = "0.5"
 serde             = { version = "1", features = ["derive"] }
 serde_json        = "1"
 chrono            = { version = "0.4", features = ["serde"] }
-ndarray           = "0.15"
+ndarray           = { version = "0.15", features = ["serde"] }
 memmap2           = "0.9"
 needletail        = "0.5"
 linfa             = "0.7"

@@ -8,6 +8,7 @@
 //! - Stuart T, et al. (2019) Cell 177:1888 (Seurat v3 HVG)
 //! - Traag VA, et al. (2019) Sci Reports 9:5233 (Leiden)
 
+pub mod cellcomm;
 pub mod clustering;
 pub mod de;
 pub mod doublets;
@@ -15,12 +16,18 @@ pub mod graph;
 pub mod harmony;
 pub mod hvg;
 pub mod io;
+pub mod multimodal;
 pub mod normalize;
 pub mod pseudotime;
 pub mod qc;
+pub mod spatial;
 pub mod types;
 pub mod umap;
+pub mod velocity;
 
+pub use cellcomm::{
+    builtin_lr_database, compute_communication, filter_significant, CommScore, CommSummary, LRPair,
+};
 pub use clustering::leiden_cluster;
 pub use de::{find_cluster_markers, ClusterMarker};
 pub use doublets::{detect_doublets, DoubletScores};
@@ -28,11 +35,17 @@ pub use graph::{build_knn_graph, KnnGraph};
 pub use harmony::{harmony_integrate, HarmonyResult};
 pub use hvg::select_hvg;
 pub use io::mex::{parse_10x_mex, CsrMatrix};
+pub use multimodal::{clr_normalize_adt, parse_adt_matrix, run_wnn, CiteseqData, WnnResult};
 pub use normalize::{log_normalize, scran_size_factors};
 pub use pseudotime::{compute_pseudotime, PseudotimeResult};
 pub use qc::{compute_qc, default_qc_filter, filter_cells, CellQc};
+pub use spatial::{
+    find_spatially_variable_genes, load_visium_dir, morans_i, parse_spot_matrix,
+    parse_visium_positions, run_spatial_analysis, SpatialResult, SpatiallyVariableGene, Spot,
+};
 pub use types::SingleCellSummary;
 pub use umap::{compute_fuzzy_graph, run_umap, umap_from_pca, UmapResult};
+pub use velocity::{compute_rna_velocity, velocity_graph, GeneVelocity, VelocityResult};
 
 use anyhow::Result;
 use ndarray::Array2;

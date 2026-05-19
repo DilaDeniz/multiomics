@@ -34,6 +34,9 @@ pub use somatic::{
     call_somatic_from_bams, call_somatic_variants, summarize_somatic, SomaticCall, SomaticSummary,
 };
 
+pub mod splice_aligner;
+pub use splice_aligner::{SpliceAlignment, SpliceIndex, SpliceJunction};
+
 use anyhow::Result;
 use crossbeam_channel::Sender;
 use std::path::Path;

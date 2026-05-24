@@ -21,3 +21,10 @@ flate2        = "1.0"
 wgpu          = { version = "29", optional = true }
 pollster      = { version = "0.4", optional = true }
 bytemuck      = { version = "1", optional = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name    = "umap_bench"
+harness = false

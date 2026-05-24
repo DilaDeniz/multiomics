@@ -2200,6 +2200,7 @@ dependencies = [
  "anyhow",
  "biomics_core",
  "bytemuck",
+ "criterion",
  "flate2",
  "log",
  "memchr",

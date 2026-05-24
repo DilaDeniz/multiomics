@@ -8,12 +8,11 @@ package:
 source:
   url: https://github.com/DilaDeniz/{{ name }}/archive/refs/tags/v{{ version }}.tar.gz
   sha256: 0000000000000000000000000000000000000000000000000000000000000000
+  # ↑ Replace with: curl -sL <url> | sha256sum
 
 build:
   number: 0
   skip: True  # [win]
-  run_exports:
-    - {{ pin_subpackage(name|lower, max_pin="x") }}
 
 requirements:
   build:
@@ -23,15 +22,15 @@ requirements:
 test:
   commands:
     - multiomics --version | grep '{{ version }}'
-    - multiomics --genomics "${RECIPE_DIR}/test_data/minimal.vcf"
-                 --transcriptomics "${RECIPE_DIR}/test_data/minimal.tsv"
-                 --epigenomics "${RECIPE_DIR}/test_data/minimal.bed"
+    - multiomics --genomics "${SRC_DIR}/test_data/minimal.vcf"
+                 --transcriptomics "${SRC_DIR}/test_data/minimal.tsv"
+                 --epigenomics "${SRC_DIR}/test_data/minimal.bed"
                  --output "${TMPDIR}/multiomics_test"
                  --json
 
 about:
   home: "https://github.com/DilaDeniz/{{ name }}"
-  license: MIT
+  license: Apache-2.0
   license_file: LICENSE
   summary: "High-performance multi-omics analysis: VCF + TSV + BED → integrated HTML/JSON report."
   description: |
@@ -39,9 +38,8 @@ about:
     VCF (genomics), TSV/BAM (transcriptomics), and BED (epigenomics) data
     simultaneously. It produces self-contained HTML reports, MultiQC-compatible
     JSON, pathway enrichment (KEGG/GMT), PCA, cross-modality correlation,
-    DESeq2 normalization, GSEA pre-ranked, CNV analysis, and a real-time
-    terminal UI. Uses HyperLogLog for memory-efficient cardinality estimation
-    and rayon parallel fold for lock-free multi-core processing.
+    CNV analysis, and a real-time terminal UI. Uses rayon parallel fold for
+    lock-free multi-core processing.
 
 extra:
   additional-platforms:

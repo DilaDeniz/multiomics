@@ -12,33 +12,33 @@ source:
 build:
   number: 0
   skip: True  # [win]
-  run_exports:
-    - {{ pin_subpackage(name|lower, max_pin="x") }}
 
 requirements:
   build:
     - {{ compiler('rust') }}
+    - {{ compiler('c') }}    # mimalloc needs a C compiler
 
 test:
   commands:
     - multiomics --version | grep '{{ version }}'
+    - multiomics --genomics "${SRC_DIR}/test_data/minimal.vcf"
+                 --transcriptomics "${SRC_DIR}/test_data/minimal.tsv"
+                 --epigenomics "${SRC_DIR}/test_data/minimal.bed"
+                 --output "${TMPDIR}/multiomics_test"
+                 --json
 
 about:
   home: "https://github.com/DilaDeniz/{{ name }}"
   license: Apache-2.0
   license_file: LICENSE
-  summary: "High-performance multi-omics integration tool written in Rust."
+  summary: "High-performance multi-omics analysis: VCF + TSV + BED → integrated HTML/JSON report."
   description: |
-    BioMultiOmics is a production-quality Rust CLI that ingests VCF, TSV, BED,
-    mzML, and single-cell MEX data simultaneously and produces integrated
-    biological insights via HTML reports and JSON output. It covers genomics
-    (variant calling, Ti/Tv, CNV), transcriptomics (DE, GSEA, RNA velocity),
-    epigenomics (methylation, CpG islands, ATAC-seq), proteomics (hyperscore
-    database search, multi-file experiment-level FDR, XIC quantification),
-    single-cell RNA-seq (UMAP, clustering, marker genes, CITE-seq WNN), and
-    joint multi-omics integration (MOFA+, PCA, Pearson correlation). All
-    heavy computation runs lock-free in parallel via rayon with a real-time
-    terminal UI powered by ratatui.
+    Multiomics is a fast, multi-threaded tool for integrated analysis of
+    VCF (genomics), TSV/BAM (transcriptomics), and BED (epigenomics) data
+    simultaneously. It produces self-contained HTML reports, MultiQC-compatible
+    JSON, pathway enrichment (KEGG/GMT), PCA, cross-modality correlation,
+    CNV analysis, and a real-time terminal UI. Uses rayon parallel fold for
+    lock-free multi-core processing.
 
 extra:
   additional-platforms:

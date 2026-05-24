@@ -1,346 +1,365 @@
 # multiomics
 
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Rust](https://img.shields.io/badge/Rust-1.80%2B-orange.svg)](https://www.rust-lang.org)
-[![Version](https://img.shields.io/badge/version-0.1.0-green.svg)](Cargo.toml)
+[![Rust](https://img.shields.io/badge/Rust-1.78%2B-orange.svg)](https://www.rust-lang.org)
 
-A parallel multi-omics analysis engine written in Rust. Ingests genomics (VCF/BAM), transcriptomics (TSV/BAM/GTF), epigenomics (BED), ATAC-seq (narrowPeak), proteomics (mzML), single-cell (10x MEX), spatial transcriptomics (Visium), and copy-number variation data simultaneously and produces an integrated HTML report, MultiQC-compatible JSON, and a live terminal dashboard.
+A fast, parallel multi-omics analysis CLI written in Rust. Feed it genomics (VCF), transcriptomics (TSV), epigenomics (BED), proteomics (mzML), single-cell RNA (10x MEX), ATAC-seq, CNV, and more — get back an integrated HTML report, a MultiQC-compatible JSON file, and a live terminal dashboard.
 
-2.6× faster than bcftools on VCF parsing. No Python or R runtime required.
+```
+┌─ multiomics ─────────────────────────────────────────────────────────────────┐
+│  Phase: Genomics Analysis                               Elapsed: 00:01:23    │
+├─────────────────────────────────┬────────────────────────────────────────────┤
+│  GENOMICS      [████████░░] 82% │  LIVE INSIGHTS                             │
+│  58,432 rec/s  ETA: 00:00:12   │  [INFO]  Ti/Tv = 2.14 (normal range)       │
+│                                 │  [WARN]  12 high-impact KRAS variants      │
+│  TRANSCRIPTOMICS [░░░░░░░░]  0% │  [INFO]  8,942 expressed genes (TPM≥1)    │
+│  EPIGENOMICS     [░░░░░░░░]  0% │  [CRIT]  Global methylation: 38.2%        │
+│  INTEGRATION     [░░░░░░░░]  0% │  [INFO]  PI3K-Akt pathway enriched        │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
 
 ---
 
 ## Features
 
-**Genomics**
-- VCF parsing with Ti/Tv classification and HyperLogLog cardinality estimation (2.6× faster than bcftools)
-- Bayesian SNP genotyping — Li 2011 pileup model with Phred LazyLock table and Hardy-Weinberg prior
-- GATK-grade local reassembly — De Bruijn k-mer graph (multi-k: 10/15/20/25), Smith-Waterman affine-gap alignment
-- Pair-HMM forward algorithm — M/I/D states in log-space for accurate haplotype likelihoods
-- Somatic tumor/normal calling — Mutect2-style LOD scoring, strand-bias filter, COSMIC mutation spectrum
-- Short-read alignment — BWA-MEM-inspired seed/chain/extend, banded Smith-Waterman, FASTA reference index
-- Splice-aware alignment — STAR-style two-pass with exon junction index for RNA-seq reads
-
-**Copy-Number Variation**
-- VCF-based CNV: parses `SVTYPE`, `CN`, `CNA`, `TCN`, `LOG2` INFO fields (PURPLE/Sequenza/GATK-SV compatible)
-- Coverage-based CNV: CNVkit-style windowed BAM depth, GC correction, change-point segmentation
-- Weighted-mean ploidy estimation and fraction-genome-altered (FGA)
-
-**Transcriptomics**
-- BAM + GTF gene quantification — featureCounts-style sweep-line overlap, strandedness-aware
-- Full DESeq2 NB-GLM — MLE dispersions, parametric trend, MAP shrinkage, IRLS, Wald test, Cook's distance, independent filtering, apeglm LFC shrinkage (Love et al. 2014)
-- Multi-factor design — general n×p design matrix, Cholesky IRLS, contrast-based Wald test, LRT
-
-**Epigenomics**
-- BED methylation parsing with CpG island detection (Gardiner-Garden criterion, O(n) two-pointer)
-- Long-read methylation from Nanopore/PacBio BAM via MM/ML tags (`--features longread`)
-
-**ATAC-seq**
-- ENCODE narrowPeak parsing, per-chromosome peak density, open-chromatin quantification
-- De novo peak calling — MACS2-style Poisson model, local background lambda, FRiP scoring
-
-**Single-cell RNA-seq**
-- 10x Genomics MEX format I/O (matrix.mtx/.gz, barcodes, features)
-- MAD-based QC filtering, scran-inspired pooling normalization (Lun 2016)
-- Seurat v3 HVG selection, random-projection KNN graph, Leiden clustering (Traag 2019)
-- Wilcoxon rank-sum cluster marker detection
-- UMAP dimensionality reduction (McInnes 2018) — fuzzy simplicial set + SGD
-- Scrublet doublet detection (Wolock 2019), diffusion pseudotime (Haghverdi 2016)
-- Harmony batch correction (Korsunsky 2019)
-- RNA velocity — spliced/unspliced ratio model (La Manno 2018)
-
-**Spatial Transcriptomics**
-- Visium / Slide-seq spot-level analysis
-- Spatial autocorrelation (Moran's I), spatially variable gene detection
-
-**Multi-modal Single-cell**
-- CITE-seq: antibody-derived tag (ADT) + RNA joint analysis
-- Weighted nearest neighbor (WNN) combined embedding (Hao et al. 2021)
-- Cell-cell communication: ligand-receptor scoring, communication probability matrix
-
-**Proteomics**
-- mzML parsing — streaming quick-xml, base64 + zlib binary array decoding (32-bit and 64-bit float)
-- In-silico tryptic digest — K/R|not-P cleavage, 0–2 missed cleavages, length 6–50
-- Database search — hyperscore (Craig & Beavis 2004, X!Tandem), precursor 10 ppm, fragment 20 ppm
-- 1-Da mass-bin peptide index — O(1) candidate lookup per spectrum (same principle as Sage)
-- Target-decoy competition FDR — reversed-sequence decoys, monotone q-value (Elias & Gygi 2007)
-- Label-free quantification — MS1 XIC extraction (±5 ppm, ±30 s), trapezoidal peak integration
-- Protein inference — PSM → peptide → protein group rollup with protein-level FDR
-
-**Integration**
-- Pearson cross-modality correlation, PCA via linfa-reduction
-- fgsea multilevel GSEA (Korotkevich 2021) with importance sampling for p < 1e-4
-- Pathway enrichment: 75+ built-in KEGG pathways + custom GMT file support
-- Rule-based biological insight engine
-
-**Output**
-- Single-file HTML report with native SVG plots (no external CDN dependencies)
-- MultiQC-compatible JSON (`multiqc_bioomics.json`)
-- Live terminal dashboard (ratatui TUI) with per-modality progress bars
-- Python bindings via PyO3 / maturin (`pybioomics`)
+| Module | Input | What it computes |
+|---|---|---|
+| **Genomics** | VCF | Ti/Tv ratio, variant density per chromosome, allele-frequency histogram, high-impact variant genes |
+| **Transcriptomics** | TSV (genes × samples) | Expressed gene count, top-100 by TPM, log₂ fold-change DE (when ≥ 2 samples) |
+| **Epigenomics** | BED (bisulfite) | Global methylation %, CpG island detection, hyper/hypomethylated regions |
+| **Proteomics** | mzML + FASTA | Database search, PSM/peptide/protein counts at user-defined FDR, phosphoproteomics |
+| **Single-cell RNA** | 10x MEX directory | QC, log-normalisation, HVG selection, GPU-accelerated UMAP |
+| **ATAC-seq** | narrowPeak BED6+4 | Peak count, median signal, per-chromosome accessibility |
+| **CNV** | VCF with CN field | Segment count, fraction genome altered, estimated ploidy |
+| **Gene quantification** | BAM + GTF | Read-level counting, assignment rate, top expressed genes |
+| **FASTQ QC** | FASTQ | Read count, GC%, Q30% |
+| **Integration** | all of the above | PCA, cross-modality Pearson correlation, KEGG pathway enrichment, rule-based insights |
 
 ---
 
 ## Installation
 
-**From source**
+### Requirements
+
+- Rust 1.78 or newer — install via [rustup.rs](https://rustup.rs)
+- A C linker (usually already present; on Windows install [Build Tools for Visual Studio](https://visualstudio.microsoft.com/visual-cpp-build-tools/))
+
+### Build (CPU only — works everywhere)
 
 ```bash
-git clone https://github.com/diladeniz/multiomics
+git clone https://github.com/diladeniz/multiomics.git
 cd multiomics
 cargo build --release --bin multiomics
-# Binary at target/release/multiomics
+# binary at: target/release/multiomics
 ```
 
-**Docker**
+### Build with GPU acceleration
+
+GPU support uses [wgpu](https://wgpu.rs) and runs on any modern GPU via Vulkan (Linux/Windows), Metal (macOS), or DX12 (Windows). No CUDA required.
+
+It accelerates the k-nearest-neighbour step of UMAP for single-cell datasets with 5 000+ cells.
 
 ```bash
-docker pull ghcr.io/diladeniz/multiomics:latest
-docker run --rm -v $PWD/data:/data ghcr.io/diladeniz/multiomics \
-  --genomics /data/variants.vcf \
-  --transcriptomics /data/expression.tsv \
-  --epigenomics /data/methylation.bed \
-  --output /data/out
+cargo build --release --bin multiomics --features gpu
 ```
 
-**Singularity**
+### Build everything (ATAC + CNV + longread + GPU)
 
 ```bash
-singularity pull multiomics.sif docker://ghcr.io/diladeniz/multiomics:latest
-singularity run multiomics.sif \
-  --genomics variants.vcf \
-  --transcriptomics expression.tsv \
-  --epigenomics methylation.bed
+cargo build --release --bin multiomics --features full,gpu
 ```
 
-**Python bindings**
+### Install to PATH
 
 ```bash
-pip install maturin
-cd pybioomics
-maturin develop --release
-python -c "import pybioomics; print(pybioomics.__version__)"
+cargo install --path cli                    # CPU only
+cargo install --path cli --features gpu     # with GPU
 ```
 
 ---
 
-## Usage
-
-```
-multiomics [OPTIONS]
-
-Primary inputs:
-  --genomics <FILE>         VCF for variant analysis
-  --transcriptomics <FILE>  Expression TSV or raw count matrix
-  --epigenomics <FILE>      BED methylation file
-  --atac <FILE>             ENCODE narrowPeak for ATAC-seq
-  --cnv <FILE>              VCF with CN INFO field for copy-number analysis
-  --bam <FILE>              BAM for gene quantification (requires --gtf)
-  --gtf <FILE>              GTF/GFF3 annotation for gene quantification
-  --scrna <DIR>             10x MEX directory for single-cell analysis
-  --fastq <FILE>            FASTQ for sequence-level QC
-  --reference <FILE>        Reference FASTA for read alignment
-  --proteomics <FILE>       mzML for proteomics database search (requires --fasta)
-  --fasta <FILE>            Protein database FASTA for proteomics search
-  --proteomics-fdr <F>      FDR threshold for proteomics reporting [default: 0.01]
-
-Somatic variant calling:
-  --tumor-bam <FILE>        Tumor BAM (requires --normal-bam)
-  --normal-bam <FILE>       Matched normal BAM
-  --somatic-min-lod <F>     Minimum tumor LOD score [default: 6.3]
-
-Enrichment:
-  --gmt <FILE>              Custom GMT pathway file
-
-Options:
-  --raw-counts              Apply DESeq2 normalization to count matrix
-  --preset <NAME>           Threshold preset: cancer, plant, rnaseq, wgbs, atac, clinical
-  --output <DIR>            Output directory [default: ./multiomics_out]
-  --threads <N>             Worker threads [default: all cores]
-  --no-ml                   Skip PCA and correlation
-  --json                    JSON output only, no TUI or HTML
-```
-
-**Minimal run**
+## Quick start
 
 ```bash
+# Genomics + transcriptomics + epigenomics — HTML report + JSON
 multiomics \
-  --genomics variants.vcf \
+  --genomics sample.vcf \
   --transcriptomics expression.tsv \
-  --epigenomics methylation.bed
-```
+  --epigenomics methylation.bed \
+  --output ./results
 
-**Tumor/normal somatic calling**
-
-```bash
+# JSON only (no TUI, no HTML) — good for automated pipelines
 multiomics \
-  --tumor-bam tumor.bam \
-  --normal-bam normal.bam \
-  --genomics somatic.vcf \
-  --somatic-min-lod 6.3 \
-  --preset cancer \
-  --output results/
-```
+  --genomics sample.vcf \
+  --transcriptomics expression.tsv \
+  --epigenomics methylation.bed \
+  --json \
+  --output ./results
 
-**Single-cell with UMAP**
-
-```bash
+# Single-cell RNA with GPU UMAP
 multiomics \
-  --scrna /path/to/10x_mex/ \
-  --umap-neighbors 15 \
-  --output sc_results/
-```
+  --scrna /path/to/10x_mex_dir \
+  --output ./sc_results
 
-**Gene quantification from BAM**
-
-```bash
+# Proteomics database search at 1% FDR
 multiomics \
-  --bam aligned.bam \
-  --gtf annotation.gtf \
-  --raw-counts \
-  --output quant_results/
+  --proteomics run1.mzML run2.mzML \
+  --fasta human_proteome.fasta \
+  --proteomics-fdr 0.01 \
+  --output ./prot_results
+
+# Full multi-omics run
+multiomics \
+  --genomics tumor.vcf \
+  --transcriptomics rna.tsv \
+  --epigenomics wgbs.bed \
+  --atac peaks.narrowPeak \
+  --cnv cnv.vcf \
+  --scrna mex/ \
+  --proteomics ms1.mzML ms2.mzML \
+  --fasta proteome.fasta \
+  --output ./full_results
 ```
 
-**JSON only (suitable for pipelines)**
+---
+
+## Input formats
+
+| Flag | Format |
+|---|---|
+| `--genomics` | VCF 4.x (gzipped or plain). QUAL, INFO/AF, and gene name from INFO/ANN are used when present. |
+| `--transcriptomics` | Tab-separated matrix: first row = sample names, first column = gene ID, values = TPM (or raw counts with `--raw-counts`). |
+| `--epigenomics` | BED with columns: chrom, start, end, name, score, strand, methylation% (ENCODE bisulfite). A simpler 4-column BED (chrom, start, end, methylation%) is also accepted. |
+| `--atac` | ENCODE narrowPeak (BED6+4). Requires `--features atac`. |
+| `--cnv` | VCF with `CN=<int>` in INFO. Requires `--features cnv`. |
+| `--scrna` | 10x Genomics MEX directory: `matrix.mtx.gz`, `barcodes.tsv.gz`, `features.tsv.gz`. |
+| `--proteomics` | One or more mzML files. |
+| `--proteomics-dir` | Directory of `*.mzML` files — scanned automatically (alternative to listing files individually). |
+| `--fasta` | Protein FASTA for proteomics search. |
+| `--bam` | BAM for gene quantification (requires `--gtf`). |
+| `--gtf` | GTF or GFF3 annotation. |
+| `--fastq` | FASTQ for read-level QC. |
+| `--gmt` | Gene-set file in GMT format (name, description, genes…). |
+
+---
+
+## Output files
+
+All files are written to `--output` (default: `./multiomics_out`).
+
+| File | Description |
+|---|---|
+| `report.html` | Self-contained HTML report with Chart.js charts — open in any browser, no server needed. |
+| `multiqc_bioomics.json` | MultiQC-compatible JSON with all summary statistics. |
+
+---
+
+## All CLI flags
+
+### Primary inputs
+
+| Flag | Description |
+|---|---|
+| `--genomics FILE` | VCF for variant analysis |
+| `--transcriptomics FILE` | Expression matrix TSV |
+| `--epigenomics FILE` | Bisulfite BED for methylation |
+| `--atac FILE` | ATAC-seq narrowPeak |
+| `--cnv FILE` | VCF with CN field |
+| `--fastq FILE` | FASTQ for QC |
+| `--scrna DIR` | 10x MEX directory for single-cell analysis |
+| `--bam FILE` | BAM for gene quantification |
+| `--gtf FILE` | GTF/GFF3 annotation |
+
+### Proteomics
+
+| Flag | Default | Description |
+|---|---|---|
+| `--proteomics FILE…` | — | One or more mzML files |
+| `--proteomics-dir DIR` | — | Directory of mzML files |
+| `--fasta FILE` | — | Protein database FASTA |
+| `--proteomics-fdr N` | `0.01` | FDR threshold (0.01 = 1%) |
+| `--phospho-max-sites N` | `0` | Max phospho sites per peptide; 0 disables phosphoproteomics |
+
+### Somatic variant calling
+
+| Flag | Default | Description |
+|---|---|---|
+| `--tumor-bam FILE` | — | Tumor BAM (requires `--normal-bam`) |
+| `--normal-bam FILE` | — | Matched normal BAM |
+| `--somatic-min-lod N` | `6.3` | Minimum log-odds score for PASS calls |
+
+### Comparison mode (tumor vs. normal / treatment vs. control)
+
+| Flag | Description |
+|---|---|
+| `--compare-genomics FILE` | Control VCF (enables comparison mode) |
+| `--compare-transcriptomics FILE` | Control expression TSV |
+| `--compare-epigenomics FILE` | Control methylation BED |
+| `--compare-atac FILE` | Control ATAC narrowPeak |
+
+### Single-cell options
+
+| Flag | Default | Description |
+|---|---|---|
+| `--umap-neighbors N` | `15` | Number of UMAP neighbours |
+| `--no-umap` | off | Skip UMAP embedding (clustering still runs) |
+
+### Output and performance
+
+| Flag | Default | Description |
+|---|---|---|
+| `--output DIR` | `./multiomics_out` | Output directory (created if absent) |
+| `--threads N` | all cores | Worker thread count |
+| `--json` | off | JSON output only — no TUI, no HTML |
+| `--no-ml` | off | Skip PCA and cross-modality correlation |
+| `--no-gpu` | off | Disable GPU acceleration; use CPU for UMAP |
+| `--raw-counts` | off | Treat `--transcriptomics` as raw counts and apply DESeq2 normalisation |
+
+### Skip flags — disable individual modules
+
+These let you pass input files (e.g. for path validation or future use) without actually running that analysis module.
+
+| Flag | What it skips |
+|---|---|
+| `--skip-genomics` | Variant analysis |
+| `--skip-transcriptomics` | Expression analysis |
+| `--skip-epigenomics` | Methylation analysis |
+| `--skip-proteomics` | Proteomics database search |
+| `--skip-scrna` | Single-cell analysis |
+
+### Presets and configuration
+
+| Flag | Description |
+|---|---|
+| `--preset NAME` | Load a predefined threshold set |
+| `--list-presets` | Print all available presets and exit |
+| `--config FILE` | TOML configuration file |
+| `--dump-config` | Print the default configuration as TOML and exit |
+
+---
+
+## Skip flags in practice
 
 ```bash
-multiomics --genomics v.vcf --transcriptomics t.tsv --epigenomics e.bed \
-  --json --output pipeline_out/
+# Provide VCF but skip genomics (run only transcriptomics + epigenomics)
+multiomics \
+  --genomics mutations.vcf \
+  --transcriptomics rna.tsv \
+  --epigenomics wgbs.bed \
+  --skip-genomics
+
+# Full pipeline but skip the proteomics database search
+multiomics \
+  --genomics tumor.vcf \
+  --transcriptomics rna.tsv \
+  --epigenomics wgbs.bed \
+  --proteomics mass_spec.mzML \
+  --fasta proteome.fasta \
+  --skip-proteomics
+
+# Single-cell without UMAP (faster QC + normalisation only)
+multiomics --scrna mex/ --no-umap
+
+# Force CPU UMAP even when GPU is available
+multiomics --scrna mex/ --no-gpu
+
+# Skip ML integration layer (no PCA, no correlation matrix)
+multiomics \
+  --genomics sample.vcf \
+  --transcriptomics rna.tsv \
+  --epigenomics wgbs.bed \
+  --no-ml
 ```
 
 ---
 
 ## Presets
 
-| Preset | Use case | Key changes |
-|--------|----------|-------------|
-| `cancer` | Somatic tumor/normal | QUAL≥20, strict Ti/Tv, hypomethylation alerts |
-| `plant` | Plant/agricultural genomics | Relaxed Ti/Tv, lower expressed TPM |
-| `rnaseq` | Bulk RNA-seq DE | Strict padj=0.01, top 200 genes |
-| `wgbs` | Whole-genome bisulfite | Tight CpG island criteria |
-| `atac` | ATAC-seq focus | Signal threshold=5, top 500 peaks |
-| `clinical` | Clinical/translational | Conservative thresholds throughout |
+Presets adjust analysis thresholds for common study types without editing a config file.
 
----
-
-## Input Formats
-
-### VCF (`--genomics` / `--cnv`)
-
-Standard VCF 4.x. For CNV analysis the INFO field should contain at least one of:
-- `SVTYPE=CNV|DEL|DUP|GAIN|LOSS`
-- `CN=<integer>`, `CNA=<float>`, or `TCN=<float>`
-
-### Expression TSV (`--transcriptomics`)
-
-Tab-delimited, first row is a header with sample names, first column is gene identifier.
-
-```
-gene_id    sample_A    sample_B    sample_C
-BRCA1      12.4        0.3         45.1
-TP53       8.9         22.1        9.0
-```
-
-### Methylation BED (`--epigenomics`)
-
-4-column BED (chr, start, end, methylation%) or ENCODE bisulfite BED. Fifth column = coverage depth.
-
-### narrowPeak (`--atac`)
-
-ENCODE BED6+4 format: chr, start, end, name, score, strand, signalValue, pValue, qValue, peak.
-
-### GMT (`--gmt`)
-
-Standard Gene Matrix Transposed: pathway name, description, gene symbols — one pathway per line.
-
----
-
-## Output
-
-| File | Description |
-|------|-------------|
-| `report.html` | Self-contained HTML with native SVG charts and Circos overview |
-| `multiqc_bioomics.json` | MultiQC-compatible JSON for pipeline integration |
-
-The HTML report includes: summary cards, variant density bar chart, allele-frequency histogram, volcano plot, top-20 expressed genes, methylation levels, Circos SVG genomic overview, 3×3 correlation heatmap, PCA scatter, pathway enrichment table, insight list.
-
----
-
-## Architecture
-
-```
-biomics_core            — BatchAccum trait, parallel_fold, statistics (Welch, BH, Fisher, HLL)
-genomics_core           — VCF parser, Ti/Tv, CNV (VCF+coverage), Bayesian SNP, GATK assembly,
-                          pair-HMM, somatic calling, short-read aligner, splice-aware aligner
-transcriptomics_core    — TSV/BAM parser, DESeq2 NB-GLM, multi-factor design, BAM+GTF quant
-epigenomics_core        — BED parser, CpG island detector, long-read MM/ML parser
-atacseq_core            — narrowPeak parser, de novo peak calling (MACS2-style Poisson)
-proteomics_core         — mzML parser, tryptic digest, hyperscore search, target-decoy FDR, XIC quant
-scrna_core              — 10x MEX I/O, QC, scran normalization, HVG, Leiden, Wilcoxon DE,
-                          UMAP, doublets, pseudotime, Harmony, RNA velocity,
-                          spatial transcriptomics, CITE-seq WNN, cell-cell communication
-integration_layer       — Pearson/Spearman, PCA, fgsea multilevel GSEA, GMT, pathway enrichment
-cli                     — clap CLI, ratatui TUI, native SVG plots, HTML/JSON output, Circos SVG
-pybioomics              — PyO3 Python bindings (maturin)
-```
-
-### Parallelism
-
-All modalities are analysed concurrently via `std::thread::scope`. Within each modality, records are split into chunks of 64 000 distributed across the rayon thread pool. Each worker builds a local accumulator merged at the end via lock-free reduce — no Mutex on the hot path.
-
-### Memory
-
-Files are memory-mapped with `memmap2` + `madvise(Sequential)`. Parsing is zero-copy via `ByteLines`/`TabFields` borrowing directly from the mapped slice. `AHashMap` with AES-NI hardware hashing replaces `std::HashMap` throughout.
-
----
-
-## Statistics
-
-**Differential expression** — Full DESeq2 NB-GLM (Love et al. 2014): median-of-ratios size factors, gene-wise MLE dispersions, parametric trend α=a₀+a₁/μ, empirical Bayes MAP shrinkage, IRLS, Wald z-test, Cook's distance outlier flagging, Bourgon independent filtering, apeglm LFC shrinkage.
-
-**GSEA** — fgsea multilevel Monte Carlo (Korotkevich 2021): adaptive doubling until SE < 10% of p-estimate, null distribution cache keyed by pathway size. Importance sampling (Owen & Zhou 2000) kicks in automatically for p < 1e-4 for accurate tail estimation.
-
-**Somatic calling** — Mutect2 LOD model: LOD_tumor = Σ log(AF/ε) for alt reads, LOD_normal = Σ log(0.5/ε) for germline-het test. Strand-bias filter via chi-squared approximation of Fisher's exact test.
-
-**CpG island detection** — Gardiner-Garden & Frommer (1987): GC% > 50%, length ≥ 200 bp, CpO/E ≥ 0.6. O(n) two-pointer sliding window.
-
----
-
-## Python API
-
-```python
-import pybioomics
-
-# Analyse a VCF file
-result = pybioomics.analyze_vcf("variants.vcf")
-print(result.total_variants, result.titv_ratio)
-
-# Pathway enrichment on a gene list
-hits = pybioomics.enrich_pathways(["BRCA1", "TP53", "KRAS", "PIK3CA"])
-for h in hits[:3]:
-    print(h.pathway_name, h.padj)
-
-# Full pipeline
-out = pybioomics.run_full_pipeline(
-    genomics="variants.vcf",
-    transcriptomics="expression.tsv",
-    epigenomics="methylation.bed",
-)
-```
-
----
-
-## Bioconda
-
-A recipe is provided in `conda-recipe/`. To build locally:
+| Preset | Use case |
+|---|---|
+| `cancer` | Somatic mutation analysis; lower Ti/Tv warning threshold |
+| `plant` | Plant genome; adjusted GC and methylation norms |
+| `rna-seq` | Expression-focused; DE-centric insights |
+| `wgbs` | Whole-genome bisulfite; strict CpG island parameters |
+| `atac` | Chromatin accessibility; ATAC signal thresholds |
+| `clinical` | Clinical WGS; conservative QUAL and FDR cutoffs |
 
 ```bash
-conda install -c conda-forge conda-build
-conda build conda-recipe/
+multiomics --genomics tumor.vcf --preset cancer --output ./results
+multiomics --list-presets
+```
+
+---
+
+## Configuration file
+
+The full set of thresholds and performance knobs can be saved and edited as TOML:
+
+```bash
+multiomics --dump-config > my_config.toml
+# edit my_config.toml to taste
+multiomics --config my_config.toml --genomics sample.vcf ...
+```
+
+---
+
+## GPU acceleration details
+
+When compiled with `--features gpu`, UMAP uses a WebGPU compute shader for the k-NN step.
+
+**Algorithm — GPU k-selection**: one GPU thread per cell. Each thread keeps a private max-heap of size k (max 64), scans every other cell, and writes only n×k indices and n×k distances. No n×n distance matrix is ever allocated or transferred.
+
+- Readback size: n × k × 8 bytes — about **12 MB for 100 000 cells at k=15**
+- Falls back to CPU automatically when n < 5 000 or no GPU adapter is found
+
+**Platforms**: Vulkan (Linux, Windows), Metal (macOS / Apple Silicon), DX12 (Windows). No CUDA dependency.
+
+**Benchmark on RTX 4050 (6 GB VRAM)**:
+
+| Cells | CPU | GPU (k-selection) |
+|---|---|---|
+| 2 000 | ~730 ms | CPU fallback |
+| 5 000 | ~1.8 s | ~1.6 s |
+| 10 000 | ~7 s | ~5 s |
+| 20 000 | ~30 s | ~18 s |
+| 50 000 | ~200 s | ~90 s |
+
+---
+
+## Feature flags at build time
+
+| Cargo feature | What it adds |
+|---|---|
+| _(none / default)_ | Genomics, transcriptomics, epigenomics, ATAC-seq, CNV |
+| `gpu` | GPU-accelerated UMAP (wgpu / Vulkan / Metal / DX12) |
+| `longread` | Long-read (PacBio / Nanopore) epigenomics parsing |
+| `full` | ATAC + CNV + longread |
+| `full,gpu` | Everything |
+
+---
+
+## Development
+
+```bash
+# Verify all crates compile
+cargo check --workspace
+
+# Lint — zero warnings policy
+cargo clippy --workspace -- -D warnings
+
+# Tests
+cargo test --workspace
+
+# UMAP benchmarks (CPU vs GPU)
+cd scrna_core
+cargo bench                    # CPU only
+cargo bench --features gpu     # CPU + GPU comparison
 ```
 
 ---
 
 ## License
 
-Apache-2.0. See [LICENSE](LICENSE).
+Apache-2.0 — see [LICENSE](LICENSE).

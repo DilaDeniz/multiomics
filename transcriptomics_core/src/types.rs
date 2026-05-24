@@ -39,7 +39,7 @@ pub struct DiffExprResult {
 }
 
 /// Final summary produced by `TranscriptomicsAccum::finalize`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TranscriptomicsSummary {
     pub total_genes: u64,
     /// Genes with mean TPM ≥ 1.0 across all samples.

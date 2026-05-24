@@ -21,7 +21,8 @@ path = "src/main.rs"
 atac     = ["dep:atacseq_core"]
 cnv      = []
 longread = ["epigenomics_core/longread"]
-full     = ["atac", "cnv", "longread"]
+gpu      = ["scrna_core/gpu"]
+full     = ["atac", "cnv", "longread", "gpu"]
 default  = ["atac", "cnv"]
 
 [dependencies]

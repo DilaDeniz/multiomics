@@ -156,6 +156,35 @@ pub struct Cli {
     /// Emit JSON output only — no TUI, no HTML report
     #[arg(long, default_value_t = false)]
     pub json: bool,
+
+    // ── Skip flags — selectively disable modules ──────────────────────────────
+    /// Skip genomics variant analysis even if --genomics is provided
+    #[arg(long, default_value_t = false)]
+    pub skip_genomics: bool,
+
+    /// Skip transcriptomics analysis even if --transcriptomics is provided
+    #[arg(long, default_value_t = false)]
+    pub skip_transcriptomics: bool,
+
+    /// Skip epigenomics methylation analysis even if --epigenomics is provided
+    #[arg(long, default_value_t = false)]
+    pub skip_epigenomics: bool,
+
+    /// Skip proteomics database search even if --proteomics is provided
+    #[arg(long, default_value_t = false)]
+    pub skip_proteomics: bool,
+
+    /// Skip single-cell RNA analysis even if --scrna is provided
+    #[arg(long, default_value_t = false)]
+    pub skip_scrna: bool,
+
+    /// Skip UMAP embedding within scRNA analysis (clustering still runs)
+    #[arg(long, default_value_t = false)]
+    pub no_umap: bool,
+
+    /// Disable GPU acceleration — use CPU for all compute (including UMAP)
+    #[arg(long, default_value_t = false)]
+    pub no_gpu: bool,
 }
 
 impl Cli {

@@ -42,28 +42,17 @@ pub fn run_pipeline(
     let (ttx, trx) = unbounded::<ProgressEvent>();
     let (etx, erx) = unbounded::<ProgressEvent>();
 
-    // Safety: main validates these are Some before calling run_pipeline
-    let g_path = cli
-        .genomics
-        .as_deref()
-        .expect("genomics path validated in main");
-    let t_path = cli
-        .transcriptomics
-        .as_deref()
-        .expect("transcriptomics path validated in main");
-    let e_path = cli
-        .epigenomics
-        .as_deref()
-        .expect("epigenomics path validated in main");
-
     set_phase(&state, Phase::Genomics);
 
-    log::info!(
-        "Starting parallel analysis: '{}', '{}', '{}'",
-        g_path.display(),
-        t_path.display(),
-        e_path.display()
-    );
+    // Phases 1–3 run in parallel; each is skipped if --skip-* flag is set
+    // or the corresponding input file was not provided.
+    let run_g = cli.genomics.is_some() && !cli.skip_genomics;
+    let run_t = cli.transcriptomics.is_some() && !cli.skip_transcriptomics;
+    let run_e = cli.epigenomics.is_some() && !cli.skip_epigenomics;
+
+    if !run_g { log::info!("Skipping genomics analysis"); }
+    if !run_t { log::info!("Skipping transcriptomics analysis"); }
+    if !run_e { log::info!("Skipping epigenomics analysis"); }
 
     let (genomics, transcriptomics, epigenomics): (
         GenomicsSummary,
@@ -71,14 +60,32 @@ pub fn run_pipeline(
         EpigenomicsSummary,
     ) = {
         let (gr, tr, er) = std::thread::scope(|s| {
-            let gh = s.spawn(|| analyze_vcf(g_path, Some(&gtx)));
-            let th = s.spawn(|| analyze_tsv(t_path, Some(&ttx)));
-            let eh = s.spawn(|| analyze_bed(e_path, Some(&etx)));
+            let gh = s.spawn(|| {
+                if run_g {
+                    analyze_vcf(cli.genomics.as_deref().unwrap(), Some(&gtx))
+                } else {
+                    Ok(GenomicsSummary::default())
+                }
+            });
+            let th = s.spawn(|| {
+                if run_t {
+                    analyze_tsv(cli.transcriptomics.as_deref().unwrap(), Some(&ttx))
+                } else {
+                    Ok(TranscriptomicsSummary::default())
+                }
+            });
+            let eh = s.spawn(|| {
+                if run_e {
+                    analyze_bed(cli.epigenomics.as_deref().unwrap(), Some(&etx))
+                } else {
+                    Ok(EpigenomicsSummary::default())
+                }
+            });
             (gh.join(), th.join(), eh.join())
         });
-        let g = gr.map_err(|e| anyhow::anyhow!("Genomics thread panicked: {:?}", e))??;
-        let t = tr.map_err(|e| anyhow::anyhow!("Transcriptomics thread panicked: {:?}", e))??;
-        let e = er.map_err(|e| anyhow::anyhow!("Epigenomics thread panicked: {:?}", e))??;
+        let g: GenomicsSummary = gr.map_err(|e| anyhow::anyhow!("Genomics thread panicked: {:?}", e))??;
+        let t: TranscriptomicsSummary = tr.map_err(|e| anyhow::anyhow!("Transcriptomics thread panicked: {:?}", e))??;
+        let e: EpigenomicsSummary = er.map_err(|e| anyhow::anyhow!("Epigenomics thread panicked: {:?}", e))??;
         (g, t, e)
     };
 
@@ -201,43 +208,70 @@ pub fn run_pipeline(
 
     // Optional: single-cell RNA-seq with UMAP
     if let Some(scrna_dir) = &cli.scrna {
-        use scrna_core::{
-            hvg::select_hvg,
-            io::mex::parse_10x_mex,
-            normalize::log_normalize,
-            qc::{compute_qc, default_qc_filter},
-            umap::umap_from_pca,
-        };
-        log::info!("Running scRNA-seq analysis: '{}'", scrna_dir.display());
-        match parse_10x_mex(scrna_dir) {
-            Ok(matrix) => {
-                let n_cells = matrix.n_cols;
-                let n_genes = matrix.n_rows;
-                log::info!("scRNA: {} cells, {} genes parsed", n_cells, n_genes);
-                let mut qc_metrics = compute_qc(&matrix);
-                default_qc_filter(&mut qc_metrics);
-                match log_normalize(&matrix, &vec![1.0f64; n_cells]) {
-                    Ok(norm) => {
-                        let hvg_idx = select_hvg(&norm, 2000.min(n_genes));
-                        log::info!("scRNA: {} HVGs selected", hvg_idx.len());
-                        // Build a minimal PCA embedding for UMAP (identity placeholder)
-                        let n_components = 10usize;
-                        let pca = ndarray::Array2::<f64>::zeros((n_cells, n_components));
-                        match umap_from_pca(&pca, cli.umap_neighbors, 200) {
-                            Ok(umap) => {
-                                log::info!(
-                                    "scRNA: UMAP computed ({} epochs, {} cells)",
-                                    umap.n_epochs,
-                                    umap.embedding.nrows()
-                                );
+        if cli.skip_scrna {
+            log::info!("Skipping scRNA-seq analysis (--skip-scrna)");
+        } else {
+            use scrna_core::{
+                hvg::select_hvg,
+                io::mex::parse_10x_mex,
+                normalize::log_normalize,
+                qc::{compute_qc, default_qc_filter},
+                umap::umap_from_pca,
+            };
+            log::info!("Running scRNA-seq analysis: '{}'", scrna_dir.display());
+            match parse_10x_mex(scrna_dir) {
+                Ok(matrix) => {
+                    let n_cells = matrix.n_cols;
+                    let n_genes = matrix.n_rows;
+                    log::info!("scRNA: {} cells, {} genes parsed", n_cells, n_genes);
+                    let mut qc_metrics = compute_qc(&matrix);
+                    default_qc_filter(&mut qc_metrics);
+                    match log_normalize(&matrix, &vec![1.0f64; n_cells]) {
+                        Ok(norm) => {
+                            let hvg_idx = select_hvg(&norm, 2000.min(n_genes));
+                            log::info!("scRNA: {} HVGs selected", hvg_idx.len());
+                            if cli.no_umap {
+                                log::info!("Skipping UMAP embedding (--no-umap)");
+                            } else {
+                                let n_components = 10usize;
+                                let pca = ndarray::Array2::<f64>::zeros((n_cells, n_components));
+                                // Use GPU-accelerated UMAP when available and not disabled
+                                let umap_result = if cfg!(feature = "gpu") && !cli.no_gpu {
+                                    scrna_core::umap_gpu::run_umap_gpu(
+                                        &pca,
+                                        cli.umap_neighbors,
+                                        200,
+                                        0.1,
+                                        1.0,
+                                        42,
+                                    )
+                                } else {
+                                    umap_from_pca(&pca, cli.umap_neighbors, 200)
+                                };
+                                match umap_result {
+                                    Ok(umap) => {
+                                        log::info!(
+                                            "scRNA: UMAP computed ({} epochs, {} cells)",
+                                            umap.n_epochs,
+                                            umap.embedding.nrows()
+                                        );
+                                        push_insight(
+                                            &state,
+                                            format!(
+                                                "[INFO] scRNA: UMAP complete — {} cells",
+                                                umap.embedding.nrows()
+                                            ),
+                                        );
+                                    }
+                                    Err(e) => log::warn!("UMAP failed: {e}"),
+                                }
                             }
-                            Err(e) => log::warn!("UMAP failed: {e}"),
                         }
+                        Err(e) => log::warn!("scRNA normalization failed: {e}"),
                     }
-                    Err(e) => log::warn!("scRNA normalization failed: {e}"),
                 }
+                Err(e) => log::warn!("scRNA MEX parsing failed: {e}"),
             }
-            Err(e) => log::warn!("scRNA MEX parsing failed: {e}"),
         }
     }
 
@@ -300,7 +334,10 @@ pub fn run_pipeline(
     }
 
     // Optional: proteomics database search (single or multi-file)
-    let proteomics_summary = if let Some(fasta_path) = &cli.fasta {
+    let proteomics_summary = if cli.skip_proteomics {
+        log::info!("Skipping proteomics analysis (--skip-proteomics)");
+        None
+    } else if let Some(fasta_path) = &cli.fasta {
         // Collect mzML paths: explicit files + optional directory expansion.
         let mut mzml_paths: Vec<std::path::PathBuf> = cli.proteomics.clone();
         if let Some(dir) = &cli.proteomics_dir {

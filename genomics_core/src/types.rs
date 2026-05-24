@@ -39,7 +39,7 @@ pub struct ChromDensity {
 }
 
 /// Final summary produced by `GenomicsAccum::finalize`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct GenomicsSummary {
     pub total_variants: u64,
     pub snp_count: u64,

@@ -1,99 +1,136 @@
 //! GPU-accelerated UMAP via WebGPU (wgpu) compute shaders.
 //!
-//! Requires the `gpu` feature flag. When wgpu cannot initialise a device
-//! (no compatible GPU, wrong platform, CI environment) the function
-//! transparently falls back to the CPU UMAP implementation in `umap.rs`.
+//! Requires the `gpu` feature flag. Falls back to CPU transparently when no
+//! compatible adapter is found or the dataset is small (n < 5 000).
 //!
-//! # GPU speedup strategy
-//! The dominant cost in UMAP Phase 1 for large datasets (n > 10 000) is the
-//! O(n² × d) pairwise distance matrix. A WebGPU compute shader computes all
-//! distances in parallel using a 16×16 workgroup tile, reducing wall time
-//! from minutes (CPU) to seconds (GPU) for 100 k+ cells.
+//! # Algorithm: GPU k-selection
+//! Instead of computing the full n×n distance matrix and copying it to CPU,
+//! a single compute shader does **per-cell k-NN selection entirely on the GPU**:
 //!
-//! # VRAM-safe tiled KNN
-//! Storing the full n×n float32 distance matrix on the GPU requires n²×4 bytes
-//! of VRAM — 40 GB for 100 k cells, far exceeding any consumer GPU. Instead the
-//! kernel is dispatched in **row-tiles**: each tile computes distances for
-//! `tile_rows` cells against all n cells, producing a `tile_rows × n` matrix
-//! that fits comfortably in the VRAM budget. The k-NN for those rows is
-//! extracted and the tile is discarded before the next dispatch. Peak VRAM
-//! usage is O(tile_rows × n) ≈ 1.5 GB regardless of total n.
+//! - One GPU thread handles one cell.
+//! - Each thread scans all n cells, computing distances, and maintains a
+//!   private max-heap of the k nearest neighbours found so far.
+//! - After the scan the heap is sorted in-place and written to the output buffer.
 //!
-//! For an RTX 4050 (6 GB VRAM) with n = 100 k cells this means ~67 tiles of
-//! 1 500 rows each — still orders of magnitude faster than the CPU O(n²) scan.
-//!
-//! # Phase 2
-//! SGD embedding optimisation runs on CPU using the GPU-computed KNN graph.
-//! The SGD step is memory-bandwidth bound and harder to parallelise without
-//! atomic contention.
+//! Data transferred = n × k × 8 bytes (indices + distances).
+//! For n = 100 k cells, k = 15: **12 MB** — vs 40 GB for the naïve n×n approach.
+//! No tile loop, no readback stalls, single dispatch.
 //!
 //! # Platform support
-//! wgpu targets Vulkan (Linux/Windows), Metal (macOS/iOS), DX12 (Windows),
-//! and WebGPU (browser). Enable with `--features gpu`.
-//!
-//! # References
-//! * McInnes L, Healy J, Melville J (2018) UMAP: Uniform Manifold Approximation
-//!   and Projection for Dimension Reduction. arXiv:1802.03426.
+//! wgpu targets Vulkan (Linux/Windows), Metal (macOS/iOS), DX12 (Windows).
+//! Enable with `--features gpu`.
 
 use anyhow::Result;
 use ndarray::Array2;
 
 use crate::umap::{run_umap, UmapResult};
 
-/// WGSL compute shader: tiled pairwise Euclidean distances.
-///
-/// Computes distances from a tile of rows (`tile_offset..tile_offset+tile_rows`)
-/// to ALL n cells.  Output is row-major `[tile_rows × n_cells]`.
-///
-/// Uniforms layout: `{ n_cells: u32, n_dims: u32, tile_offset: u32, tile_rows: u32 }`
+/// Maximum k supported by the GPU shader (private heap size).
+/// Covers all practical UMAP neighbour counts (default 15, max recommended 50).
 #[cfg(feature = "gpu")]
-const DISTANCE_SHADER_TILED: &str = r#"
+const MAX_K: usize = 64;
+
+/// WGSL compute shader: per-cell k-nearest-neighbour selection.
+///
+/// One invocation per cell. Each thread keeps a private max-heap of size k,
+/// scanning all n cells to find the k nearest. No global distance matrix
+/// is written — output is n×k indices and n×k distances only.
+#[cfg(feature = "gpu")]
+const KNN_SELECT_SHADER: &str = r#"
+const MAX_K: u32 = 64u;
+
 struct Uniforms {
-    n_cells:     u32,
-    n_dims:      u32,
-    tile_offset: u32,
-    tile_rows:   u32,
+    n_cells: u32,
+    n_dims:  u32,
+    k:       u32,
+    _pad:    u32,
 }
 
-@group(0) @binding(0) var<storage, read>       data:       array<f32>;
-@group(0) @binding(1) var<storage, read_write> distances:  array<f32>;
-@group(0) @binding(2) var<uniform>             uniforms:   Uniforms;
+@group(0) @binding(0) var<storage, read>       data:        array<f32>;
+@group(0) @binding(1) var<storage, read_write> out_indices: array<u32>;
+@group(0) @binding(2) var<storage, read_write> out_dists:   array<f32>;
+@group(0) @binding(3) var<uniform>             uniforms:    Uniforms;
 
-@compute @workgroup_size(16, 16)
+// Per-invocation (thread-private) heap — no shared memory needed.
+var<private> hp_dist: array<f32, 64>;
+var<private> hp_idx:  array<u32, 64>;
+
+@compute @workgroup_size(256)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let local_i = gid.x;   // row within this tile  (0 .. tile_rows)
-    let j       = gid.y;   // column — all cells     (0 .. n_cells)
+    let i = gid.x;
     let n = uniforms.n_cells;
     let d = uniforms.n_dims;
+    let k = min(uniforms.k, MAX_K);
 
-    if local_i >= uniforms.tile_rows || j >= n {
-        return;
+    if i >= n { return; }
+
+    // Initialise heap slots to +inf so any real distance wins immediately.
+    for (var h = 0u; h < MAX_K; h++) {
+        hp_dist[h] = 1e38f;
+        hp_idx[h]  = 0u;
+    }
+    var heap_size: u32 = 0u;
+
+    // Scan every other cell, maintain top-k by max-heap.
+    for (var j = 0u; j < n; j++) {
+        if j == i { continue; }
+
+        var dsq: f32 = 0.0;
+        for (var dim = 0u; dim < d; dim++) {
+            let diff = data[i * d + dim] - data[j * d + dim];
+            dsq += diff * diff;
+        }
+        let dist = sqrt(dsq);
+
+        if heap_size < k {
+            hp_dist[heap_size] = dist;
+            hp_idx[heap_size]  = j;
+            heap_size++;
+        } else {
+            // Find the current worst (furthest) neighbour.
+            var worst = 0u;
+            for (var h = 1u; h < k; h++) {
+                if hp_dist[h] > hp_dist[worst] { worst = h; }
+            }
+            // Replace it if this cell is closer.
+            if dist < hp_dist[worst] {
+                hp_dist[worst] = dist;
+                hp_idx[worst]  = j;
+            }
+        }
     }
 
-    let global_i = uniforms.tile_offset + local_i;
-
-    var dist_sq: f32 = 0.0;
-    for (var k: u32 = 0u; k < d; k = k + 1u) {
-        let a = data[global_i * d + k];
-        let b = data[j * d + k];
-        let diff = a - b;
-        dist_sq = dist_sq + diff * diff;
+    // Insertion-sort the heap ascending by distance before writing.
+    for (var a = 1u; a < k; a++) {
+        let kd = hp_dist[a];
+        let ki = hp_idx[a];
+        var b  = a;
+        while b > 0u && hp_dist[b - 1u] > kd {
+            hp_dist[b] = hp_dist[b - 1u];
+            hp_idx[b]  = hp_idx[b - 1u];
+            b--;
+        }
+        hp_dist[b] = kd;
+        hp_idx[b]  = ki;
     }
 
-    distances[local_i * n + j] = sqrt(dist_sq);
+    // Write k nearest neighbours for cell i.
+    let base = i * k;
+    for (var h = 0u; h < k; h++) {
+        out_indices[base + h] = hp_idx[h];
+        out_dists[base + h]   = hp_dist[h];
+    }
 }
 "#;
 
-/// Run UMAP with GPU-accelerated KNN when the `gpu` feature is enabled.
+// ── Public entry point ────────────────────────────────────────────────────────
+
+/// Run UMAP with GPU-accelerated k-NN when the `gpu` feature is enabled.
 ///
 /// Falls back to [`run_umap`] (CPU) when:
 /// - The `gpu` feature is not compiled in.
 /// - No compatible GPU adapter is found.
-/// - The dataset is small enough that GPU overhead would be counterproductive
-///   (n < 5 000 cells — flat CPU scan is faster due to no transfer overhead).
-///
-/// # Arguments
-/// Same as [`run_umap`].
+/// - n < 5 000 (GPU launch overhead exceeds the compute saving).
 pub fn run_umap_gpu(
     data: &Array2<f64>,
     n_neighbors: usize,
@@ -119,7 +156,7 @@ pub fn run_umap_gpu(
     run_umap(data, n_neighbors, n_epochs, min_dist, learning_rate, seed)
 }
 
-// ── GPU implementation (compiled only with `gpu` feature) ────────────────────
+// ── GPU implementation ────────────────────────────────────────────────────────
 
 #[cfg(feature = "gpu")]
 fn gpu_knn_umap(
@@ -134,23 +171,24 @@ fn gpu_knn_umap(
 
     let n_cells = data.nrows();
     let n_dims = data.ncols();
+    let k = n_neighbors.min(MAX_K).min(n_cells.saturating_sub(1));
 
     let data_f32: Vec<f32> = data.iter().map(|&x| x as f32).collect();
 
-    log::info!("GPU UMAP: uploading {n_cells}×{n_dims} matrix, computing tiled KNN…");
+    log::info!("GPU UMAP: {n_cells} cells × {n_dims} dims, k={k} (k-selection shader)");
 
-    let knn = pollster::block_on(gpu_knn_tiled(&data_f32, n_cells, n_dims, n_neighbors))?;
+    let knn = pollster::block_on(gpu_knn_exact(&data_f32, n_cells, n_dims, k))?;
 
     let (adjacency, rho) = compute_fuzzy_graph_from_knn(&knn, n_cells);
     run_umap_from_graph(&adjacency, &rho, n_cells, n_epochs, min_dist, learning_rate, seed)
 }
 
-/// GPU tiled KNN: dispatches the distance shader in row-tiles to stay within
-/// VRAM budget, extracts k-NN per tile, and returns the full KNN graph.
+/// GPU exact k-NN via per-cell k-selection shader.
 ///
-/// Peak VRAM = O(tile_rows × n_cells) ≈ 1.5 GB regardless of n_cells.
+/// Single dispatch — no tile loop. Output: n×k indices + n×k distances.
+/// Transfer cost: n × k × 8 bytes regardless of n.
 #[cfg(feature = "gpu")]
-async fn gpu_knn_tiled(
+async fn gpu_knn_exact(
     data: &[f32],
     n_cells: usize,
     n_dims: usize,
@@ -172,103 +210,78 @@ async fn gpu_knn_tiled(
         .request_device(&wgpu::DeviceDescriptor::default())
         .await?;
 
-    // Two separate GPU limits apply:
-    // - max_buffer_size: how large a buffer can be allocated
-    // - max_storage_buffer_binding_size: how large a storage binding range can be
-    // The tile must fit within both. Use 90% of the smaller one for safety.
-    let limits = device.limits();
-    let max_tile_bytes = (limits.max_buffer_size as usize)
-        .min(limits.max_storage_buffer_binding_size as usize)
-        * 9 / 10;
-    let tile_rows = (max_tile_bytes / (n_cells * std::mem::size_of::<f32>()))
-        .max(1)
-        .min(n_cells);
-    let n_tiles = (n_cells + tile_rows - 1) / tile_rows;
-
     log::info!(
-        "GPU UMAP: tile_rows={tile_rows} ({n_tiles} tiles, \
-         {:.0} MB/tile, k={k})",
-        (tile_rows * n_cells * 4) as f64 / 1e6
+        "GPU: {} ({})",
+        adapter.get_info().name,
+        format!("{:?}", adapter.get_info().backend)
     );
 
-    // ── Static GPU resources (created once, reused across all tiles) ─────────
+    // ── Buffers ───────────────────────────────────────────────────────────────
 
     let input_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("umap_input"),
+        label: Some("umap_data"),
         contents: bytemuck::cast_slice(data),
         usage: wgpu::BufferUsages::STORAGE,
     });
 
-    // Output + readback buffers sized for the largest tile (tile_rows rows).
-    let tile_buf_bytes = (tile_rows * n_cells * std::mem::size_of::<f32>()) as u64;
-    let output_buf = device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("umap_tile_out"),
-        size: tile_buf_bytes,
+    // Output: n × k u32 indices  +  n × k f32 distances
+    let out_bytes = (n_cells * k * std::mem::size_of::<f32>()) as u64;
+
+    let idx_buf = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("umap_knn_idx"),
+        size: out_bytes,
         usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
         mapped_at_creation: false,
     });
-    let readback_buf = device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("umap_readback"),
-        size: tile_buf_bytes,
+    let dist_buf = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("umap_knn_dist"),
+        size: out_bytes,
+        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+        mapped_at_creation: false,
+    });
+    let idx_rb = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("umap_knn_idx_rb"),
+        size: out_bytes,
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+    let dist_rb = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("umap_knn_dist_rb"),
+        size: out_bytes,
         usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
         mapped_at_creation: false,
     });
 
-    // Uniform buffer: [n_cells, n_dims, tile_offset, tile_rows] — updated via
-    // queue.write_buffer() each tile so no reallocation is needed.
-    let uniform_buf = device.create_buffer(&wgpu::BufferDescriptor {
+    // Uniform: [n_cells, n_dims, k, pad] — 16-byte aligned
+    let uniforms: [u32; 4] = [n_cells as u32, n_dims as u32, k as u32, 0];
+    let uniform_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("umap_uniforms"),
-        size: 16,
-        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        mapped_at_creation: false,
+        contents: bytemuck::cast_slice(&uniforms),
+        usage: wgpu::BufferUsages::UNIFORM,
     });
+
+    // ── Pipeline ──────────────────────────────────────────────────────────────
 
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some("umap_distance_tiled"),
-        source: wgpu::ShaderSource::Wgsl(DISTANCE_SHADER_TILED.into()),
+        label: Some("umap_kselect"),
+        source: wgpu::ShaderSource::Wgsl(KNN_SELECT_SHADER.into()),
     });
 
-    let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+    let bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: None,
         entries: &[
-            wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::COMPUTE,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Storage { read_only: true },
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            },
-            wgpu::BindGroupLayoutEntry {
-                binding: 1,
-                visibility: wgpu::ShaderStages::COMPUTE,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Storage { read_only: false },
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            },
-            wgpu::BindGroupLayoutEntry {
-                binding: 2,
-                visibility: wgpu::ShaderStages::COMPUTE,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            },
+            storage_entry(0, true),
+            storage_entry(1, false),
+            storage_entry(2, false),
+            uniform_entry(3),
         ],
     });
 
     let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-        label: Some("umap_distance_pipeline"),
+        label: Some("umap_kselect_pipeline"),
         layout: Some(&device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,
-            bind_group_layouts: &[Some(&bind_group_layout)],
+            bind_group_layouts: &[Some(&bgl)],
             immediate_size: 0,
         })),
         module: &shader,
@@ -279,92 +292,92 @@ async fn gpu_knn_tiled(
 
     let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: None,
-        layout: &bind_group_layout,
+        layout: &bgl,
         entries: &[
             wgpu::BindGroupEntry { binding: 0, resource: input_buf.as_entire_binding() },
-            wgpu::BindGroupEntry { binding: 1, resource: output_buf.as_entire_binding() },
-            wgpu::BindGroupEntry { binding: 2, resource: uniform_buf.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 1, resource: idx_buf.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 2, resource: dist_buf.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 3, resource: uniform_buf.as_entire_binding() },
         ],
     });
 
-    // ── Tile loop ─────────────────────────────────────────────────────────────
+    // ── Dispatch (one thread per cell) ────────────────────────────────────────
 
-    let mut knn: Vec<Vec<(usize, f64)>> = vec![vec![]; n_cells];
-
-    for tile_idx in 0..n_tiles {
-        let row_offset = tile_idx * tile_rows;
-        let this_tile = tile_rows.min(n_cells - row_offset);
-
-        log::debug!(
-            "GPU UMAP: tile {}/{} rows {}..{}",
-            tile_idx + 1,
-            n_tiles,
-            row_offset,
-            row_offset + this_tile
-        );
-
-        // Update tile-specific uniforms (16 bytes, no reallocation).
-        let uniforms: [u32; 4] = [
-            n_cells as u32,
-            n_dims as u32,
-            row_offset as u32,
-            this_tile as u32,
-        ];
-        queue.write_buffer(&uniform_buf, 0, bytemuck::cast_slice(&uniforms));
-
-        // Dispatch: ceil(this_tile/16) × ceil(n_cells/16) workgroups.
-        let wg_x = ((this_tile + 15) / 16) as u32;
-        let wg_y = ((n_cells + 15) / 16) as u32;
-        let actual_bytes = (this_tile * n_cells * std::mem::size_of::<f32>()) as u64;
-
-        let mut encoder =
-            device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-        {
-            let mut pass =
-                encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
-            pass.set_pipeline(&pipeline);
-            pass.set_bind_group(0, &bind_group, &[]);
-            pass.dispatch_workgroups(wg_x, wg_y, 1);
-        }
-        encoder.copy_buffer_to_buffer(&output_buf, 0, &readback_buf, 0, actual_bytes);
-        queue.submit(std::iter::once(encoder.finish()));
-
-        // Map readback buffer and extract k-NN for this tile.
-        let slice = readback_buf.slice(..actual_bytes);
-        let (tx, rx) = std::sync::mpsc::channel();
-        slice.map_async(wgpu::MapMode::Read, move |v| tx.send(v).unwrap());
-        device.poll(wgpu::PollType::Wait { submission_index: None, timeout: None })?;
-        rx.recv()??;
-
-        {
-            let mapped = slice.get_mapped_range();
-            let dists: &[f32] = bytemuck::cast_slice(&mapped);
-
-            for local_i in 0..this_tile {
-                let global_i = row_offset + local_i;
-                let row = &dists[local_i * n_cells..(local_i + 1) * n_cells];
-
-                let mut indexed: Vec<(usize, f32)> = row
-                    .iter()
-                    .enumerate()
-                    .filter(|&(j, _)| j != global_i)
-                    .map(|(j, &d)| (j, d))
-                    .collect();
-                indexed.sort_unstable_by(|a, b| {
-                    a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal)
-                });
-                knn[global_i] = indexed
-                    .into_iter()
-                    .take(k)
-                    .map(|(j, d)| (j, d as f64))
-                    .collect();
-            }
-        }
-        readback_buf.unmap();
+    let wg_count = ((n_cells as u32) + 255) / 256;
+    let mut encoder =
+        device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+    {
+        let mut pass =
+            encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, &bind_group, &[]);
+        pass.dispatch_workgroups(wg_count, 1, 1);
     }
+    encoder.copy_buffer_to_buffer(&idx_buf, 0, &idx_rb, 0, out_bytes);
+    encoder.copy_buffer_to_buffer(&dist_buf, 0, &dist_rb, 0, out_bytes);
+    queue.submit(std::iter::once(encoder.finish()));
+
+    // ── Single tiny readback (n × k × 8 bytes) ───────────────────────────────
+
+    let idx_slice = idx_rb.slice(..);
+    let dist_slice = dist_rb.slice(..);
+    let (tx_i, rx_i) = std::sync::mpsc::channel();
+    let (tx_d, rx_d) = std::sync::mpsc::channel();
+    idx_slice.map_async(wgpu::MapMode::Read, move |v| tx_i.send(v).unwrap());
+    dist_slice.map_async(wgpu::MapMode::Read, move |v| tx_d.send(v).unwrap());
+    device.poll(wgpu::PollType::Wait { submission_index: None, timeout: None })?;
+    rx_i.recv()??;
+    rx_d.recv()??;
+
+    let indices: Vec<u32> = bytemuck::cast_slice(&idx_slice.get_mapped_range()).to_vec();
+    let dists: Vec<f32> = bytemuck::cast_slice(&dist_slice.get_mapped_range()).to_vec();
+    idx_rb.unmap();
+    dist_rb.unmap();
+
+    // Convert to the format expected by compute_fuzzy_graph_from_knn.
+    let knn = (0..n_cells)
+        .map(|i| {
+            let base = i * k;
+            (0..k)
+                .map(|ki| (indices[base + ki] as usize, dists[base + ki] as f64))
+                .collect()
+        })
+        .collect();
 
     Ok(knn)
 }
+
+// ── Bind group layout helpers ─────────────────────────────────────────────────
+
+#[cfg(feature = "gpu")]
+fn storage_entry(binding: u32, read_only: bool) -> wgpu::BindGroupLayoutEntry {
+    wgpu::BindGroupLayoutEntry {
+        binding,
+        visibility: wgpu::ShaderStages::COMPUTE,
+        ty: wgpu::BindingType::Buffer {
+            ty: wgpu::BufferBindingType::Storage { read_only },
+            has_dynamic_offset: false,
+            min_binding_size: None,
+        },
+        count: None,
+    }
+}
+
+#[cfg(feature = "gpu")]
+fn uniform_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
+    wgpu::BindGroupLayoutEntry {
+        binding,
+        visibility: wgpu::ShaderStages::COMPUTE,
+        ty: wgpu::BindingType::Buffer {
+            ty: wgpu::BufferBindingType::Uniform,
+            has_dynamic_offset: false,
+            min_binding_size: None,
+        },
+        count: None,
+    }
+}
+
+// ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
@@ -373,7 +386,6 @@ mod tests {
 
     #[test]
     fn gpu_umap_falls_back_on_small_dataset() {
-        // n=4 < 5000 threshold → always takes CPU path regardless of GPU availability.
         let data = Array2::from_shape_fn((4, 3), |(i, j)| (i * 3 + j) as f64);
         let result = run_umap_gpu(&data, 2, 10, 0.1, 1.0, 42);
         assert!(result.is_ok(), "should succeed via CPU fallback: {:?}", result);
@@ -384,11 +396,9 @@ mod tests {
 
     #[test]
     fn gpu_umap_smoke_larger() {
-        // n=50 — still below GPU threshold, exercises full CPU path.
         let data = Array2::from_shape_fn((50, 10), |(i, j)| ((i * 10 + j) as f64).sin());
         let result = run_umap_gpu(&data, 5, 20, 0.1, 1.0, 0xCAFE);
         assert!(result.is_ok());
-        let r = result.unwrap();
-        assert_eq!(r.embedding.nrows(), 50);
+        assert_eq!(result.unwrap().embedding.nrows(), 50);
     }
 }

@@ -58,7 +58,7 @@ pub struct MethylationRegion {
 }
 
 /// Final summary produced by `EpigenomicsAccum::finalize`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct EpigenomicsSummary {
     pub total_sites: u64,
     /// Mean methylation across all sites.

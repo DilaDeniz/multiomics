@@ -172,9 +172,10 @@ async fn gpu_knn_tiled(
         .request_device(&wgpu::DeviceDescriptor::default())
         .await?;
 
-    // Target ~1.5 GB per tile: safe on 4 GB+ GPUs even with input + overhead.
-    const TILE_VRAM_BUDGET: usize = 1_500_000_000;
-    let tile_rows = (TILE_VRAM_BUDGET / (n_cells * std::mem::size_of::<f32>()))
+    // Respect the device's hard buffer size limit (e.g. 256 MB on many GPUs).
+    // Use 90% of the limit to leave headroom for input buffer + overhead.
+    let max_buf = (device.limits().max_buffer_size as usize) * 9 / 10;
+    let tile_rows = (max_buf / (n_cells * std::mem::size_of::<f32>()))
         .max(1)
         .min(n_cells);
     let n_tiles = (n_cells + tile_rows - 1) / tile_rows;

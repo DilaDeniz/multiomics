@@ -72,4 +72,7 @@ pub struct EpigenomicsSummary {
     /// Mean methylation per gene, populated when the BED file contains gene names in col4.
     /// Empty when no gene annotations are present in the BED file.
     pub gene_methylation: HashMap<String, f64>,
+    /// Horvath epigenetic age clock result (populated when BED data covers clock CpG sites).
+    #[serde(default)]
+    pub methylation_age: Option<crate::clock::MethylationAgeResult>,
 }

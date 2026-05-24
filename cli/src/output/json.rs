@@ -5,6 +5,7 @@ use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 
+use epigenomics_core::clock::MethylationAgeResult;
 use epigenomics_core::EpigenomicsSummary;
 use genomics_core::cancer::{HrdScore, KataegisLocus, LohChromosome, TumorPurityResult};
 use genomics_core::GenomicsSummary;
@@ -75,6 +76,8 @@ pub struct JsonEpigenomicsSection {
     pub hypermethylated_regions: usize,
     pub hypomethylated_regions: usize,
     pub per_chrom_methylation: HashMap<String, f64>,
+    /// Horvath epigenetic age clock result (populated when BED data covers clock CpG sites).
+    pub methylation_age: Option<MethylationAgeResult>,
 }
 
 #[derive(Debug, Serialize)]
@@ -221,6 +224,7 @@ pub fn build_multiqc_output(
             hypermethylated_regions: epigen.hypermethylated.len(),
             hypomethylated_regions: epigen.hypomethylated.len(),
             per_chrom_methylation,
+            methylation_age: epigen.methylation_age.clone(),
         },
         multiomics_integration: JsonIntegrationSection {
             correlation_matrix: integration.correlation_matrix.clone(),

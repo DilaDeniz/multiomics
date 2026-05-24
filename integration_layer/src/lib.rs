@@ -46,6 +46,9 @@ pub struct IntegrationSummary {
     /// Cross-modal tumor purity estimate (VAF + methylation).
     #[serde(default)]
     pub tumor_purity: Option<genomics_core::cancer::TumorPurityResult>,
+    /// Horvath epigenetic age clock result (cloned from epigenomics summary).
+    #[serde(default)]
+    pub methylation_age: Option<epigenomics_core::clock::MethylationAgeResult>,
 }
 
 impl IntegrationSummary {
@@ -67,6 +70,7 @@ impl IntegrationSummary {
             paradoxes: Vec::new(),
             gene_states: Vec::new(),
             tumor_purity: None,
+            methylation_age: None,
         }
     }
 }
@@ -308,6 +312,30 @@ pub fn run_integration(
         }
     }
 
+    // Epigenetic age clock insights
+    if let Some(ref ma) = epigen.methylation_age {
+        insights.push(insights::Insight {
+            level: insights::InsightLevel::Info,
+            modality: insights::InsightModality::Epigenomics,
+            message: format!(
+                "[INFO] Epigenetic age: {:.1} years (coverage: {}/{} clock CpGs)",
+                ma.biological_age, ma.cpgs_found, ma.cpgs_total
+            ),
+        });
+        if ma.age_accelerated == Some(true) {
+            if let Some(delta) = ma.age_delta {
+                insights.push(insights::Insight {
+                    level: insights::InsightLevel::Warning,
+                    modality: insights::InsightModality::Epigenomics,
+                    message: format!(
+                        "[WARN] Epigenetic age acceleration detected (+{:.1} years) — associated with cancer and disease risk",
+                        delta
+                    ),
+                });
+            }
+        }
+    }
+
     Ok(IntegrationSummary {
         correlation_matrix,
         pca,
@@ -317,5 +345,6 @@ pub fn run_integration(
         paradoxes,
         gene_states,
         tumor_purity: Some(tumor_purity_result),
+        methylation_age: epigen.methylation_age.clone(),
     })
 }

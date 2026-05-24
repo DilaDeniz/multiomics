@@ -60,6 +60,7 @@ fn generate_html(
     let af_histogram = html_af_histogram(genomics);
     let expression_chart = html_expression_chart(transcr);
     let methylation_chart = html_methylation_chart(epigen);
+    let clock_section = html_epigenetic_clock(epigen);
     let volcano_chart = html_volcano_chart(transcr);
     let heatmap = html_correlation_heatmap(integration);
     let pca_chart = html_pca_chart(integration);
@@ -104,6 +105,7 @@ fn generate_html(
     <h2>Per-Chromosome Methylation Profile</h2>
     {methylation_chart}
   </section>
+  {clock_section}
   {volcano_section}
   <div class="row-2">
     <section class="section">
@@ -138,6 +140,7 @@ fn generate_html(
         af_histogram = af_histogram,
         expression_chart = expression_chart,
         methylation_chart = methylation_chart,
+        clock_section = clock_section,
         volcano_section = if volcano_chart.is_empty() {
             String::new()
         } else {
@@ -492,6 +495,85 @@ fn html_methylation_chart(e: &EpigenomicsSummary) -> String {
         "#76b7b2",
         900,
         300,
+    )
+}
+
+/// Render the Horvath epigenetic age clock card.
+///
+/// Returns empty string when no clock result is available.
+fn html_epigenetic_clock(e: &EpigenomicsSummary) -> String {
+    let ma = match e.methylation_age.as_ref() {
+        Some(m) => m,
+        None => return String::new(),
+    };
+
+    let conf_badge = match ma.confidence.as_str() {
+        "HIGH" => format!(
+            r#"<span class="badge badge-green">{}</span>"#,
+            ma.confidence
+        ),
+        "MODERATE" => format!(
+            r#"<span class="badge badge-yellow">{}</span>"#,
+            ma.confidence
+        ),
+        _ => format!(
+            r#"<span class="badge badge-red">{}</span>"#,
+            ma.confidence
+        ),
+    };
+
+    let delta_html = match ma.age_delta {
+        Some(d) => {
+            let color = if d > 5.0 {
+                "var(--red)"
+            } else if d < -5.0 {
+                "var(--green)"
+            } else {
+                "var(--text)"
+            };
+            format!(
+                r#"<div class="stat"><span class="stat-label">Age Delta (bio - chron)</span><span class="stat-value" style="color:{color}">{:+.1} years</span></div>"#,
+                d
+            )
+        }
+        None => r#"<div class="stat"><span class="stat-label">Age Delta</span><span class="stat-value">N/A (no chronological age)</span></div>"#.to_string(),
+    };
+
+    let accel_html = if ma.age_accelerated == Some(true) {
+        r#"<div class="insight insight-warn"><span class="insight-tag">[WARN]</span>Epigenetic age acceleration detected — associated with cancer, neurodegeneration, and increased mortality risk.</div>"#
+    } else if ma.age_accelerated == Some(false) {
+        r#"<div class="insight insight-info"><span class="insight-tag">[INFO]</span>No epigenetic age acceleration detected.</div>"#
+    } else {
+        ""
+    };
+
+    format!(
+        r#"<section class="section">
+<h2>Epigenetic Age Clock (Horvath 2013)</h2>
+<div class="cards">
+  <div class="card">
+    <h3>Predicted Biological Age</h3>
+    <div style="font-size:48px;font-weight:700;color:var(--accent);text-align:center;padding:16px 0">{age:.1}</div>
+    <div style="text-align:center;color:#8b949e;font-size:12px">years</div>
+  </div>
+  <div class="card">
+    <h3>Clock Coverage</h3>
+    <div class="stat"><span class="stat-label">CpGs found</span><span class="stat-value">{found} / {total}</span></div>
+    <div class="stat"><span class="stat-label">Coverage fraction</span><span class="stat-value">{cov:.1}%</span></div>
+    <div class="stat"><span class="stat-label">Confidence</span><span class="stat-value">{conf_badge}</span></div>
+    {delta_html}
+  </div>
+</div>
+{accel_html}
+<p style="font-size:11px;color:#8b949e;margin-top:8px">Based on Horvath 2013 clock (353-CpG elastic net model, 50-site approximation). Coordinates: hg19. Reference: doi:10.1186/gb-2013-14-10-r115.</p>
+</section>"#,
+        age = ma.biological_age,
+        found = ma.cpgs_found,
+        total = ma.cpgs_total,
+        cov = ma.coverage * 100.0,
+        conf_badge = conf_badge,
+        delta_html = delta_html,
+        accel_html = accel_html,
     )
 }
 

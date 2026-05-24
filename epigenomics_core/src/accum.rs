@@ -133,6 +133,18 @@ impl BatchAccum for EpigenomicsAccum {
             })
             .collect();
 
+        // Collect all sites for Horvath epigenetic age clock computation.
+        let all_sites: Vec<(String, u64, u64, f64)> = self
+            .chrom_sites
+            .iter()
+            .flat_map(|(chrom, sites)| {
+                sites
+                    .iter()
+                    .map(move |(start, end, meth)| (chrom.clone(), *start, *end, *meth))
+            })
+            .collect();
+        let methylation_age = crate::clock::compute_methylation_age(&all_sites, None);
+
         Ok(EpigenomicsSummary {
             total_sites: self.total_sites,
             global_methylation_pct,
@@ -141,6 +153,7 @@ impl BatchAccum for EpigenomicsAccum {
             hypermethylated,
             hypomethylated,
             gene_methylation,
+            methylation_age,
         })
     }
 }

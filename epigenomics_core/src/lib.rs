@@ -1,5 +1,6 @@
 pub mod accum;
 pub mod bed;
+pub mod clock;
 pub mod cpg;
 #[cfg(feature = "longread")]
 pub mod longread;
@@ -7,6 +8,7 @@ pub mod types;
 
 pub use accum::EpigenomicsAccum;
 pub use bed::parse_bed;
+pub use clock::{compute_methylation_age, MethylationAgeResult};
 pub use cpg::detect_cpg_islands;
 #[cfg(feature = "longread")]
 pub use longread::{longread_to_methylation_records, parse_longread_methylation, LongReadMethCall};

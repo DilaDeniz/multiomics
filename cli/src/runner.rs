@@ -14,6 +14,7 @@ use transcriptomics_core::{analyze_tsv, TranscriptomicsSummary};
 use crate::args::Cli;
 use crate::compare::run_comparison;
 use crate::config::BioomicsConfig;
+use crate::context_detect::SampleContext;
 use crate::output::{build_multiqc_output, write_html_report, write_json, MultiQcOutput};
 use crate::tui::app::{Phase, SharedState};
 
@@ -25,8 +26,28 @@ pub fn run_pipeline(
     cli: &Cli,
     cfg: &BioomicsConfig,
     state: Option<SharedState>,
+    sample_context: Option<&SampleContext>,
 ) -> Result<MultiQcOutput> {
     let start = Instant::now();
+
+    // Push auto-detected context insights into TUI state
+    if let Some(ctx) = sample_context {
+        push_insight(
+            &state,
+            format!(
+                "[INFO] Auto-detected: {} {} {}",
+                ctx.species.as_str(),
+                ctx.genomics_assay.as_ref().map(|a| a.as_str()).unwrap_or(""),
+                ctx.suggested_preset
+                    .as_ref()
+                    .map(|p| format!("→ preset: {}", p.preset))
+                    .unwrap_or_default()
+            ),
+        );
+        for w in &ctx.concordance.warnings {
+            push_insight(&state, format!("[WARN] {}", w));
+        }
+    }
 
     let threads = cli.threads.unwrap_or_else(num_cpus);
     ThreadPoolBuilder::new()
@@ -505,6 +526,7 @@ pub fn run_pipeline(
             &epigenomics,
             &integration,
             proteomics_summary.as_ref(),
+            sample_context,
             Utc::now(),
             &cli.output,
         )?;

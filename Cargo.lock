@@ -1423,6 +1423,8 @@ dependencies = [
  "genomics_core",
  "integration_layer",
  "log",
+ "memchr",
+ "memmap2",
  "mimalloc",
  "ndarray",
  "num_cpus",

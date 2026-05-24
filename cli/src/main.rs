@@ -1,6 +1,7 @@
 mod args;
 mod compare;
 mod config;
+mod context_detect;
 mod output;
 mod runner;
 mod tui;
@@ -135,17 +136,47 @@ fn main() -> Result<()> {
     // Warn at startup about any disabled-feature flags that were passed
     warn_disabled_features(&cli);
 
+    // Feature #3: Automatic sample context detection.
+    // Scan the first N records of each input file to infer species, assay,
+    // and suggest a preset — without reading the whole file.
+    let sample_context = context_detect::detect_sample_context(
+        cli.genomics.as_deref(),
+        cli.transcriptomics.as_deref(),
+        cli.epigenomics.as_deref(),
+        cli.atac.as_deref(),
+    );
+
+    // Log auto-detected context
+    if let Some(ref suggestion) = sample_context.suggested_preset {
+        let assay_str = sample_context
+            .genomics_assay
+            .as_ref()
+            .map(|a| a.as_str())
+            .unwrap_or("");
+        log::info!(
+            "Auto-detected context: species={}, assay={} — suggested preset: {} (confidence={:.0}%)",
+            sample_context.species.as_str(),
+            assay_str,
+            suggestion.preset,
+            suggestion.confidence * 100.0
+        );
+    }
+    for w in &sample_context.concordance.warnings {
+        log::warn!("{}", w);
+    }
+
     if cli.json {
-        runner::run_pipeline(&cli, &cfg, None)?;
+        runner::run_pipeline(&cli, &cfg, None, Some(&sample_context))?;
         eprintln!("Done. Output written to '{}'", cli.output.display());
     } else {
         let state = new_shared_state();
         let state_pipeline = state.clone();
         let cli_clone = cli.clone();
         let cfg_clone = cfg.clone();
+        let ctx_clone = sample_context.clone();
 
         let pipeline_handle = std::thread::spawn(move || {
-            match runner::run_pipeline(&cli_clone, &cfg_clone, Some(state_pipeline.clone())) {
+            match runner::run_pipeline(&cli_clone, &cfg_clone, Some(state_pipeline.clone()), Some(&ctx_clone)) {
                 Ok(_) => {}
                 Err(e) => {
                     if let Ok(mut lock) = state_pipeline.lock() {

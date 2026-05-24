@@ -9,18 +9,21 @@ use integration_layer::{GeneRegulatoryProfile, GeneState, Insight, InsightLevel,
 use proteomics_core::ProteomicsSummary;
 use transcriptomics_core::TranscriptomicsSummary;
 
+use crate::context_detect::SampleContext;
 use super::circos::generate_circos_svg;
 use super::svg::{bar_chart_svg, heatmap_svg, histogram_svg, scatter_svg, volcano_svg};
 
 /// Generate a self-contained HTML report and write it to `{output_dir}/report.html`.
 ///
 /// All charts are rendered as inline SVG — no external dependencies required.
+#[allow(clippy::too_many_arguments)]
 pub fn write_html_report(
     genomics: &GenomicsSummary,
     transcr: &TranscriptomicsSummary,
     epigen: &EpigenomicsSummary,
     integration: &IntegrationSummary,
     proteomics: Option<&ProteomicsSummary>,
+    sample_context: Option<&SampleContext>,
     generated_at: DateTime<Utc>,
     output_dir: &Path,
 ) -> Result<()> {
@@ -30,6 +33,7 @@ pub fn write_html_report(
         epigen,
         integration,
         proteomics,
+        sample_context,
         generated_at,
     );
     let path = output_dir.join("report.html");
@@ -45,10 +49,12 @@ fn generate_html(
     epigen: &EpigenomicsSummary,
     integration: &IntegrationSummary,
     proteomics: Option<&ProteomicsSummary>,
+    sample_context: Option<&SampleContext>,
     generated_at: DateTime<Utc>,
 ) -> String {
     let head = html_head();
     let summary_cards = html_summary_cards(genomics, transcr, epigen);
+    let context_box = sample_context.map(html_sample_context_box).unwrap_or_default();
     let circos_svg = generate_circos_svg(genomics, epigen);
     let variant_chart = html_variant_density_chart(genomics);
     let af_histogram = html_af_histogram(genomics);
@@ -74,6 +80,7 @@ fn generate_html(
     <p class="subtitle">Generated: {ts} &nbsp;|&nbsp; Tool version: {ver}</p>
   </header>
   {summary_cards}
+  {context_box}
   <div class="row-2">
     <section class="section">
       <h2>Genomic Overview</h2>
@@ -123,6 +130,7 @@ fn generate_html(
         ts = generated_at.format("%Y-%m-%d %H:%M:%S UTC"),
         ver = env!("CARGO_PKG_VERSION"),
         summary_cards = summary_cards,
+        context_box = context_box,
         circos_svg = circos_svg,
         variant_chart = variant_chart,
         af_histogram = af_histogram,
@@ -140,6 +148,79 @@ fn generate_html(
         gene_states_section = gene_states_section,
         pathway_table = pathway_table,
         proteomics_section = proteomics_section,
+    )
+}
+
+/// Render a compact "Sample Context" info box showing auto-detected properties.
+fn html_sample_context_box(ctx: &SampleContext) -> String {
+    let species = ctx.species.as_str();
+    let genomics_assay = ctx
+        .genomics_assay
+        .as_ref()
+        .map(|a| a.as_str())
+        .unwrap_or("unknown");
+    let epigenomics_assay = ctx
+        .epigenomics_assay
+        .as_ref()
+        .map(|a| a.as_str())
+        .unwrap_or("unknown");
+    let titv = ctx
+        .titv_ratio
+        .map(|r| format!("{:.2}", r))
+        .unwrap_or_else(|| "n/a".into());
+    let burden = ctx
+        .somatic_burden_per_mb
+        .map(|b| format!("{:.2} /Mb", b))
+        .unwrap_or_else(|| "n/a".into());
+    let signature = ctx
+        .mutation_signature_hint
+        .as_deref()
+        .unwrap_or("none detected");
+    let preset = ctx
+        .suggested_preset
+        .as_ref()
+        .map(|p| format!("{} ({:.0}% confidence)", p.preset, p.confidence * 100.0))
+        .unwrap_or_else(|| "none".into());
+
+    let mut warnings_html = String::new();
+    for w in ctx.warnings.iter().chain(ctx.concordance.warnings.iter()) {
+        warnings_html.push_str(&format!(
+            "<div class=\"insight insight-warn\"><span class=\"insight-tag\">[WARN]</span>{}</div>",
+            escape_html(w)
+        ));
+    }
+
+    format!(
+        r#"<section class="section">
+  <h2>Auto-Detected Sample Context</h2>
+  <div class="cards">
+    <div class="card">
+      <h3>Biology</h3>
+      <div class="stat"><span class="stat-label">Species</span><span class="stat-value">{species}</span></div>
+      <div class="stat"><span class="stat-label">Genomics assay</span><span class="stat-value">{genomics_assay}</span></div>
+      <div class="stat"><span class="stat-label">Epigenomics assay</span><span class="stat-value">{epigenomics_assay}</span></div>
+    </div>
+    <div class="card">
+      <h3>Mutation Statistics</h3>
+      <div class="stat"><span class="stat-label">Ti/Tv ratio</span><span class="stat-value">{titv}</span></div>
+      <div class="stat"><span class="stat-label">Burden estimate</span><span class="stat-value">{burden}</span></div>
+      <div class="stat"><span class="stat-label">Signature hint</span><span class="stat-value">{signature}</span></div>
+    </div>
+    <div class="card">
+      <h3>Suggested Preset</h3>
+      <div class="stat"><span class="stat-label">Preset</span><span class="stat-value">{preset}</span></div>
+    </div>
+  </div>
+  {warnings_html}
+</section>"#,
+        species = species,
+        genomics_assay = genomics_assay,
+        epigenomics_assay = epigenomics_assay,
+        titv = titv,
+        burden = burden,
+        signature = escape_html(signature),
+        preset = escape_html(&preset),
+        warnings_html = warnings_html,
     )
 }
 

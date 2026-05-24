@@ -23,6 +23,7 @@ pub mod dia;
 pub mod fasta;
 pub mod fdr;
 pub mod index;
+pub mod metabolomics;
 pub mod mzml;
 pub mod phospho;
 pub mod quant;
@@ -37,6 +38,7 @@ pub use dia::{
 pub use fasta::{digest, parse_fasta, peptide_mass};
 pub use fdr::{assign_qvalues, filter_psms};
 pub use index::PeptideIndex;
+pub use metabolomics::{detect_features, Feature, MetabolomicsSummary};
 pub use mzml::parse_mzml;
 pub use phospho::{expand_with_phospho, phospho_variants, DEFAULT_MAX_PHOSPHO_SITES, PHOSPHO_MASS};
 pub use quant::{quantify_psms, PeptideQuant};

@@ -19,6 +19,7 @@
 //!   Bioinformatics 20:1466-1467. (hyperscore)
 //! - Elias JE & Gygi SP (2007) Nature Methods 4:207-214. (target-decoy FDR)
 
+pub mod dia;
 pub mod fasta;
 pub mod fdr;
 pub mod index;
@@ -29,6 +30,10 @@ pub mod score;
 pub mod search;
 pub mod types;
 
+pub use dia::{
+    assign_dia_qvalues, build_library_from_psms, score_library_against_dia, DiaPsm, LibraryEntry,
+    MIN_DOT_SCORE, MIN_FRAGMENTS,
+};
 pub use fasta::{digest, parse_fasta, peptide_mass};
 pub use fdr::{assign_qvalues, filter_psms};
 pub use index::PeptideIndex;

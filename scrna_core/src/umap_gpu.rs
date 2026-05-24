@@ -7,12 +7,25 @@
 //! # GPU speedup strategy
 //! The dominant cost in UMAP Phase 1 for large datasets (n > 10 000) is the
 //! O(n² × d) pairwise distance matrix. A WebGPU compute shader computes all
-//! n² distances in parallel using a 16×16 workgroup tile, reducing wall time
+//! distances in parallel using a 16×16 workgroup tile, reducing wall time
 //! from minutes (CPU) to seconds (GPU) for 100 k+ cells.
 //!
-//! Phase 2 (SGD embedding optimisation) runs on CPU using the GPU-computed
-//! KNN graph — the SGD step is memory-bandwidth bound and harder to parallelise
-//! without atomic contention.
+//! # VRAM-safe tiled KNN
+//! Storing the full n×n float32 distance matrix on the GPU requires n²×4 bytes
+//! of VRAM — 40 GB for 100 k cells, far exceeding any consumer GPU. Instead the
+//! kernel is dispatched in **row-tiles**: each tile computes distances for
+//! `tile_rows` cells against all n cells, producing a `tile_rows × n` matrix
+//! that fits comfortably in the VRAM budget. The k-NN for those rows is
+//! extracted and the tile is discarded before the next dispatch. Peak VRAM
+//! usage is O(tile_rows × n) ≈ 1.5 GB regardless of total n.
+//!
+//! For an RTX 4050 (6 GB VRAM) with n = 100 k cells this means ~67 tiles of
+//! 1 500 rows each — still orders of magnitude faster than the CPU O(n²) scan.
+//!
+//! # Phase 2
+//! SGD embedding optimisation runs on CPU using the GPU-computed KNN graph.
+//! The SGD step is memory-bandwidth bound and harder to parallelise without
+//! atomic contention.
 //!
 //! # Platform support
 //! wgpu targets Vulkan (Linux/Windows), Metal (macOS/iOS), DX12 (Windows),
@@ -27,17 +40,19 @@ use ndarray::Array2;
 
 use crate::umap::{run_umap, UmapResult};
 
-/// WGSL compute shader: pairwise Euclidean distances.
+/// WGSL compute shader: tiled pairwise Euclidean distances.
 ///
-/// Layout:
-/// - binding 0: flat f32 array of shape (n_cells × n_dims) — row-major
-/// - binding 1: flat f32 output of shape (n_cells × n_cells) — row-major
-/// - binding 2: uniform { n_cells: u32, n_dims: u32 }
+/// Computes distances from a tile of rows (`tile_offset..tile_offset+tile_rows`)
+/// to ALL n cells.  Output is row-major `[tile_rows × n_cells]`.
+///
+/// Uniforms layout: `{ n_cells: u32, n_dims: u32, tile_offset: u32, tile_rows: u32 }`
 #[cfg(feature = "gpu")]
-const DISTANCE_SHADER: &str = r#"
+const DISTANCE_SHADER_TILED: &str = r#"
 struct Uniforms {
-    n_cells: u32,
-    n_dims: u32,
+    n_cells:     u32,
+    n_dims:      u32,
+    tile_offset: u32,
+    tile_rows:   u32,
 }
 
 @group(0) @binding(0) var<storage, read>       data:       array<f32>;
@@ -46,24 +61,26 @@ struct Uniforms {
 
 @compute @workgroup_size(16, 16)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let i = gid.x;
-    let j = gid.y;
+    let local_i = gid.x;   // row within this tile  (0 .. tile_rows)
+    let j       = gid.y;   // column — all cells     (0 .. n_cells)
     let n = uniforms.n_cells;
     let d = uniforms.n_dims;
 
-    if i >= n || j >= n {
+    if local_i >= uniforms.tile_rows || j >= n {
         return;
     }
 
+    let global_i = uniforms.tile_offset + local_i;
+
     var dist_sq: f32 = 0.0;
     for (var k: u32 = 0u; k < d; k = k + 1u) {
-        let a = data[i * d + k];
+        let a = data[global_i * d + k];
         let b = data[j * d + k];
         let diff = a - b;
         dist_sq = dist_sq + diff * diff;
     }
 
-    distances[i * n + j] = sqrt(dist_sq);
+    distances[local_i * n + j] = sqrt(dist_sq);
 }
 "#;
 
@@ -85,9 +102,9 @@ pub fn run_umap_gpu(
     learning_rate: f64,
     seed: u64,
 ) -> Result<UmapResult> {
-    // For small datasets the GPU transfer overhead exceeds the compute gain.
     #[cfg(feature = "gpu")]
     if data.nrows() >= 5_000 {
+        let n_cells = data.nrows();
         match gpu_knn_umap(data, n_neighbors, n_epochs, min_dist, learning_rate, seed) {
             Ok(result) => {
                 log::info!("GPU UMAP completed ({n_cells} cells)");
@@ -99,7 +116,6 @@ pub fn run_umap_gpu(
         }
     }
 
-    // CPU fallback (always available).
     run_umap(data, n_neighbors, n_epochs, min_dist, learning_rate, seed)
 }
 
@@ -119,31 +135,30 @@ fn gpu_knn_umap(
     let n_cells = data.nrows();
     let n_dims = data.ncols();
 
-    // Cast to f32 for GPU transfer (f16 would be faster but wgpu f16 support varies).
     let data_f32: Vec<f32> = data.iter().map(|&x| x as f32).collect();
 
-    log::info!("GPU UMAP: uploading {n_cells}×{n_dims} matrix to GPU…");
+    log::info!("GPU UMAP: uploading {n_cells}×{n_dims} matrix, computing tiled KNN…");
 
-    // Compute full distance matrix on GPU.
-    let dist_matrix = pollster::block_on(gpu_distance_matrix(&data_f32, n_cells, n_dims))?;
+    let knn = pollster::block_on(gpu_knn_tiled(&data_f32, n_cells, n_dims, n_neighbors))?;
 
-    log::info!("GPU UMAP: distance matrix computed, extracting {n_neighbors}-NN…");
-
-    // Extract k-NN from flat distance matrix (CPU — O(n × k log n)).
-    let knn = knn_from_distances(&dist_matrix, n_cells, n_neighbors);
-
-    // Build fuzzy graph and run SGD on CPU.
     let (adjacency, rho) = compute_fuzzy_graph_from_knn(&knn, n_cells);
     run_umap_from_graph(&adjacency, &rho, n_cells, n_epochs, min_dist, learning_rate, seed)
 }
 
-/// Upload data to GPU, dispatch the pairwise distance shader, download results.
+/// GPU tiled KNN: dispatches the distance shader in row-tiles to stay within
+/// VRAM budget, extracts k-NN per tile, and returns the full KNN graph.
+///
+/// Peak VRAM = O(tile_rows × n_cells) ≈ 1.5 GB regardless of n_cells.
 #[cfg(feature = "gpu")]
-async fn gpu_distance_matrix(data: &[f32], n_cells: usize, n_dims: usize) -> Result<Vec<f32>> {
+async fn gpu_knn_tiled(
+    data: &[f32],
+    n_cells: usize,
+    n_dims: usize,
+    k: usize,
+) -> Result<Vec<Vec<(usize, f64)>>> {
     use wgpu::util::DeviceExt;
 
     let instance = wgpu::Instance::default();
-
     let adapter = instance
         .request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
@@ -157,42 +172,54 @@ async fn gpu_distance_matrix(data: &[f32], n_cells: usize, n_dims: usize) -> Res
         .request_device(&wgpu::DeviceDescriptor::default(), None)
         .await?;
 
-    // Input buffer: n_cells × n_dims f32 values.
+    // Target ~1.5 GB per tile: safe on 4 GB+ GPUs even with input + overhead.
+    const TILE_VRAM_BUDGET: usize = 1_500_000_000;
+    let tile_rows = (TILE_VRAM_BUDGET / (n_cells * std::mem::size_of::<f32>()))
+        .max(1)
+        .min(n_cells);
+    let n_tiles = (n_cells + tile_rows - 1) / tile_rows;
+
+    log::info!(
+        "GPU UMAP: tile_rows={tile_rows} ({n_tiles} tiles, \
+         {:.0} MB/tile, k={k})",
+        (tile_rows * n_cells * 4) as f64 / 1e6
+    );
+
+    // ── Static GPU resources (created once, reused across all tiles) ─────────
+
     let input_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("umap_input"),
         contents: bytemuck::cast_slice(data),
         usage: wgpu::BufferUsages::STORAGE,
     });
 
-    // Output buffer: n_cells × n_cells f32 distances.
-    let out_size = (n_cells * n_cells * std::mem::size_of::<f32>()) as u64;
+    // Output + readback buffers sized for the largest tile (tile_rows rows).
+    let tile_buf_bytes = (tile_rows * n_cells * std::mem::size_of::<f32>()) as u64;
     let output_buf = device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("umap_distances"),
-        size: out_size,
+        label: Some("umap_tile_out"),
+        size: tile_buf_bytes,
         usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
         mapped_at_creation: false,
     });
-
-    // Uniform buffer: [n_cells: u32, n_dims: u32].
-    let uniforms: [u32; 2] = [n_cells as u32, n_dims as u32];
-    let uniform_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("umap_uniforms"),
-        contents: bytemuck::cast_slice(&uniforms),
-        usage: wgpu::BufferUsages::UNIFORM,
-    });
-
-    // Readback buffer (mappable).
     let readback_buf = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("umap_readback"),
-        size: out_size,
+        size: tile_buf_bytes,
         usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
         mapped_at_creation: false,
     });
 
-    // Compile shader and set up pipeline.
+    // Uniform buffer: [n_cells, n_dims, tile_offset, tile_rows] — updated via
+    // queue.write_buffer() each tile so no reallocation is needed.
+    let uniform_buf = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("umap_uniforms"),
+        size: 16,
+        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some("distance_shader"),
-        source: wgpu::ShaderSource::Wgsl(DISTANCE_SHADER.into()),
+        label: Some("umap_distance_tiled"),
+        source: wgpu::ShaderSource::Wgsl(DISTANCE_SHADER_TILED.into()),
     });
 
     let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -231,15 +258,13 @@ async fn gpu_distance_matrix(data: &[f32], n_cells: usize, n_dims: usize) -> Res
         ],
     });
 
-    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-        label: None,
-        bind_group_layouts: &[&bind_group_layout],
-        push_constant_ranges: &[],
-    });
-
     let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-        label: Some("distance_pipeline"),
-        layout: Some(&pipeline_layout),
+        label: Some("umap_distance_pipeline"),
+        layout: Some(&device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: None,
+            bind_group_layouts: &[&bind_group_layout],
+            push_constant_ranges: &[],
+        })),
         module: &shader,
         entry_point: Some("main"),
         compilation_options: wgpu::PipelineCompilationOptions::default(),
@@ -250,72 +275,89 @@ async fn gpu_distance_matrix(data: &[f32], n_cells: usize, n_dims: usize) -> Res
         label: None,
         layout: &bind_group_layout,
         entries: &[
-            wgpu::BindGroupEntry {
-                binding: 0,
-                resource: input_buf.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 1,
-                resource: output_buf.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 2,
-                resource: uniform_buf.as_entire_binding(),
-            },
+            wgpu::BindGroupEntry { binding: 0, resource: input_buf.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 1, resource: output_buf.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 2, resource: uniform_buf.as_entire_binding() },
         ],
     });
 
-    // Dispatch: ceil(n_cells / 16) × ceil(n_cells / 16) workgroups.
-    let wg = ((n_cells + 15) / 16) as u32;
-    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-    {
-        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
-        pass.set_pipeline(&pipeline);
-        pass.set_bind_group(0, &bind_group, &[]);
-        pass.dispatch_workgroups(wg, wg, 1);
+    // ── Tile loop ─────────────────────────────────────────────────────────────
+
+    let mut knn: Vec<Vec<(usize, f64)>> = vec![vec![]; n_cells];
+
+    for tile_idx in 0..n_tiles {
+        let row_offset = tile_idx * tile_rows;
+        let this_tile = tile_rows.min(n_cells - row_offset);
+
+        log::debug!(
+            "GPU UMAP: tile {}/{} rows {}..{}",
+            tile_idx + 1,
+            n_tiles,
+            row_offset,
+            row_offset + this_tile
+        );
+
+        // Update tile-specific uniforms (16 bytes, no reallocation).
+        let uniforms: [u32; 4] = [
+            n_cells as u32,
+            n_dims as u32,
+            row_offset as u32,
+            this_tile as u32,
+        ];
+        queue.write_buffer(&uniform_buf, 0, bytemuck::cast_slice(&uniforms));
+
+        // Dispatch: ceil(this_tile/16) × ceil(n_cells/16) workgroups.
+        let wg_x = ((this_tile + 15) / 16) as u32;
+        let wg_y = ((n_cells + 15) / 16) as u32;
+        let actual_bytes = (this_tile * n_cells * std::mem::size_of::<f32>()) as u64;
+
+        let mut encoder =
+            device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+        {
+            let mut pass =
+                encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
+            pass.set_pipeline(&pipeline);
+            pass.set_bind_group(0, &bind_group, &[]);
+            pass.dispatch_workgroups(wg_x, wg_y, 1);
+        }
+        encoder.copy_buffer_to_buffer(&output_buf, 0, &readback_buf, 0, actual_bytes);
+        queue.submit(std::iter::once(encoder.finish()));
+
+        // Map readback buffer and extract k-NN for this tile.
+        let slice = readback_buf.slice(..actual_bytes);
+        let (tx, rx) = std::sync::mpsc::channel();
+        slice.map_async(wgpu::MapMode::Read, move |v| tx.send(v).unwrap());
+        device.poll(wgpu::Maintain::Wait);
+        rx.recv()??;
+
+        {
+            let mapped = slice.get_mapped_range();
+            let dists: &[f32] = bytemuck::cast_slice(&mapped);
+
+            for local_i in 0..this_tile {
+                let global_i = row_offset + local_i;
+                let row = &dists[local_i * n_cells..(local_i + 1) * n_cells];
+
+                let mut indexed: Vec<(usize, f32)> = row
+                    .iter()
+                    .enumerate()
+                    .filter(|&(j, _)| j != global_i)
+                    .map(|(j, &d)| (j, d))
+                    .collect();
+                indexed.sort_unstable_by(|a, b| {
+                    a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal)
+                });
+                knn[global_i] = indexed
+                    .into_iter()
+                    .take(k)
+                    .map(|(j, d)| (j, d as f64))
+                    .collect();
+            }
+        }
+        readback_buf.unmap();
     }
-    encoder.copy_buffer_to_buffer(&output_buf, 0, &readback_buf, 0, out_size);
-    queue.submit(std::iter::once(encoder.finish()));
 
-    // Download results.
-    let slice = readback_buf.slice(..);
-    let (tx, rx) = std::sync::mpsc::channel();
-    slice.map_async(wgpu::MapMode::Read, move |v| tx.send(v).unwrap());
-    device.poll(wgpu::Maintain::Wait);
-    rx.recv()??;
-
-    let data_bytes = slice.get_mapped_range();
-    let result: Vec<f32> = bytemuck::cast_slice(&data_bytes).to_vec();
-    drop(data_bytes);
-    readback_buf.unmap();
-
-    Ok(result)
-}
-
-/// Select k nearest neighbours from a flat n×n distance matrix.
-#[cfg(feature = "gpu")]
-fn knn_from_distances(
-    dist: &[f32],
-    n_cells: usize,
-    k: usize,
-) -> Vec<Vec<(usize, f64)>> {
-    (0..n_cells)
-        .map(|i| {
-            let row = &dist[i * n_cells..(i + 1) * n_cells];
-            let mut indexed: Vec<(usize, f32)> = row
-                .iter()
-                .enumerate()
-                .filter(|&(j, _)| j != i)
-                .map(|(j, &d)| (j, d))
-                .collect();
-            indexed.sort_unstable_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-            indexed
-                .into_iter()
-                .take(k)
-                .map(|(j, d)| (j, d as f64))
-                .collect()
-        })
-        .collect()
+    Ok(knn)
 }
 
 #[cfg(test)]
@@ -337,9 +379,7 @@ mod tests {
     #[test]
     fn gpu_umap_smoke_larger() {
         // n=50 — still below GPU threshold, exercises full CPU path.
-        let data = Array2::from_shape_fn((50, 10), |(i, j)| {
-            ((i * 10 + j) as f64).sin()
-        });
+        let data = Array2::from_shape_fn((50, 10), |(i, j)| ((i * 10 + j) as f64).sin());
         let result = run_umap_gpu(&data, 5, 20, 0.1, 1.0, 0xCAFE);
         assert!(result.is_ok());
         let r = result.unwrap();

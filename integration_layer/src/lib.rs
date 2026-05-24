@@ -1,4 +1,5 @@
 pub mod correlation;
+pub mod gene_state;
 pub mod gmt;
 pub mod gsea;
 pub mod insights;
@@ -7,6 +8,7 @@ pub mod paradox;
 pub mod pathway;
 pub mod pca;
 
+pub use gene_state::{classify_gene_states, GeneRegulatoryProfile, GeneState};
 pub use gmt::{gmt_enrichment_analysis, parse_gmt, GmtPathway};
 pub use gsea::{gsea_preranked, GseaResult};
 pub use insights::{derive_insights, Insight, InsightLevel, InsightModality};
@@ -39,6 +41,8 @@ pub struct IntegrationSummary {
     pub insights: Vec<Insight>,
     /// Multi-modal biological paradoxes detected across all three modalities.
     pub paradoxes: Vec<GeneParadox>,
+    /// Per-gene regulatory state classifications (Active/Silenced/Poised/Bivalent/VariantDriven/Paradoxical).
+    pub gene_states: Vec<GeneRegulatoryProfile>,
 }
 
 impl IntegrationSummary {
@@ -58,6 +62,7 @@ impl IntegrationSummary {
             top_pathways: Vec::new(),
             insights: Vec::new(),
             paradoxes: Vec::new(),
+            gene_states: Vec::new(),
         }
     }
 }
@@ -213,6 +218,35 @@ pub fn run_integration(
         });
     }
 
+    // Run per-gene regulatory state classification
+    let gene_states = classify_gene_states(genomics, transcr, epigen, &paradoxes);
+    let count_active = gene_states.iter().filter(|g| g.state == GeneState::Active).count();
+    let count_silenced = gene_states.iter().filter(|g| g.state == GeneState::Silenced).count();
+    let count_paradoxical = gene_states.iter().filter(|g| g.state == GeneState::Paradoxical).count();
+    log::info!(
+        "Gene state classification: {} genes classified ({} active, {} silenced, {} paradoxical)",
+        gene_states.len(),
+        count_active,
+        count_silenced,
+        count_paradoxical
+    );
+
+    // Warn if many silenced genes carry high-impact variants (tumor suppressor candidates)
+    let silenced_with_variants = gene_states
+        .iter()
+        .filter(|g| g.state == GeneState::Silenced && g.has_variant)
+        .count();
+    if silenced_with_variants >= 2 {
+        insights.push(insights::Insight {
+            level: insights::InsightLevel::Warning,
+            modality: insights::InsightModality::Integration,
+            message: format!(
+                "[WARN] {} genes silenced with high-impact variants — possible tumor suppressor candidates",
+                silenced_with_variants
+            ),
+        });
+    }
+
     Ok(IntegrationSummary {
         correlation_matrix,
         pca,
@@ -220,5 +254,6 @@ pub fn run_integration(
         top_pathways,
         insights,
         paradoxes,
+        gene_states,
     })
 }

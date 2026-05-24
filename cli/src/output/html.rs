@@ -5,7 +5,7 @@ use chrono::{DateTime, Utc};
 
 use epigenomics_core::EpigenomicsSummary;
 use genomics_core::GenomicsSummary;
-use integration_layer::{Insight, InsightLevel, IntegrationSummary, GeneParadox, ParadoxKind};
+use integration_layer::{GeneRegulatoryProfile, GeneState, Insight, InsightLevel, IntegrationSummary, GeneParadox, ParadoxKind};
 use proteomics_core::ProteomicsSummary;
 use transcriptomics_core::TranscriptomicsSummary;
 
@@ -59,6 +59,7 @@ fn generate_html(
     let pca_chart = html_pca_chart(integration);
     let insights_section = html_insights(&integration.insights);
     let paradoxes_section = html_paradoxes(&integration.paradoxes);
+    let gene_states_section = html_gene_states(integration);
     let pathway_table = html_pathway_table(integration);
     let proteomics_section = proteomics.map(html_proteomics_section).unwrap_or_default();
 
@@ -108,6 +109,7 @@ fn generate_html(
   </div>
   {insights_section}
   {paradoxes_section}
+  {gene_states_section}
   {pathway_table}
   {proteomics_section}
   <footer>
@@ -135,6 +137,7 @@ fn generate_html(
         pca_chart = pca_chart,
         insights_section = insights_section,
         paradoxes_section = paradoxes_section,
+        gene_states_section = gene_states_section,
         pathway_table = pathway_table,
         proteomics_section = proteomics_section,
     )
@@ -631,6 +634,57 @@ fn html_paradoxes(paradoxes: &[GeneParadox]) -> String {
             kind = escape_html(&type_label),
             ev = escape_html(&evidence_str),
             summary = escape_html(&p.summary),
+        ));
+    }
+
+    html.push_str("</tbody></table></section>");
+    html
+}
+
+fn html_gene_states(integration: &IntegrationSummary) -> String {
+    let profiles: Vec<&GeneRegulatoryProfile> = integration
+        .gene_states
+        .iter()
+        .filter(|g| g.state != GeneState::Unknown)
+        .take(200)
+        .collect();
+
+    if profiles.is_empty() {
+        return String::new();
+    }
+
+    let mut html = String::from(r#"<section class="section">
+<h2>&#x1F9EC; Gene Regulatory States</h2>
+<p>State assignment based on multi-modal molecular profile (expression &times; methylation &times; genomic variants).
+Thresholds: <span style="color:#27ae60">&#9632; Active</span> = TPM &ge; 10 + methylation &lt; 30%;
+<span style="color:#7f8c8d">&#9632; Silenced</span> = TPM &lt; 1 + methylation &gt; 70%;
+<span style="color:#8e44ad">&#9632; Bivalent</span> = TPM 1&ndash;10 + methylation &gt; 70%;
+<span style="color:#f39c12">&#9632; Poised</span> = TPM 1&ndash;10 + methylation &lt; 30%;
+<span style="color:#e74c3c">&#9632; Variant-Driven</span> = variant co-occurs with significant DE;
+<span style="color:#e67e22">&#9632; Paradoxical</span> = conflicting multi-modal signals.</p>
+<table>
+<thead><tr>
+  <th>Gene</th><th>State</th><th>TPM</th><th>Methylation</th><th>Variant QUAL</th><th>log2FC</th><th>Description</th>
+</tr></thead>
+<tbody>
+"#);
+
+    for g in &profiles {
+        let color = g.state.html_color();
+        let state_badge = format!(
+            r#"<span style="background:{color};color:#fff;padding:2px 7px;border-radius:4px;font-size:0.8em">{}</span>"#,
+            g.state.as_str()
+        );
+        let tpm = g.mean_tpm.map(|v| format!("{v:.1}")).unwrap_or_default();
+        let meth = g.mean_methylation.map(|v| format!("{v:.1}%")).unwrap_or_default();
+        let qual = g.max_variant_qual.map(|v| format!("{v:.0}")).unwrap_or_default();
+        let lfc = g.log2_fold_change.map(|v| format!("{v:+.2}")).unwrap_or_default();
+
+        html.push_str(&format!(
+            "<tr><td><strong>{gene}</strong></td><td>{badge}</td><td>{tpm}</td><td>{meth}</td><td>{qual}</td><td>{lfc}</td><td>{desc}</td></tr>\n",
+            gene = escape_html(&g.gene),
+            badge = state_badge,
+            desc = escape_html(&g.description),
         ));
     }
 

@@ -13,6 +13,8 @@ pub struct MethylationRecord {
     pub end: u64,
     /// Methylation percentage in [0.0, 100.0].
     pub methylation: f64,
+    /// Gene name from the name column (col4) if present and non-numeric.
+    pub gene: Option<String>,
 }
 
 /// A detected CpG island.
@@ -67,4 +69,7 @@ pub struct EpigenomicsSummary {
     pub cpg_islands: Vec<CpGIsland>,
     pub hypermethylated: Vec<MethylationRegion>,
     pub hypomethylated: Vec<MethylationRegion>,
+    /// Mean methylation per gene, populated when the BED file contains gene names in col4.
+    /// Empty when no gene annotations are present in the BED file.
+    pub gene_methylation: HashMap<String, f64>,
 }

@@ -3,6 +3,7 @@ pub mod gmt;
 pub mod gsea;
 pub mod insights;
 pub mod mofa;
+pub mod paradox;
 pub mod pathway;
 pub mod pca;
 
@@ -10,6 +11,7 @@ pub use gmt::{gmt_enrichment_analysis, parse_gmt, GmtPathway};
 pub use gsea::{gsea_preranked, GseaResult};
 pub use insights::{derive_insights, Insight, InsightLevel, InsightModality};
 pub use mofa::{run_mofa, MofaConfig, MofaResult};
+pub use paradox::{detect_paradoxes, GeneParadox, ParadoxEvidence, ParadoxKind};
 pub use pathway::{enrichment_analysis, EnrichmentResult, KeggPathway, KEGG_PATHWAYS};
 pub use pca::{run_pca, PcaResult};
 
@@ -35,6 +37,8 @@ pub struct IntegrationSummary {
     pub top_pathways: Vec<EnrichmentResult>,
     /// Plain-English biological insights.
     pub insights: Vec<Insight>,
+    /// Multi-modal biological paradoxes detected across all three modalities.
+    pub paradoxes: Vec<GeneParadox>,
 }
 
 impl IntegrationSummary {
@@ -53,6 +57,7 @@ impl IntegrationSummary {
             mofa: None,
             top_pathways: Vec::new(),
             insights: Vec::new(),
+            paradoxes: Vec::new(),
         }
     }
 }
@@ -192,7 +197,21 @@ pub fn run_integration(
         ],
     ];
 
-    let insights = derive_insights(genomics, transcr, epigen, &corr_arr, &top_pathways);
+    let mut insights = derive_insights(genomics, transcr, epigen, &corr_arr, &top_pathways);
+
+    // Run paradox detection across all three modalities
+    let paradoxes = detect_paradoxes(genomics, transcr, epigen);
+    log::info!("Multi-modal paradox detection: {} paradoxes found", paradoxes.len());
+    if !paradoxes.is_empty() {
+        insights.push(insights::Insight {
+            level: insights::InsightLevel::Info,
+            modality: insights::InsightModality::Integration,
+            message: format!(
+                "[INFO] {} multi-modal paradoxes detected — see report for details",
+                paradoxes.len()
+            ),
+        });
+    }
 
     Ok(IntegrationSummary {
         correlation_matrix,
@@ -200,5 +219,6 @@ pub fn run_integration(
         mofa: mofa_result,
         top_pathways,
         insights,
+        paradoxes,
     })
 }

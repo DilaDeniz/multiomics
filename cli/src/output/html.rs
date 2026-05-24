@@ -5,7 +5,7 @@ use chrono::{DateTime, Utc};
 
 use epigenomics_core::EpigenomicsSummary;
 use genomics_core::GenomicsSummary;
-use integration_layer::{Insight, InsightLevel, IntegrationSummary};
+use integration_layer::{Insight, InsightLevel, IntegrationSummary, GeneParadox, ParadoxKind};
 use proteomics_core::ProteomicsSummary;
 use transcriptomics_core::TranscriptomicsSummary;
 
@@ -58,6 +58,7 @@ fn generate_html(
     let heatmap = html_correlation_heatmap(integration);
     let pca_chart = html_pca_chart(integration);
     let insights_section = html_insights(&integration.insights);
+    let paradoxes_section = html_paradoxes(&integration.paradoxes);
     let pathway_table = html_pathway_table(integration);
     let proteomics_section = proteomics.map(html_proteomics_section).unwrap_or_default();
 
@@ -106,6 +107,7 @@ fn generate_html(
     </section>
   </div>
   {insights_section}
+  {paradoxes_section}
   {pathway_table}
   {proteomics_section}
   <footer>
@@ -132,6 +134,7 @@ fn generate_html(
         heatmap = heatmap,
         pca_chart = pca_chart,
         insights_section = insights_section,
+        paradoxes_section = paradoxes_section,
         pathway_table = pathway_table,
         proteomics_section = proteomics_section,
     )
@@ -555,6 +558,82 @@ fn html_pathway_table(integration: &IntegrationSummary) -> String {
             r.score
         ));
     }
+    html.push_str("</tbody></table></section>");
+    html
+}
+
+fn html_paradoxes(paradoxes: &[GeneParadox]) -> String {
+    if paradoxes.is_empty() {
+        return String::new();
+    }
+
+    let mut html = String::from(
+        r#"<section class="section">
+<h2>&#x26A0; Biological Paradoxes</h2>
+<table>
+<thead><tr>
+  <th>Gene</th><th>Type</th><th>Evidence</th><th>Interpretation</th>
+</tr></thead>
+<tbody>"#,
+    );
+
+    for p in paradoxes {
+        let (row_style, type_label) = match &p.kind {
+            ParadoxKind::MultiHit { n_modalities } => (
+                " style=\"background:#2b0f0f\"",
+                format!("MultiHit ({n_modalities} modalities)"),
+            ),
+            ParadoxKind::MethylatedButExpressed => (
+                " style=\"background:#2b1a00\"",
+                "Methylated + Expressed".to_string(),
+            ),
+            ParadoxKind::VariantInActiveGene => (
+                " style=\"background:#2b2200\"",
+                "Variant in Active Gene".to_string(),
+            ),
+            ParadoxKind::VariantInSilentGene => (
+                "",
+                "Variant in Silent Gene".to_string(),
+            ),
+            ParadoxKind::DifferentialWithoutVariant => (
+                "",
+                "DE without Variant".to_string(),
+            ),
+            ParadoxKind::VariantWithoutExpression => (
+                "",
+                "Variant without DE".to_string(),
+            ),
+        };
+
+        // Build evidence string
+        let mut ev_parts: Vec<String> = Vec::new();
+        if let Some(tpm) = p.evidence.mean_tpm {
+            ev_parts.push(format!("TPM={tpm:.1}"));
+        }
+        if let Some(meth) = p.evidence.mean_methylation {
+            ev_parts.push(format!("Meth={meth:.1}%"));
+        }
+        if let Some(qual) = p.evidence.max_variant_qual {
+            ev_parts.push(format!("QUAL={qual:.0}"));
+        }
+        if let Some(lfc) = p.evidence.log2_fold_change {
+            ev_parts.push(format!("log2FC={lfc:.2}"));
+        }
+        if let Some(pj) = p.evidence.padj {
+            ev_parts.push(format!("padj={pj:.2e}"));
+        }
+        let evidence_str = ev_parts.join(", ");
+
+        html.push_str(&format!(
+            "<tr{row_style}><td><strong>{gene}</strong></td><td>{kind}</td><td>{ev}</td><td>{summary}</td></tr>\n",
+            row_style = row_style,
+            gene = escape_html(&p.gene),
+            kind = escape_html(&type_label),
+            ev = escape_html(&evidence_str),
+            summary = escape_html(&p.summary),
+        ));
+    }
+
     html.push_str("</tbody></table></section>");
     html
 }

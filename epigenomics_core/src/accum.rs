@@ -16,6 +16,8 @@ pub struct EpigenomicsAccum {
     pub per_chrom: AHashMap<String, ChromMethylation>,
     /// Per-chromosome site list for CpG island detection: (start, end, methylation_pct).
     pub chrom_sites: AHashMap<String, Vec<(u64, u64, f64)>>,
+    /// Per-gene methylation values for paradox detection (populated from BED col4 gene names).
+    pub gene_sites: AHashMap<String, Vec<f64>>,
 }
 
 impl Default for EpigenomicsAccum {
@@ -26,6 +28,7 @@ impl Default for EpigenomicsAccum {
             sum_methylation: 0.0,
             per_chrom: AHashMap::new(),
             chrom_sites: AHashMap::new(),
+            gene_sites: AHashMap::new(),
         }
     }
 }
@@ -48,6 +51,13 @@ impl BatchAccum for EpigenomicsAccum {
             .or_default()
             .push((r.start, r.end, r.methylation));
 
+        if let Some(ref gene) = r.gene {
+            self.gene_sites
+                .entry(gene.clone())
+                .or_default()
+                .push(r.methylation);
+        }
+
         Ok(())
     }
 
@@ -64,6 +74,10 @@ impl BatchAccum for EpigenomicsAccum {
 
         for (chrom, sites) in other.chrom_sites {
             self.chrom_sites.entry(chrom).or_default().extend(sites);
+        }
+
+        for (gene, values) in other.gene_sites {
+            self.gene_sites.entry(gene).or_default().extend(values);
         }
     }
 
@@ -105,6 +119,20 @@ impl BatchAccum for EpigenomicsAccum {
             }
         }
 
+        // Compute mean methylation per gene from accumulated site values.
+        let gene_methylation: std::collections::HashMap<String, f64> = self
+            .gene_sites
+            .into_iter()
+            .filter_map(|(gene, values)| {
+                if values.is_empty() {
+                    None
+                } else {
+                    let mean = values.iter().sum::<f64>() / values.len() as f64;
+                    Some((gene, mean))
+                }
+            })
+            .collect();
+
         Ok(EpigenomicsSummary {
             total_sites: self.total_sites,
             global_methylation_pct,
@@ -112,6 +140,7 @@ impl BatchAccum for EpigenomicsAccum {
             cpg_islands,
             hypermethylated,
             hypomethylated,
+            gene_methylation,
         })
     }
 }

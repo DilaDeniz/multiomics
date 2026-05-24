@@ -67,6 +67,24 @@ fn parse_bed_line(line: &[u8]) -> Option<MethylationRecord> {
     let col4 = cols.next();
     let col5 = cols.next();
 
+    // Determine gene name: col4 is a gene name if it exists and cannot be parsed as f64.
+    let gene: Option<String> = col4.and_then(|b| {
+        let s = std::str::from_utf8(trim_bytes(b)).ok()?;
+        // If col5 exists, col4 is the name field in 6-col ENCODE format.
+        // If col5 doesn't exist, col4 is the methylation value — treat as numeric.
+        if col5.is_some() {
+            // col4 is name; only keep if non-numeric
+            if s.parse::<f64>().is_err() && !s.is_empty() {
+                Some(s.to_string())
+            } else {
+                None
+            }
+        } else {
+            // col4 is the methylation value (4-col format) — no gene name
+            None
+        }
+    });
+
     let methylation = if let Some(score_b) = col5 {
         // 6-column ENCODE: score in [0, 1000]
         let score: f64 = parse_f64(trim_bytes(score_b))?;
@@ -87,6 +105,7 @@ fn parse_bed_line(line: &[u8]) -> Option<MethylationRecord> {
         start,
         end,
         methylation: methylation.clamp(0.0, 100.0),
+        gene,
     })
 }
 
@@ -101,6 +120,15 @@ mod tests {
         assert_eq!(rec.chrom, "chr1");
         assert_eq!(rec.start, 100);
         assert!((rec.methylation - 85.0).abs() < 1e-6);
+        assert_eq!(rec.gene, Some("CpG".to_string()));
+    }
+
+    #[test]
+    fn test_parse_bed_line_6col_with_gene() {
+        let line = b"chr1\t100\t101\tBRCA1\t750\t+";
+        let rec = parse_bed_line(line).unwrap();
+        assert_eq!(rec.gene, Some("BRCA1".to_string()));
+        assert!((rec.methylation - 75.0).abs() < 1e-6);
     }
 
     #[test]
@@ -108,5 +136,6 @@ mod tests {
         let line = b"chr1\t200\t201\t72.5";
         let rec = parse_bed_line(line).unwrap();
         assert!((rec.methylation - 72.5).abs() < 1e-6);
+        assert_eq!(rec.gene, None);
     }
 }

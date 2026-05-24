@@ -7,7 +7,7 @@ use serde::Serialize;
 
 use epigenomics_core::EpigenomicsSummary;
 use genomics_core::GenomicsSummary;
-use integration_layer::{EnrichmentResult, Insight, IntegrationSummary};
+use integration_layer::{EnrichmentResult, GeneParadox, Insight, IntegrationSummary};
 use transcriptomics_core::TranscriptomicsSummary;
 
 /// MultiQC-compatible general stats for the top-level table.
@@ -79,6 +79,7 @@ pub struct JsonIntegrationSection {
     pub pca_explained_variance: Vec<f64>,
     pub top_pathways: Vec<EnrichmentResult>,
     pub insights: Vec<Insight>,
+    pub paradoxes: Vec<GeneParadox>,
 }
 
 #[derive(Debug, Serialize)]
@@ -217,6 +218,7 @@ pub fn build_multiqc_output(
             pca_explained_variance: integration.pca.explained_variance_ratio.clone(),
             top_pathways: integration.top_pathways.clone(),
             insights: integration.insights.clone(),
+            paradoxes: integration.paradoxes.clone(),
         },
         metadata: ReportMetadata {
             tool: "multiomics",

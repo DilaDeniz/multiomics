@@ -172,10 +172,15 @@ async fn gpu_knn_tiled(
         .request_device(&wgpu::DeviceDescriptor::default())
         .await?;
 
-    // Respect the device's hard buffer size limit (e.g. 256 MB on many GPUs).
-    // Use 90% of the limit to leave headroom for input buffer + overhead.
-    let max_buf = (device.limits().max_buffer_size as usize) * 9 / 10;
-    let tile_rows = (max_buf / (n_cells * std::mem::size_of::<f32>()))
+    // Two separate GPU limits apply:
+    // - max_buffer_size: how large a buffer can be allocated
+    // - max_storage_buffer_binding_size: how large a storage binding range can be
+    // The tile must fit within both. Use 90% of the smaller one for safety.
+    let limits = device.limits();
+    let max_tile_bytes = (limits.max_buffer_size as usize)
+        .min(limits.max_storage_buffer_binding_size as usize)
+        * 9 / 10;
+    let tile_rows = (max_tile_bytes / (n_cells * std::mem::size_of::<f32>()))
         .max(1)
         .min(n_cells);
     let n_tiles = (n_cells + tile_rows - 1) / tile_rows;

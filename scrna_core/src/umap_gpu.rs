@@ -166,10 +166,10 @@ async fn gpu_knn_tiled(
             force_fallback_adapter: false,
         })
         .await
-        .ok_or_else(|| anyhow::anyhow!("no wgpu adapter found"))?;
+        .map_err(|_| anyhow::anyhow!("no wgpu adapter found"))?;
 
     let (device, queue) = adapter
-        .request_device(&wgpu::DeviceDescriptor::default(), None)
+        .request_device(&wgpu::DeviceDescriptor::default())
         .await?;
 
     // Target ~1.5 GB per tile: safe on 4 GB+ GPUs even with input + overhead.
@@ -262,8 +262,8 @@ async fn gpu_knn_tiled(
         label: Some("umap_distance_pipeline"),
         layout: Some(&device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,
-            bind_group_layouts: &[&bind_group_layout],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&bind_group_layout)],
+            immediate_size: 0,
         })),
         module: &shader,
         entry_point: Some("main"),
@@ -327,7 +327,7 @@ async fn gpu_knn_tiled(
         let slice = readback_buf.slice(..actual_bytes);
         let (tx, rx) = std::sync::mpsc::channel();
         slice.map_async(wgpu::MapMode::Read, move |v| tx.send(v).unwrap());
-        device.poll(wgpu::Maintain::Wait);
+        device.poll(wgpu::PollType::Wait { submission_index: None, timeout: None })?;
         rx.recv()??;
 
         {

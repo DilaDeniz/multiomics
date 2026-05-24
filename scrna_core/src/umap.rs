@@ -15,6 +15,7 @@ use rayon::prelude::*;
 // ---------------------------------------------------------------------------
 
 /// Output of a UMAP run.
+#[derive(Debug)]
 pub struct UmapResult {
     /// Low-dimensional embedding `[n_cells, 2]`.
     pub embedding: Array2<f64>,
@@ -104,6 +105,145 @@ pub fn compute_fuzzy_graph(
     }
 
     (adjacency, rho)
+}
+
+/// Build the fuzzy high-dimensional graph from pre-computed k-nearest neighbours.
+///
+/// Equivalent to the second phase of [`compute_fuzzy_graph`] — use this when
+/// the KNN has already been computed externally (e.g. via GPU distance matrix).
+pub fn compute_fuzzy_graph_from_knn(
+    knn: &[Vec<(usize, f64)>],
+    n_cells: usize,
+) -> (Vec<Vec<(usize, f64)>>, Vec<f64>) {
+    let k = knn.iter().map(|v| v.len()).max().unwrap_or(1).max(1);
+
+    let mut rho = vec![0.0f64; n_cells];
+    let mut sigma = vec![1.0f64; n_cells];
+
+    for i in 0..n_cells {
+        if knn[i].is_empty() {
+            continue;
+        }
+        rho[i] = knn[i][0].1;
+        sigma[i] = find_sigma(&knn[i], rho[i], k);
+    }
+
+    let mut directed: Vec<Vec<(usize, f64)>> = vec![vec![]; n_cells];
+    for i in 0..n_cells {
+        for &(j, d) in &knn[i] {
+            let w = if sigma[i] > 0.0 {
+                (-(d - rho[i]).max(0.0) / sigma[i]).exp()
+            } else if (d - rho[i]).abs() < 1e-12 {
+                1.0
+            } else {
+                0.0
+            };
+            directed[i].push((j, w));
+        }
+    }
+
+    use std::collections::HashMap;
+    let mut pair_map: HashMap<(usize, usize), (f64, f64)> = HashMap::new();
+    for (i, dir_i) in directed.iter().enumerate() {
+        for &(j, w) in dir_i {
+            let key = if i < j { (i, j) } else { (j, i) };
+            let entry = pair_map.entry(key).or_insert((0.0, 0.0));
+            if i <= j {
+                entry.0 = w;
+            } else {
+                entry.1 = w;
+            }
+        }
+    }
+
+    let mut adjacency: Vec<Vec<(usize, f64)>> = vec![vec![]; n_cells];
+    for (&(a, b), &(w_ab, w_ba)) in &pair_map {
+        let w_sym = w_ab + w_ba - w_ab * w_ba;
+        adjacency[a].push((b, w_sym));
+        adjacency[b].push((a, w_sym));
+    }
+    for nbrs in &mut adjacency {
+        nbrs.sort_unstable_by_key(|&(j, _)| j);
+    }
+
+    (adjacency, rho)
+}
+
+/// Run the UMAP SGD embedding from a pre-computed fuzzy graph.
+///
+/// Separates the embedding optimisation (Phase 2) from graph construction so
+/// that GPU-accelerated KNN can supply the graph without re-running Phase 1.
+pub fn run_umap_from_graph(
+    adjacency: &[Vec<(usize, f64)>],
+    _rho: &[f64],
+    n_cells: usize,
+    n_epochs: usize,
+    min_dist: f64,
+    learning_rate: f64,
+    seed: u64,
+) -> Result<UmapResult> {
+    if n_cells < 2 {
+        anyhow::bail!("need at least 2 cells for UMAP");
+    }
+
+    let (a, b) = ab_params(min_dist);
+    let mut emb = init_embedding(n_cells, seed);
+
+    let mut edges: Vec<(usize, usize, f64)> = Vec::new();
+    for (i, nbrs) in adjacency.iter().enumerate() {
+        for &(j, w) in nbrs {
+            if i < j {
+                edges.push((i, j, w));
+            }
+        }
+    }
+    edges.sort_unstable_by_key(|&(i, j, _)| (i, j));
+
+    let n_neg = 5usize;
+    let epsilon = 1e-4f64;
+    let mut rng_state = seed ^ 0xdeadbeef;
+
+    for epoch in 0..n_epochs {
+        let lr = learning_rate * (1.0 - epoch as f64 / n_epochs as f64);
+
+        for &(i, j, _w) in &edges {
+            let dy0 = emb[[i, 0]] - emb[[j, 0]];
+            let dy1 = emb[[i, 1]] - emb[[j, 1]];
+            let d2 = (dy0 * dy0 + dy1 * dy1).max(1e-12);
+            let d = d2.sqrt();
+            let d_2b = a * d.powf(2.0 * b);
+            let grad_coeff = -2.0 * a * b * d.powf(2.0 * b - 2.0) / (1.0 + d_2b);
+            let g0 = (grad_coeff * dy0).clamp(-4.0, 4.0);
+            let g1 = (grad_coeff * dy1).clamp(-4.0, 4.0);
+            emb[[i, 0]] += lr * g0;
+            emb[[i, 1]] += lr * g1;
+            emb[[j, 0]] -= lr * g0;
+            emb[[j, 1]] -= lr * g1;
+        }
+
+        for &(i, _, _) in &edges {
+            for _ in 0..n_neg {
+                let j = xorshift_next(&mut rng_state) as usize % n_cells;
+                if j == i {
+                    continue;
+                }
+                let dy0 = emb[[i, 0]] - emb[[j, 0]];
+                let dy1 = emb[[i, 1]] - emb[[j, 1]];
+                let d2 = dy0 * dy0 + dy1 * dy1;
+                let d_2b = a * d2.powf(b);
+                let grad_coeff = 2.0 * b / (epsilon + d2) / (1.0 + d_2b);
+                let g0 = (grad_coeff * dy0).clamp(-4.0, 4.0);
+                let g1 = (grad_coeff * dy1).clamp(-4.0, 4.0);
+                emb[[i, 0]] += lr * g0;
+                emb[[i, 1]] += lr * g1;
+            }
+        }
+    }
+
+    Ok(UmapResult {
+        embedding: emb,
+        n_epochs,
+    })
 }
 
 /// Binary search for sigma such that sum_j exp(-(d_ij - rho_i)/sigma) ≈ log2(k).

@@ -23,6 +23,7 @@ pub mod qc;
 pub mod spatial;
 pub mod types;
 pub mod umap;
+pub mod umap_gpu;
 pub mod velocity;
 
 pub use cellcomm::{
@@ -44,7 +45,8 @@ pub use spatial::{
     parse_visium_positions, run_spatial_analysis, SpatialResult, SpatiallyVariableGene, Spot,
 };
 pub use types::SingleCellSummary;
-pub use umap::{compute_fuzzy_graph, run_umap, umap_from_pca, UmapResult};
+pub use umap::{compute_fuzzy_graph, compute_fuzzy_graph_from_knn, run_umap, run_umap_from_graph, umap_from_pca, UmapResult};
+pub use umap_gpu::run_umap_gpu;
 pub use velocity::{compute_rna_velocity, velocity_graph, GeneVelocity, VelocityResult};
 
 use anyhow::Result;

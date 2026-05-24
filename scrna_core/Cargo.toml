@@ -5,6 +5,9 @@ edition.workspace = true
 license.workspace = true
 description       = "Single-cell RNA-seq analysis: MEX I/O, QC, scran normalization, HVG, Leiden clustering, DE"
 
+[features]
+gpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck"]
+
 [dependencies]
 biomics_core  = { path = "../biomics_core" }
 anyhow        = { workspace = true }
@@ -15,3 +18,6 @@ ahash         = { workspace = true }
 log           = { workspace = true }
 memchr        = { workspace = true }
 flate2        = "1.0"
+wgpu          = { version = "29", optional = true }
+pollster      = { version = "0.4", optional = true }
+bytemuck      = { version = "1", optional = true }

@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+use crate::cancer::{HrdScore, KataegisLocus, LohChromosome, TumorPurityResult};
+
 /// Whether a SNP is a transition or transversion, or an indel.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TiTvClass {
@@ -55,4 +57,16 @@ pub struct GenomicsSummary {
     pub unique_positions: u64,
     /// All gene names appearing in high-impact variants.
     pub high_impact_genes: Vec<String>,
+    /// Tumor purity estimate (None until set by integration layer).
+    #[serde(default)]
+    pub tumor_purity: Option<TumorPurityResult>,
+    /// Kataegis (hypermutation) loci detected from all variants.
+    #[serde(default)]
+    pub kataegis_loci: Vec<KataegisLocus>,
+    /// Homologous recombination deficiency score from indel spectrum.
+    #[serde(default)]
+    pub hrd: Option<HrdScore>,
+    /// Per-chromosome loss of heterozygosity assessment.
+    #[serde(default)]
+    pub loh_chromosomes: Vec<LohChromosome>,
 }

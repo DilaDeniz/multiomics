@@ -2,6 +2,7 @@ use ahash::AHashMap;
 
 use biomics_core::{BatchAccum, HyperLogLog};
 
+use crate::cancer::{compute_hrd_score, detect_kataegis, detect_loh};
 use crate::types::{ChromDensity, GenomicsSummary, TiTvClass, VariantRecord};
 
 /// Compact position key: FNV-1a hash of (chrom, pos).
@@ -38,6 +39,8 @@ pub struct GenomicsAccum {
     /// HyperLogLog cardinality sketch — 16 KB fixed, ~0.81 % error.
     /// Replaces AHashSet<u64> which grew O(n) and consumed hundreds of MB on WGS.
     pub positions: HyperLogLog,
+    /// Full variant list (all variants, not just high-impact) for cancer analyses.
+    pub all_variants: Vec<VariantRecord>,
 }
 
 impl Default for GenomicsAccum {
@@ -53,6 +56,7 @@ impl Default for GenomicsAccum {
             high_impact: Vec::new(),
             af_histogram: [0u64; 20],
             positions: HyperLogLog::new(),
+            all_variants: Vec::new(),
         }
     }
 }
@@ -89,6 +93,7 @@ impl BatchAccum for GenomicsAccum {
         if r.qual > 30.0 {
             self.high_impact.push(r.clone());
         }
+        self.all_variants.push(r.clone());
 
         if let Some(af) = r.af {
             let bin = biomics_core::stats::histogram_bin(af as f64, 0.0, 1.0, 20);
@@ -116,6 +121,7 @@ impl BatchAccum for GenomicsAccum {
         }
 
         self.high_impact.extend(other.high_impact);
+        self.all_variants.extend(other.all_variants);
 
         for (i, count) in other.af_histogram.iter().enumerate() {
             self.af_histogram[i] += count;
@@ -139,6 +145,11 @@ impl BatchAccum for GenomicsAccum {
         high_impact_genes.sort_unstable();
         high_impact_genes.dedup();
 
+        // Cancer analyses run on the full variant set
+        let kataegis_loci = detect_kataegis(&self.all_variants);
+        let hrd = Some(compute_hrd_score(&self.all_variants));
+        let loh_chromosomes = detect_loh(&self.all_variants);
+
         Ok(GenomicsSummary {
             total_variants: self.total,
             snp_count: self.snps,
@@ -149,6 +160,10 @@ impl BatchAccum for GenomicsAccum {
             af_histogram: self.af_histogram.to_vec(),
             unique_positions: self.positions.cardinality(),
             high_impact_genes,
+            tumor_purity: None,
+            kataegis_loci,
+            hrd,
+            loh_chromosomes,
         })
     }
 }

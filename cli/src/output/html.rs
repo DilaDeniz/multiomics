@@ -5,7 +5,7 @@ use chrono::{DateTime, Utc};
 
 use epigenomics_core::EpigenomicsSummary;
 use genomics_core::GenomicsSummary;
-use integration_layer::{GeneRegulatoryProfile, GeneState, Insight, InsightLevel, IntegrationSummary, GeneParadox, ParadoxKind};
+use integration_layer::{GeneParadox, GeneRegulatoryProfile, GeneState, Insight, InsightLevel, IntegrationSummary, ParadoxKind};
 use proteomics_core::ProteomicsSummary;
 use transcriptomics_core::TranscriptomicsSummary;
 
@@ -65,6 +65,7 @@ fn generate_html(
     let pca_chart = html_pca_chart(integration);
     let insights_section = html_insights(&integration.insights);
     let paradoxes_section = html_paradoxes(&integration.paradoxes);
+    let cancer_section = html_cancer_genomics(genomics);
     let gene_states_section = html_gene_states(integration);
     let pathway_table = html_pathway_table(integration);
     let proteomics_section = proteomics.map(html_proteomics_section).unwrap_or_default();
@@ -116,6 +117,7 @@ fn generate_html(
   </div>
   {insights_section}
   {paradoxes_section}
+  {cancer_section}
   {gene_states_section}
   {pathway_table}
   {proteomics_section}
@@ -145,6 +147,7 @@ fn generate_html(
         pca_chart = pca_chart,
         insights_section = insights_section,
         paradoxes_section = paradoxes_section,
+        cancer_section = cancer_section,
         gene_states_section = gene_states_section,
         pathway_table = pathway_table,
         proteomics_section = proteomics_section,
@@ -770,6 +773,210 @@ Thresholds: <span style="color:#27ae60">&#9632; Active</span> = TPM &ge; 10 + me
     }
 
     html.push_str("</tbody></table></section>");
+    html
+}
+
+fn html_cancer_genomics(g: &GenomicsSummary) -> String {
+    // Only render if there is meaningful cancer data
+    let has_purity = g.tumor_purity.is_some();
+    let has_kataegis = !g.kataegis_loci.is_empty();
+    let has_hrd = g.hrd.is_some();
+    let has_loh = g.loh_chromosomes.iter().any(|c| c.loh_flagged);
+
+    if !has_purity && !has_kataegis && !has_hrd && !has_loh {
+        return String::new();
+    }
+
+    let mut html = String::from(
+        r#"<section class="section">
+<h2>Cancer Genomics Analysis</h2>"#,
+    );
+
+    // ── Tumor Purity ──
+    if let Some(ref p) = g.tumor_purity {
+        let vaf_str = p
+            .vaf_purity
+            .map(|v| format!("{:.1}%", v * 100.0))
+            .unwrap_or_else(|| "N/A".to_string());
+        let meth_str = p
+            .methylation_purity
+            .map(|v| format!("{:.1}%", v * 100.0))
+            .unwrap_or_else(|| "N/A".to_string());
+        let cons_str = p
+            .consensus_purity
+            .map(|v| format!("{:.1}%", v * 100.0))
+            .unwrap_or_else(|| "N/A".to_string());
+        let class_badge = match p.purity_class.as_str() {
+            "HIGH" => format!(
+                r#"<span class="badge badge-red">{}</span>"#,
+                p.purity_class
+            ),
+            "MODERATE" => format!(
+                r#"<span class="badge badge-yellow">{}</span>"#,
+                p.purity_class
+            ),
+            _ => format!(
+                r#"<span class="badge badge-green">{}</span>"#,
+                p.purity_class
+            ),
+        };
+        let discord_html = if p.discordant {
+            r#"<div class="insight insight-warn"><span class="insight-tag">[WARN]</span>Purity estimates discordant between VAF and methylation — possible tumor heterogeneity or technical artifact.</div>"#
+        } else {
+            ""
+        };
+        html.push_str(&format!(
+            r#"<h3>Tumor Purity Estimation</h3>
+<div class="cards">
+  <div class="card">
+    <h3>Purity Estimates</h3>
+    <div class="stat"><span class="stat-label">VAF-based purity</span><span class="stat-value">{vaf}</span></div>
+    <div class="stat"><span class="stat-label">Methylation-based purity</span><span class="stat-value">{meth}</span></div>
+    <div class="stat"><span class="stat-label">Consensus purity</span><span class="stat-value">{cons}</span></div>
+    <div class="stat"><span class="stat-label">Purity class</span><span class="stat-value">{badge}</span></div>
+  </div>
+</div>
+{discord}"#,
+            vaf = vaf_str,
+            meth = meth_str,
+            cons = cons_str,
+            badge = class_badge,
+            discord = discord_html,
+        ));
+    }
+
+    // ── Kataegis ──
+    html.push_str("<h3>Kataegis Detection</h3>");
+    if has_kataegis {
+        html.push_str(
+            r#"<table><thead><tr>
+  <th>Chromosome</th><th>Start</th><th>End</th><th>Mutations</th><th>Mean IMD (bp)</th><th>Dominant Change</th>
+</tr></thead><tbody>"#,
+        );
+        for locus in &g.kataegis_loci {
+            html.push_str(&format!(
+                "<tr><td>{chrom}</td><td>{start}</td><td>{end}</td><td>{n}</td><td>{imd:.1}</td><td>{change}</td></tr>\n",
+                chrom = escape_html(&locus.chrom),
+                start = locus.start,
+                end = locus.end,
+                n = locus.n_mutations,
+                imd = locus.geometric_mean_imd,
+                change = escape_html(&locus.dominant_change),
+            ));
+        }
+        html.push_str("</tbody></table>");
+    } else {
+        html.push_str("<p>No kataegis loci detected.</p>");
+    }
+
+    // ── HRD ──
+    if let Some(ref hrd) = g.hrd {
+        let hrd_badge = match hrd.hrd_class.as_str() {
+            "HRD-HIGH" => format!(
+                r#"<span class="badge badge-red">{}</span>"#,
+                hrd.hrd_class
+            ),
+            "HRD-INTERMEDIATE" => format!(
+                r#"<span class="badge badge-yellow">{}</span>"#,
+                hrd.hrd_class
+            ),
+            _ => format!(
+                r#"<span class="badge badge-green">{}</span>"#,
+                hrd.hrd_class
+            ),
+        };
+
+        // Inline SVG stacked bar: del_1bp | del_2-5bp | del_6-50bp | ins>3bp
+        let bar_w = 400.0_f64;
+        let bar_h = 24.0_f64;
+        let segments = [
+            (hrd.del_1bp_frac, "#4e79a7", "Del 1bp"),
+            (hrd.del_2_5bp_frac, "#f28e2b", "Del 2-5bp"),
+            (hrd.del_6_50bp_frac, "#e15759", "Del 6-50bp"),
+            (hrd.ins_gt3bp_frac, "#76b7b2", "Ins &gt;3bp"),
+        ];
+        let mut bar_svg =
+            format!(r#"<svg viewBox="0 0 {bar_w} {bar_h}" xmlns="http://www.w3.org/2000/svg" style="width:400px;display:block;margin:8px 0">"#, bar_w = bar_w + 120.0, bar_h = bar_h + 4.0);
+        let mut x = 0.0_f64;
+        for (frac, color, _label) in &segments {
+            let w = frac * bar_w;
+            if w > 0.0 {
+                bar_svg.push_str(&format!(
+                    r#"<rect x="{x:.1}" y="0" width="{w:.1}" height="{bar_h}" fill="{color}"/>"#,
+                    x = x,
+                    w = w,
+                    bar_h = bar_h,
+                    color = color,
+                ));
+            }
+            x += w;
+        }
+        bar_svg.push_str("</svg>");
+        // Legend
+        let legend: String = segments
+            .iter()
+            .map(|(frac, color, label)| {
+                format!(
+                    r#"<span style="margin-right:12px"><svg width="12" height="12"><rect width="12" height="12" fill="{color}"/></svg> {label} ({pct:.1}%)</span>"#,
+                    color = color,
+                    label = label,
+                    pct = frac * 100.0,
+                )
+            })
+            .collect();
+
+        let note_html = hrd
+            .note
+            .as_deref()
+            .map(|n| {
+                format!(
+                    r#"<div class="insight insight-warn"><span class="insight-tag">[NOTE]</span>{}</div>"#,
+                    escape_html(n)
+                )
+            })
+            .unwrap_or_default();
+
+        html.push_str(&format!(
+            r#"<h3>Homologous Recombination Deficiency (HRD)</h3>
+<div class="stat"><span class="stat-label">Total indels</span><span class="stat-value">{indels}</span></div>
+<div class="stat"><span class="stat-label">HRD class</span><span class="stat-value">{badge}</span></div>
+<div class="stat"><span class="stat-label">HRD-indel score</span><span class="stat-value">{score:.4}</span></div>
+{bar_svg}
+<div style="font-size:12px;color:#8b949e">{legend}</div>
+{note}"#,
+            indels = hrd.total_indels,
+            badge = hrd_badge,
+            score = hrd.hrd_indel_score,
+            bar_svg = bar_svg,
+            legend = legend,
+            note = note_html,
+        ));
+    }
+
+    // ── LOH ──
+    let loh_flagged: Vec<_> = g.loh_chromosomes.iter().filter(|c| c.loh_flagged).collect();
+    html.push_str("<h3>Loss of Heterozygosity (LOH)</h3>");
+    if loh_flagged.is_empty() {
+        html.push_str("<p>No chromosomes with significant LOH detected.</p>");
+    } else {
+        html.push_str(
+            r#"<table><thead><tr>
+  <th>Chromosome</th><th>Het Variants</th><th>Median AF Deviation</th><th>Skewed Fraction</th>
+</tr></thead><tbody>"#,
+        );
+        for loh in &loh_flagged {
+            html.push_str(&format!(
+                "<tr><td>{chrom}</td><td>{n}</td><td>{dev:.4}</td><td>{skew:.3}</td></tr>\n",
+                chrom = escape_html(&loh.chrom),
+                n = loh.n_het_variants,
+                dev = loh.median_af_deviation,
+                skew = loh.skewed_fraction,
+            ));
+        }
+        html.push_str("</tbody></table>");
+    }
+
+    html.push_str("</section>");
     html
 }
 

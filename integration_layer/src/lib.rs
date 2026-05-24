@@ -43,6 +43,9 @@ pub struct IntegrationSummary {
     pub paradoxes: Vec<GeneParadox>,
     /// Per-gene regulatory state classifications (Active/Silenced/Poised/Bivalent/VariantDriven/Paradoxical).
     pub gene_states: Vec<GeneRegulatoryProfile>,
+    /// Cross-modal tumor purity estimate (VAF + methylation).
+    #[serde(default)]
+    pub tumor_purity: Option<genomics_core::cancer::TumorPurityResult>,
 }
 
 impl IntegrationSummary {
@@ -63,6 +66,7 @@ impl IntegrationSummary {
             insights: Vec::new(),
             paradoxes: Vec::new(),
             gene_states: Vec::new(),
+            tumor_purity: None,
         }
     }
 }
@@ -247,6 +251,63 @@ pub fn run_integration(
         });
     }
 
+    // Tumor purity cross-modal estimation
+    let tumor_purity_result = genomics_core::cancer::estimate_tumor_purity(
+        &genomics.high_impact,
+        epigen.global_methylation_pct,
+    );
+
+    // Cancer-specific insights
+    if let Some(consensus) = tumor_purity_result.consensus_purity {
+        if consensus > 0.7 {
+            insights.push(insights::Insight {
+                level: insights::InsightLevel::Info,
+                modality: insights::InsightModality::Integration,
+                message: format!(
+                    "[INFO] High tumor purity estimated: {:.0}% (VAF-based)",
+                    consensus * 100.0
+                ),
+            });
+        }
+    }
+    if tumor_purity_result.discordant {
+        let vaf_pct = tumor_purity_result
+            .vaf_purity
+            .map(|v| v * 100.0)
+            .unwrap_or(0.0);
+        let meth_pct = tumor_purity_result
+            .methylation_purity
+            .map(|v| v * 100.0)
+            .unwrap_or(0.0);
+        insights.push(insights::Insight {
+            level: insights::InsightLevel::Warning,
+            modality: insights::InsightModality::Integration,
+            message: format!(
+                "[WARN] Purity estimates discordant between VAF ({:.0}%) and methylation ({:.0}%) — possible tumor heterogeneity",
+                vaf_pct, meth_pct
+            ),
+        });
+    }
+    if !genomics.kataegis_loci.is_empty() {
+        insights.push(insights::Insight {
+            level: insights::InsightLevel::Warning,
+            modality: insights::InsightModality::Integration,
+            message: format!(
+                "[WARN] {} kataegis loci detected — APOBEC/AID mutagenesis signature",
+                genomics.kataegis_loci.len()
+            ),
+        });
+    }
+    if let Some(ref hrd) = genomics.hrd {
+        if hrd.hrd_class == "HRD-HIGH" {
+            insights.push(insights::Insight {
+                level: insights::InsightLevel::Warning,
+                modality: insights::InsightModality::Integration,
+                message: "[WARN] HRD-HIGH indel signature — may indicate BRCA1/2 deficiency; consider PARP inhibitor sensitivity".to_string(),
+            });
+        }
+    }
+
     Ok(IntegrationSummary {
         correlation_matrix,
         pca,
@@ -255,5 +316,6 @@ pub fn run_integration(
         insights,
         paradoxes,
         gene_states,
+        tumor_purity: Some(tumor_purity_result),
     })
 }

@@ -27,7 +27,30 @@ pub fn hyperscore(spectrum: &Spectrum, peptide: &Peptide, tol_ppm: f64) -> (f64,
         return (0.0, 0, 0);
     }
 
-    // Pre-compute prefix masses for b ions and suffix masses for y ions.
+    // Build per-position modification deltas.
+    // mod_delta[i] = total mass shift of all modifications AT position i.
+    let mut mod_delta = vec![0.0f64; n];
+    for m in &peptide.modifications {
+        if m.position < n {
+            mod_delta[m.position] += m.mass_delta;
+        }
+    }
+
+    // Prefix cumulative modification mass (for b ions: mods at 0..=i contribute to b_i).
+    let mut mod_prefix_cum = vec![0.0f64; n];
+    mod_prefix_cum[0] = mod_delta[0];
+    for i in 1..n {
+        mod_prefix_cum[i] = mod_prefix_cum[i - 1] + mod_delta[i];
+    }
+
+    // Suffix cumulative modification mass (for y ions: mods at i..n contribute to y starting at i).
+    let mut mod_suffix_cum = vec![0.0f64; n];
+    mod_suffix_cum[n - 1] = mod_delta[n - 1];
+    for i in (0..n - 1).rev() {
+        mod_suffix_cum[i] = mod_suffix_cum[i + 1] + mod_delta[i];
+    }
+
+    // Pre-compute prefix residue masses for b ions and suffix masses for y ions.
     let mut prefix = vec![0.0f64; n];
     let mut suffix = vec![0.0f64; n];
 
@@ -45,10 +68,11 @@ pub fn hyperscore(spectrum: &Spectrum, peptide: &Peptide, tol_ppm: f64) -> (f64,
     let mut n_b = 0u32;
     let mut n_y = 0u32;
 
-    // b ions: positions 0..n-1, z=1 and z=2
-    for &pm in &prefix[..n - 1] {
-        let b1 = pm + PROTON;
-        let b2 = (pm + 2.0 * PROTON) / 2.0;
+    // b ions: b_i covers residues 0..=i, including mods at those positions.
+    for (i, &pm) in prefix[..n - 1].iter().enumerate() {
+        let b_mass = pm + mod_prefix_cum[i];
+        let b1 = b_mass + PROTON;
+        let b2 = (b_mass + 2.0 * PROTON) / 2.0;
         if let Some(int) = find_peak(spectrum, b1 as f32, tol_ppm) {
             dot_b += int as f64;
             n_b += 1;
@@ -58,9 +82,9 @@ pub fn hyperscore(spectrum: &Spectrum, peptide: &Peptide, tol_ppm: f64) -> (f64,
         }
     }
 
-    // y ions: positions 1..n, z=1 and z=2
-    for &sm in &suffix[1..] {
-        let y_mass = sm + WATER;
+    // y ions: y_i covers residues i..n, including mods at those positions.
+    for (i, &sm) in suffix[1..].iter().enumerate() {
+        let y_mass = sm + WATER + mod_suffix_cum[i + 1];
         let y1 = y_mass + PROTON;
         let y2 = (y_mass + 2.0 * PROTON) / 2.0;
         if let Some(int) = find_peak(spectrum, y1 as f32, tol_ppm) {
@@ -191,6 +215,7 @@ mod tests {
             protein_idx: 0,
             is_decoy: false,
             missed_cleavages: 0,
+            modifications: vec![],
         }
     }
 

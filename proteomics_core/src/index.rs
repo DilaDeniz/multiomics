@@ -72,19 +72,31 @@ impl PeptideIndex {
                 continue;
             }
 
-            // b ions: cumulative prefix mass, exclude the last residue
+            // Per-position modification deltas (for modified peptide forms).
+            let mut mod_delta = vec![0.0f64; len];
+            for m in &pep.modifications {
+                if m.position < len {
+                    mod_delta[m.position] += m.mass_delta;
+                }
+            }
+
+            // b ions: cumulative prefix residue + mod mass, exclude the last residue
             let mut prefix = 0.0f64;
-            for &aa in &seq[..len - 1] {
+            let mut prefix_mod = 0.0f64;
+            for (i, &aa) in seq[..len - 1].iter().enumerate() {
                 prefix += aa_mass(aa);
-                let b_bin = (prefix + PROTON) as u32;
+                prefix_mod += mod_delta[i];
+                let b_bin = (prefix + prefix_mod + PROTON) as u32;
                 fragment_entries.push((b_bin, pep_idx));
             }
 
-            // y ions: cumulative suffix mass from the C-terminus
+            // y ions: cumulative suffix residue + mod mass from the C-terminus
             let mut suffix = WATER;
-            for &aa in seq[1..].iter().rev() {
+            let mut suffix_mod = 0.0f64;
+            for (i, &aa) in seq[1..].iter().enumerate().rev() {
                 suffix += aa_mass(aa);
-                let y_bin = (suffix + PROTON) as u32;
+                suffix_mod += mod_delta[i + 1];
+                let y_bin = (suffix + suffix_mod + PROTON) as u32;
                 fragment_entries.push((y_bin, pep_idx));
             }
         }
@@ -192,6 +204,7 @@ mod tests {
             protein_idx: 0,
             is_decoy: false,
             missed_cleavages: 0,
+            modifications: vec![],
         }
     }
 

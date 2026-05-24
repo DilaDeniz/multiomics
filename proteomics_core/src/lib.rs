@@ -23,6 +23,7 @@ pub mod fasta;
 pub mod fdr;
 pub mod index;
 pub mod mzml;
+pub mod phospho;
 pub mod quant;
 pub mod score;
 pub mod search;
@@ -32,6 +33,7 @@ pub use fasta::{digest, parse_fasta, peptide_mass};
 pub use fdr::{assign_qvalues, filter_psms};
 pub use index::PeptideIndex;
 pub use mzml::parse_mzml;
+pub use phospho::{expand_with_phospho, phospho_variants, DEFAULT_MAX_PHOSPHO_SITES, PHOSPHO_MASS};
 pub use quant::{quantify_psms, PeptideQuant};
 pub use score::{b_ions, hyperscore, y_ions, FRAG_TOL_PPM};
 pub use search::{infer_proteins, search_spectra, PRECURSOR_TOL_PPM};
@@ -43,13 +45,14 @@ use anyhow::Result;
 /// Run the complete proteomics pipeline for a single mzML file.
 ///
 /// Convenience wrapper around [`run_proteomics_multi`] for the common
-/// single-file case.
+/// single-file case. Pass `phospho_max_sites = 0` to disable phospho search.
 pub fn run_proteomics(
     mzml_data: &[u8],
     fasta_data: &[u8],
     fdr_threshold: f64,
+    phospho_max_sites: usize,
 ) -> Result<ProteomicsSummary> {
-    run_proteomics_multi(&[mzml_data], fasta_data, fdr_threshold)
+    run_proteomics_multi(&[mzml_data], fasta_data, fdr_threshold, phospho_max_sites)
 }
 
 /// Run the complete proteomics pipeline across multiple mzML files.
@@ -61,10 +64,13 @@ pub fn run_proteomics(
 /// - `mzml_slices`: raw bytes of each mzML file.
 /// - `fasta_data`: protein database FASTA (target only; decoys auto-generated).
 /// - `fdr_threshold`: FDR cutoff for reporting (e.g. 0.01 for 1 %).
+/// - `phospho_max_sites`: number of variable phosphorylation sites per peptide
+///   (0 = disabled, 1–3 recommended for phosphoproteomics experiments).
 pub fn run_proteomics_multi(
     mzml_slices: &[&[u8]],
     fasta_data: &[u8],
     fdr_threshold: f64,
+    phospho_max_sites: usize,
 ) -> Result<ProteomicsSummary> {
     use rayon::prelude::*;
 
@@ -78,6 +84,19 @@ pub fn run_proteomics_multi(
     let protein_names: Vec<String> = proteins.iter().map(|p| first_word(&p.header)).collect();
     let peptides = digest(&proteins, 2, 6, 50);
     log::info!("{} peptides (target+decoy)", peptides.len());
+
+    // Optional: expand with phospho variants before building the index.
+    let mut peptides = peptides;
+    if phospho_max_sites > 0 {
+        let n_before = peptides.len();
+        expand_with_phospho(&mut peptides, phospho_max_sites);
+        log::info!(
+            "Phospho expansion (+{} variants, {} total)",
+            peptides.len() - n_before,
+            peptides.len()
+        );
+    }
+
     let index = PeptideIndex::build(peptides);
 
     // 2. Parse all mzML files in parallel, pre-process MS2 peaks.

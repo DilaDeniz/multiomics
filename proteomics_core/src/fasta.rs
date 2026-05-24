@@ -92,6 +92,7 @@ pub fn digest(
                         protein_idx: prot_idx as u32,
                         is_decoy: false,
                         missed_cleavages: mc as u8,
+                        modifications: vec![],
                     });
 
                     // Decoy: reversed sequence (last AA kept in place).
@@ -103,6 +104,7 @@ pub fn digest(
                         protein_idx: prot_idx as u32,
                         is_decoy: true,
                         missed_cleavages: mc as u8,
+                        modifications: vec![],
                     });
                 }
             }

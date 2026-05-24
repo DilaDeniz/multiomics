@@ -92,15 +92,31 @@ impl Spectrum {
     }
 }
 
+/// Variable modification at a specific residue position.
+///
+/// Stored separately from the sequence string so the raw AA letters stay
+/// unmodified (enabling sequence-level deduplication and index lookups).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Modification {
+    /// 0-based position in the peptide sequence.
+    pub position: usize,
+    /// Mass shift in Da (e.g. +79.966 for phosphorylation).
+    pub mass_delta: f64,
+    /// Short label for display (e.g. "Phospho").
+    pub label: &'static str,
+}
+
 /// Tryptic peptide with pre-computed monoisotopic mass.
 #[derive(Debug, Clone)]
 pub struct Peptide {
     pub sequence: String,
-    /// Monoisotopic neutral mass (sum of residues + H₂O).
+    /// Monoisotopic neutral mass (sum of residues + H₂O + modification deltas).
     pub mass: f64,
     pub protein_idx: u32,
     pub is_decoy: bool,
     pub missed_cleavages: u8,
+    /// Variable modifications applied to this peptide form (empty = unmodified).
+    pub modifications: Vec<Modification>,
 }
 
 /// Peptide-spectrum match.

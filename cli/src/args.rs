@@ -56,6 +56,10 @@ pub struct Cli {
     #[arg(long, default_value_t = 0.01f64)]
     pub proteomics_fdr: f64,
 
+    /// Enable phosphoproteomics: variable +79.966 Da on S/T/Y (0 = disabled)
+    #[arg(long, default_value_t = 0usize)]
+    pub phospho_max_sites: usize,
+
     // ── Somatic variant calling ───────────────────────────────────────────────
     /// Tumor BAM for somatic variant calling (requires --normal-bam)
     #[arg(long, value_name = "FILE")]

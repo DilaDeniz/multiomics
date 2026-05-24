@@ -339,6 +339,7 @@ pub fn run_pipeline(
                 &mzml_slices,
                 &fasta_data,
                 cli.proteomics_fdr,
+                cli.phospho_max_sites,
             ) {
                 Ok(prot) => {
                     push_insight(

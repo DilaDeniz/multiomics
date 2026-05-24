@@ -17,7 +17,7 @@ fn make_data(n_cells: usize, n_dims: usize, seed: u64) -> Array2<f64> {
 /// CPU UMAP — only small sizes to keep runtime reasonable.
 fn bench_umap_cpu(c: &mut Criterion) {
     let mut group = c.benchmark_group("umap_cpu");
-    group.sample_size(5);
+    group.sample_size(10);
 
     for &n in &[500usize, 1_000, 2_000, 5_000] {
         let data = make_data(n, 20, 42);
@@ -33,7 +33,7 @@ fn bench_umap_cpu(c: &mut Criterion) {
 /// Run with `cargo bench --features gpu` to activate the GPU path.
 fn bench_umap_gpu(c: &mut Criterion) {
     let mut group = c.benchmark_group("umap_gpu");
-    group.sample_size(5);
+    group.sample_size(10);
 
     for &n in &[5_000usize, 10_000, 20_000, 50_000] {
         let data = make_data(n, 20, 42);

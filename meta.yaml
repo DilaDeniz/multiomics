@@ -1,0 +1,50 @@
+{% set name = "multiomics" %}
+{% set version = "0.1.0" %}
+
+package:
+  name: {{ name|lower }}
+  version: {{ version }}
+
+source:
+  url: https://github.com/DilaDeniz/{{ name }}/archive/refs/tags/v{{ version }}.tar.gz
+  sha256: 0000000000000000000000000000000000000000000000000000000000000000
+
+build:
+  number: 0
+  skip: True  # [win]
+  run_exports:
+    - {{ pin_subpackage(name|lower, max_pin="x") }}
+
+requirements:
+  build:
+    - {{ compiler('rust') }}
+
+test:
+  commands:
+    - multiomics --version | grep '{{ version }}'
+
+about:
+  home: "https://github.com/DilaDeniz/{{ name }}"
+  license: Apache-2.0
+  license_file: LICENSE
+  summary: "High-performance multi-omics integration tool written in Rust."
+  description: |
+    BioMultiOmics is a production-quality Rust CLI that ingests VCF, TSV, BED,
+    mzML, and single-cell MEX data simultaneously and produces integrated
+    biological insights via HTML reports and JSON output. It covers genomics
+    (variant calling, Ti/Tv, CNV), transcriptomics (DE, GSEA, RNA velocity),
+    epigenomics (methylation, CpG islands, ATAC-seq), proteomics (hyperscore
+    database search, multi-file experiment-level FDR, XIC quantification),
+    single-cell RNA-seq (UMAP, clustering, marker genes, CITE-seq WNN), and
+    joint multi-omics integration (MOFA+, PCA, Pearson correlation). All
+    heavy computation runs lock-free in parallel via rayon with a real-time
+    terminal UI powered by ratatui.
+
+extra:
+  additional-platforms:
+    - linux-aarch64
+    - osx-arm64
+  recipe-maintainers:
+    - DilaDeniz
+  skip-lints:
+    - compiler_needs_stdlib_c

@@ -8,8 +8,8 @@ pub mod vcf;
 
 pub use accum::GenomicsAccum;
 pub use cancer::{
-    compute_hrd_score, detect_kataegis, detect_loh, estimate_tumor_purity, HrdScore,
-    KataegisLocus, LohChromosome, TumorPurityResult,
+    compute_hrd_score, compute_hrd_score_with_reference, detect_kataegis, detect_loh,
+    estimate_tumor_purity, HrdScore, KataegisLocus, LohChromosome, TumorPurityResult,
 };
 pub use cnv::{parse_cnv_vcf, summarize_cnv, CnvRecord, CnvSummary};
 pub use cnv_coverage::{

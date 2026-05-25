@@ -1018,17 +1018,35 @@ fn html_cancer_genomics(g: &GenomicsSummary) -> String {
             })
             .unwrap_or_default();
 
+        let ref_badge = if hrd.reference_used {
+            r#"<span class="badge badge-blue" title="Microhomology scored using reference FASTA">Reference-enhanced MH scoring</span> "#
+        } else {
+            ""
+        };
+
+        let mh_stat = if hrd.reference_used {
+            format!(
+                r#"<div class="stat"><span class="stat-label">Del with microhomology</span><span class="stat-value">{:.1}%</span></div>"#,
+                hrd.del_with_mh_frac * 100.0,
+            )
+        } else {
+            String::new()
+        };
+
         html.push_str(&format!(
             r#"<h3>Homologous Recombination Deficiency (HRD)</h3>
+<div class="stat"><span class="stat-label">Scoring method</span><span class="stat-value">{ref_badge}</span></div>
 <div class="stat"><span class="stat-label">Total indels</span><span class="stat-value">{indels}</span></div>
 <div class="stat"><span class="stat-label">HRD class</span><span class="stat-value">{badge}</span></div>
 <div class="stat"><span class="stat-label">HRD-indel score</span><span class="stat-value">{score:.4}</span></div>
-{bar_svg}
+{mh_stat}{bar_svg}
 <div style="font-size:12px;color:#8b949e">{legend}</div>
 {note}"#,
+            ref_badge = ref_badge,
             indels = hrd.total_indels,
             badge = hrd_badge,
             score = hrd.hrd_indel_score,
+            mh_stat = mh_stat,
             bar_svg = bar_svg,
             legend = legend,
             note = note_html,

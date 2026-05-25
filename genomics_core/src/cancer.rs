@@ -254,14 +254,21 @@ pub struct HrdScore {
     pub del_6_50bp_frac: f64,
     /// Fraction of insertions with size > 3 bp.
     pub ins_gt3bp_frac: f64,
+    /// Fraction of deletions with microhomology >= 1 bp at the deletion site.
+    /// Only populated when a reference FASTA is provided.
+    #[serde(default)]
+    pub del_with_mh_frac: f64,
     /// Composite HRD-indel score [0.0, 1.0].
-    /// Elevated del_6_50bp_frac and ins_gt3bp_frac are HRD markers.
-    /// Score = (del_6_50bp_frac * 0.6 + ins_gt3bp_frac * 0.4).
+    /// Without reference: Score = (del_6_50bp_frac * 0.6 + ins_gt3bp_frac * 0.4).
+    /// With reference:    Score = (del_with_mh_frac * 0.7 + del_6_50bp_frac * 0.3).
     pub hrd_indel_score: f64,
     /// "HRD-HIGH" (score > 0.25), "HRD-INTERMEDIATE" (0.1–0.25), "HRD-LOW" (< 0.1).
     pub hrd_class: String,
     /// Note when total_indels < 50: "Low indel count — result may be unreliable".
     pub note: Option<String>,
+    /// True when microhomology-based scoring was used (reference FASTA was provided).
+    #[serde(default)]
+    pub reference_used: bool,
 }
 
 /// Compute the HRD-indel score from variant indel size distribution.
@@ -340,10 +347,234 @@ pub fn compute_hrd_score(variants: &[VariantRecord]) -> HrdScore {
         del_2_5bp_frac,
         del_6_50bp_frac,
         ins_gt3bp_frac,
+        del_with_mh_frac: 0.0,
         hrd_indel_score,
         hrd_class,
         note,
+        reference_used: false,
     }
+}
+
+// ── Microhomology-based HRD ───────────────────────────────────────────────────
+
+/// Compute microhomology length at a deletion site.
+///
+/// `deleted_seq`: the deleted bases (ref bases beyond the first shared base).
+/// `left_flank`: reference bases immediately left of the deletion.
+/// `right_flank`: reference bases immediately right of the deletion end.
+///
+/// Returns the maximum of left-flank and right-flank microhomology lengths.
+fn microhomology_length(
+    deleted_seq: &[u8],
+    left_flank: &[u8],
+    right_flank: &[u8],
+) -> usize {
+    let del_len = deleted_seq.len();
+    // Left MH: compare end of left_flank with deleted_seq
+    let left_mh = (1..=del_len.min(left_flank.len()))
+        .rev()
+        .find(|&k| left_flank[left_flank.len() - k..] == deleted_seq[..k])
+        .unwrap_or(0);
+    // Right MH: compare start of right_flank with end of deleted_seq
+    let right_mh = (1..=del_len.min(right_flank.len()))
+        .rev()
+        .find(|&k| right_flank[..k] == deleted_seq[del_len - k..])
+        .unwrap_or(0);
+    left_mh.max(right_mh)
+}
+
+/// Parse a FASTA file into a map of chromosome name → uppercase sequence bytes.
+/// Only chromosomes present in `needed_chroms` are retained to save memory.
+fn parse_fasta_selective(
+    data: &[u8],
+    needed_chroms: &std::collections::HashSet<&str>,
+) -> HashMap<String, Vec<u8>> {
+    let mut map: HashMap<String, Vec<u8>> = HashMap::new();
+    let mut current_name: Option<String> = None;
+    let mut current_seq: Vec<u8> = Vec::new();
+
+    for line in data.split(|&b| b == b'\n') {
+        if line.is_empty() {
+            continue;
+        }
+        if line[0] == b'>' {
+            // Flush previous
+            if let Some(name) = current_name.take() {
+                if needed_chroms.contains(name.as_str()) {
+                    map.insert(name, std::mem::take(&mut current_seq));
+                } else {
+                    current_seq.clear();
+                }
+            }
+            // Parse header: take first whitespace-delimited token after '>'
+            let header = &line[1..];
+            let name_bytes = header
+                .iter()
+                .position(|&b| b == b' ' || b == b'\t' || b == b'\r')
+                .map_or(header, |n| &header[..n]);
+            let name = String::from_utf8_lossy(name_bytes).into_owned();
+            current_name = Some(name);
+        } else {
+            // Strip carriage returns and accumulate as uppercase
+            let trimmed = if line.last() == Some(&b'\r') {
+                &line[..line.len() - 1]
+            } else {
+                line
+            };
+            current_seq.extend(trimmed.iter().map(|b| b.to_ascii_uppercase()));
+        }
+    }
+    // Flush last record
+    if let Some(name) = current_name {
+        if needed_chroms.contains(name.as_str()) {
+            map.insert(name, current_seq);
+        }
+    }
+    map
+}
+
+/// Compute the HRD-indel score using reference-guided microhomology detection.
+///
+/// Requires a reference FASTA file. For each deletion variant, looks up flanking
+/// sequence and computes microhomology length. Deletions with MH >= 1 bp are
+/// characteristic of HR deficiency (COSMIC signature ID8).
+///
+/// The enhanced score formula:
+///   `hrd_indel_score = del_with_mh_frac * 0.7 + del_6_50bp_frac * 0.3`
+///
+/// References: Watkins et al. 2020 (Nature Communications),
+/// Chan et al. 2015 (Nature Genetics).
+pub fn compute_hrd_score_with_reference(
+    variants: &[VariantRecord],
+    reference_path: &std::path::Path,
+) -> anyhow::Result<HrdScore> {
+    use memmap2::Mmap;
+
+    let file = std::fs::File::open(reference_path)
+        .map_err(|e| anyhow::anyhow!("Cannot open reference FASTA '{}': {e}", reference_path.display()))?;
+
+    // SAFETY: file is not modified while this process holds the Mmap.
+    let mmap = unsafe { Mmap::map(&file) }
+        .map_err(|e| anyhow::anyhow!("Cannot mmap reference FASTA: {e}"))?;
+
+    let _ = mmap.advise(memmap2::Advice::Sequential);
+
+    // Collect chromosome names needed
+    let needed_chroms: std::collections::HashSet<&str> = variants
+        .iter()
+        .map(|v| v.chrom.as_str())
+        .collect();
+
+    let ref_seqs = parse_fasta_selective(mmap.as_ref(), &needed_chroms);
+
+    let mut del_1bp: u64 = 0;
+    let mut del_2_5bp: u64 = 0;
+    let mut del_6_50bp: u64 = 0;
+    let mut ins_gt3bp: u64 = 0;
+    let mut del_with_mh: u64 = 0;
+    let mut total_indels: u64 = 0;
+
+    for v in variants {
+        let ref_len = v.ref_allele.len();
+        let alt_len = v.alt_allele.len();
+        if ref_len == alt_len {
+            continue; // SNP or MNP — skip
+        }
+        total_indels += 1;
+        if ref_len > alt_len {
+            // Deletion
+            let size = ref_len - alt_len;
+            match size {
+                1 => del_1bp += 1,
+                2..=5 => del_2_5bp += 1,
+                6..=50 => del_6_50bp += 1,
+                _ => {}
+            }
+            // Microhomology detection
+            // pos is 1-based in VCF; the ref allele starts at pos.
+            // The deleted bases are ref_allele[alt_len..] (after the shared anchor base(s)).
+            if let Some(seq) = ref_seqs.get(&v.chrom) {
+                // VCF convention: REF includes anchor base at pos (1-based).
+                // deleted bases = ref_allele[alt_len..] (the actual removed sequence)
+                let deleted_bytes = &v.ref_allele.as_bytes()[alt_len..];
+                let del_len = deleted_bytes.len();
+
+                // del_start_0 in 0-based coords: first deleted base is at (v.pos - 1 + alt_len)
+                let anchor_offset = alt_len; // number of shared bases (usually 1)
+                let del_start_0 = v.pos as usize - 1 + anchor_offset;
+
+                if del_start_0 < seq.len() {
+                    // Left flank: up to del_len bases immediately left of deletion
+                    let left_start = del_start_0.saturating_sub(del_len);
+                    let left_flank = &seq[left_start..del_start_0];
+
+                    // Right flank: up to del_len bases immediately right of deletion end
+                    let right_end_0 = del_start_0 + del_len;
+                    let right_end = (right_end_0 + del_len).min(seq.len());
+                    let right_flank = if right_end_0 < seq.len() {
+                        &seq[right_end_0..right_end]
+                    } else {
+                        &seq[0..0]
+                    };
+
+                    let mh = microhomology_length(deleted_bytes, left_flank, right_flank);
+                    if mh >= 1 {
+                        del_with_mh += 1;
+                    }
+                }
+            }
+        } else {
+            // Insertion
+            let size = alt_len - ref_len;
+            if size > 3 {
+                ins_gt3bp += 1;
+            }
+        }
+    }
+
+    let (del_1bp_frac, del_2_5bp_frac, del_6_50bp_frac, ins_gt3bp_frac, del_with_mh_frac) =
+        if total_indels == 0 {
+            (0.0, 0.0, 0.0, 0.0, 0.0)
+        } else {
+            let n = total_indels as f64;
+            (
+                del_1bp as f64 / n,
+                del_2_5bp as f64 / n,
+                del_6_50bp as f64 / n,
+                ins_gt3bp as f64 / n,
+                del_with_mh as f64 / n,
+            )
+        };
+
+    // Enhanced score: microhomology fraction weighted more heavily
+    let hrd_indel_score = del_with_mh_frac * 0.7 + del_6_50bp_frac * 0.3;
+
+    let hrd_class = if hrd_indel_score > 0.25 {
+        "HRD-HIGH".to_string()
+    } else if hrd_indel_score >= 0.1 {
+        "HRD-INTERMEDIATE".to_string()
+    } else {
+        "HRD-LOW".to_string()
+    };
+
+    let note = if total_indels < 50 {
+        Some("Low indel count — result may be unreliable".to_string())
+    } else {
+        None
+    };
+
+    Ok(HrdScore {
+        total_indels,
+        del_1bp_frac,
+        del_2_5bp_frac,
+        del_6_50bp_frac,
+        ins_gt3bp_frac,
+        del_with_mh_frac,
+        hrd_indel_score,
+        hrd_class,
+        note,
+        reference_used: true,
+    })
 }
 
 // ── LOH ───────────────────────────────────────────────────────────────────────

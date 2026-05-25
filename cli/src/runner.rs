@@ -75,7 +75,7 @@ pub fn run_pipeline(
     if !run_t { log::info!("Skipping transcriptomics analysis"); }
     if !run_e { log::info!("Skipping epigenomics analysis"); }
 
-    let (genomics, transcriptomics, epigenomics): (
+    let (mut genomics, transcriptomics, epigenomics): (
         GenomicsSummary,
         TranscriptomicsSummary,
         EpigenomicsSummary,
@@ -109,6 +109,25 @@ pub fn run_pipeline(
         let e: EpigenomicsSummary = er.map_err(|e| anyhow::anyhow!("Epigenomics thread panicked: {:?}", e))??;
         (g, t, e)
     };
+
+    // Optional: reference-guided microhomology HRD scoring
+    if let (Some(ref ref_path), Some(_)) = (&cli.reference, &genomics.hrd) {
+        match genomics_core::cancer::compute_hrd_score_with_reference(
+            &genomics.high_impact,
+            ref_path,
+        ) {
+            Ok(hrd) => {
+                log::info!(
+                    "Reference-guided HRD: MH-frac={:.3}, score={:.4}, class={}",
+                    hrd.del_with_mh_frac,
+                    hrd.hrd_indel_score,
+                    hrd.hrd_class
+                );
+                genomics.hrd = Some(hrd);
+            }
+            Err(e) => log::warn!("Reference-based HRD scoring failed: {e:#}"),
+        }
+    }
 
     drain_progress_channel(&grx, &state, |st, ev| {
         st.genomics_pct = ev.fraction() * 100.0;

@@ -51,6 +51,8 @@ pub struct JsonGenomicsSection {
     pub loh_chromosomes: Vec<LohChromosome>,
     pub tmb: Option<TmbResult>,
     pub msi: Option<MsiResult>,
+    pub cosmic_signatures: Option<genomics_core::cosmic::MutationalSignatureResult>,
+    pub prs_scores: Vec<genomics_core::prs::PrsResult>,
 }
 
 #[derive(Debug, Serialize)]
@@ -91,6 +93,7 @@ pub struct JsonIntegrationSection {
     pub insights: Vec<Insight>,
     pub paradoxes: Vec<GeneParadox>,
     pub gene_states: Vec<GeneRegulatoryProfile>,
+    pub immune_evasion: Option<integration_layer::immune::ImmuneEvasionScore>,
 }
 
 #[derive(Debug, Serialize)]
@@ -212,6 +215,8 @@ pub fn build_multiqc_output(
             loh_chromosomes: genomics.loh_chromosomes.clone(),
             tmb: genomics.tmb.clone(),
             msi: genomics.msi.clone(),
+            cosmic_signatures: genomics.cosmic_signatures.clone(),
+            prs_scores: genomics.prs_scores.clone(),
         },
         multiomics_transcriptomics: JsonTranscriptomicsSection {
             total_genes: transcr.total_genes,
@@ -238,6 +243,7 @@ pub fn build_multiqc_output(
             insights: integration.insights.clone(),
             paradoxes: integration.paradoxes.clone(),
             gene_states: integration.gene_states.clone(),
+            immune_evasion: integration.immune_evasion.clone(),
         },
         metadata: ReportMetadata {
             tool: "multiomics",

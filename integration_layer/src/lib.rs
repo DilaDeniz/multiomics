@@ -2,6 +2,7 @@ pub mod correlation;
 pub mod gene_state;
 pub mod gmt;
 pub mod gsea;
+pub mod immune;
 pub mod insights;
 pub mod mofa;
 pub mod paradox;
@@ -55,6 +56,9 @@ pub struct IntegrationSummary {
     /// Microsatellite instability result (cloned from genomics summary).
     #[serde(default)]
     pub msi: Option<genomics_core::cancer::MsiResult>,
+    /// Immune evasion score derived from checkpoint gene expression.
+    #[serde(default)]
+    pub immune_evasion: Option<immune::ImmuneEvasionScore>,
 }
 
 impl IntegrationSummary {
@@ -79,6 +83,7 @@ impl IntegrationSummary {
             methylation_age: None,
             tmb: None,
             msi: None,
+            immune_evasion: None,
         }
     }
 }
@@ -344,6 +349,18 @@ pub fn run_integration(
         }
     }
 
+    // Immune evasion score
+    let immune_evasion = immune::compute_immune_evasion(transcr);
+    if let Some(ref ie) = immune_evasion {
+        if ie.evasion_class == "HIGH" {
+            insights.push(insights::Insight {
+                level: insights::InsightLevel::Warning,
+                modality: insights::InsightModality::Integration,
+                message: "[WARN] HIGH immune evasion score — active checkpoint inhibition detected; consider immune checkpoint therapy".to_string(),
+            });
+        }
+    }
+
     // TMB / MSI insights
     let tmb_high = genomics
         .tmb
@@ -401,5 +418,6 @@ pub fn run_integration(
         methylation_age: epigen.methylation_age.clone(),
         tmb: genomics.tmb.clone(),
         msi: genomics.msi.clone(),
+        immune_evasion,
     })
 }

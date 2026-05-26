@@ -150,6 +150,8 @@ impl BatchAccum for GenomicsAccum {
         let hrd = Some(compute_hrd_score(&self.all_variants));
         let loh_chromosomes = detect_loh(&self.all_variants);
         let msi = Some(compute_msi(&self.all_variants));
+        let cosmic_signatures = Some(crate::cosmic::compute_mutational_signatures(&self.all_variants));
+        let prs_scores = crate::prs::compute_prs(&self.all_variants);
 
         Ok(GenomicsSummary {
             total_variants: self.total,
@@ -167,6 +169,8 @@ impl BatchAccum for GenomicsAccum {
             loh_chromosomes,
             tmb: None, // filled in by runner.rs after context detection
             msi,
+            cosmic_signatures,
+            prs_scores,
         })
     }
 }

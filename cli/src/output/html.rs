@@ -67,6 +67,7 @@ fn generate_html(
     let insights_section = html_insights(&integration.insights);
     let paradoxes_section = html_paradoxes(&integration.paradoxes);
     let cancer_section = html_cancer_genomics(genomics);
+    let immune_evasion_section = html_immune_evasion(integration);
     let gene_states_section = html_gene_states(integration);
     let pathway_table = html_pathway_table(integration);
     let proteomics_section = proteomics.map(html_proteomics_section).unwrap_or_default();
@@ -120,6 +121,7 @@ fn generate_html(
   {insights_section}
   {paradoxes_section}
   {cancer_section}
+  {immune_evasion_section}
   {gene_states_section}
   {pathway_table}
   {proteomics_section}
@@ -151,6 +153,7 @@ fn generate_html(
         insights_section = insights_section,
         paradoxes_section = paradoxes_section,
         cancer_section = cancer_section,
+        immune_evasion_section = immune_evasion_section,
         gene_states_section = gene_states_section,
         pathway_table = pathway_table,
         proteomics_section = proteomics_section,
@@ -1153,8 +1156,199 @@ fn html_cancer_genomics(g: &GenomicsSummary) -> String {
         html.push_str("</tbody></table>");
     }
 
+    // ── COSMIC Mutational Signatures ──
+    if let Some(ref sig) = g.cosmic_signatures {
+        let spec = &sig.spectrum_6ch;
+        // SVG 6-channel bar chart
+        let bar_colors = ["#4e79a7", "#59a14f", "#e15759", "#76b7b2", "#f28e2b", "#b07aa1"];
+        let channel_names = ["C>A", "C>G", "C>T", "T>A", "T>C", "T>G"];
+        let fracs = spec.fractions;
+        let max_frac = fracs.iter().cloned().fold(0.0_f64, f64::max).max(0.001);
+        let bar_w = 60u32;
+        let bar_gap = 10u32;
+        let chart_h = 120u32;
+        let mut bars_svg = format!(
+            r#"<svg viewBox="0 0 {} {}" xmlns="http://www.w3.org/2000/svg" style="max-width:500px;display:block;margin:8px 0">"#,
+            (bar_w + bar_gap) * 6 + bar_gap,
+            chart_h + 30
+        );
+        for (i, (frac, color)) in fracs.iter().zip(bar_colors.iter()).enumerate() {
+            let h = (*frac / max_frac * chart_h as f64) as u32;
+            let x = bar_gap + i as u32 * (bar_w + bar_gap);
+            let y = chart_h - h;
+            let tx = x + bar_w / 2;
+            let ty = chart_h + 14;
+            let py = if y > 12 { y - 3 } else { y + 11 };
+            bars_svg.push_str(&format!(
+                "<rect x=\"{x}\" y=\"{y}\" width=\"{bar_w}\" height=\"{h}\" fill=\"{color}\"/>",
+                x = x, y = y, bar_w = bar_w, h = h, color = color,
+            ));
+            bars_svg.push_str(&format!(
+                "<text x=\"{tx}\" y=\"{ty}\" text-anchor=\"middle\" font-size=\"10\" fill=\"#8b949e\">{name}</text>",
+                tx = tx, ty = ty, name = channel_names[i],
+            ));
+            bars_svg.push_str(&format!(
+                "<text x=\"{tx}\" y=\"{py}\" text-anchor=\"middle\" font-size=\"9\" fill=\"#c9d1d9\">{pct:.1}%</text>",
+                tx = tx, py = py, pct = frac * 100.0,
+            ));
+        }
+        bars_svg.push_str("</svg>");
+
+        html.push_str(&format!(
+            r#"<h3>COSMIC Mutational Signatures (6-channel SBS Spectrum)</h3>
+<div class="stat"><span class="stat-label">Total SNVs in spectrum</span><span class="stat-value">{total}</span></div>
+<div class="stat"><span class="stat-label">Summary</span><span class="stat-value">{summary}</span></div>
+{bars_svg}"#,
+            total = spec.total_snvs,
+            summary = escape_html(&sig.summary),
+            bars_svg = bars_svg,
+        ));
+
+        if !sig.dominant_signatures.is_empty() {
+            html.push_str(r#"<table><thead><tr>
+  <th>Signature</th><th>Estimated Weight</th><th>Etiology</th>
+</tr></thead><tbody>"#);
+            for s in &sig.dominant_signatures {
+                html.push_str(&format!(
+                    "<tr><td><strong>{}</strong></td><td>{:.3}</td><td>{}</td></tr>\n",
+                    escape_html(&s.signature),
+                    s.weight,
+                    escape_html(&s.etiology),
+                ));
+            }
+            html.push_str("</tbody></table>");
+        }
+
+        let flags: Vec<&str> = [
+            sig.apobec_enriched.then_some("APOBEC enriched"),
+            sig.tobacco_signature.then_some("Tobacco signature"),
+            sig.uv_signature.then_some("UV signature"),
+            sig.mismatch_repair_deficiency.then_some("MMR deficiency"),
+        ].into_iter().flatten().collect();
+        if !flags.is_empty() {
+            html.push_str(&format!(
+                r#"<div class="insight insight-warn" style="margin-top:8px"><span class="insight-tag">[FLAGS]</span>{}</div>"#,
+                escape_html(&flags.join(" | "))
+            ));
+        }
+        if let Some(ref note) = sig.note {
+            html.push_str(&format!(
+                r#"<div class="insight insight-info"><span class="insight-tag">[NOTE]</span>{}</div>"#,
+                escape_html(note)
+            ));
+        }
+    }
+
+    // ── Polygenic Risk Scores ──
+    if !g.prs_scores.is_empty() {
+        html.push_str(r#"<h3>Polygenic Risk Scores (PRS) — Cancer GWAS Catalog</h3>
+<table><thead><tr>
+  <th>Disease</th><th>Risk Class</th><th>Z-Score</th><th>Raw Score</th><th>Variants Matched</th><th>Total Variants</th>
+</tr></thead><tbody>"#);
+        for prs in &g.prs_scores {
+            let badge_class = match prs.risk_class.as_str() {
+                "HIGH" => "badge-red",
+                "ABOVE_AVERAGE" => "badge-yellow",
+                _ => "badge-green",
+            };
+            html.push_str(&format!(
+                "<tr><td>{disease}</td><td><span class=\"badge {bc}\">{cls}</span></td><td>{z:+.2}</td><td>{raw:.3}</td><td>{matched}</td><td>{total}</td></tr>\n",
+                disease = escape_html(&prs.disease),
+                bc = badge_class,
+                cls = escape_html(&prs.risk_class),
+                z = prs.z_score,
+                raw = prs.raw_score,
+                matched = prs.n_variants_matched,
+                total = prs.n_variants_total,
+            ));
+        }
+        html.push_str("</tbody></table>");
+        html.push_str(r#"<p style="font-size:11px;color:#8b949e;margin-top:8px">PRS computed from NHGRI-EBI GWAS Catalog (p &lt; 5×10⁻⁸ associations, GRCh38). Z-score relative to European ancestry population baseline.</p>"#);
+    }
+
     html.push_str("</section>");
     html
+}
+
+/// Render the Immune Evasion Score card from integration results.
+fn html_immune_evasion(integration: &IntegrationSummary) -> String {
+    let ie = match integration.immune_evasion.as_ref() {
+        Some(ie) => ie,
+        None => return String::new(),
+    };
+
+    let badge_class = match ie.evasion_class.as_str() {
+        "HIGH" => "badge-red",
+        "MODERATE" => "badge-yellow",
+        _ => "badge-green",
+    };
+
+    let mut gene_rows = String::new();
+    for (gene, tpm) in &ie.detected_genes {
+        gene_rows.push_str(&format!(
+            "<tr><td>{}</td><td>{:.2}</td></tr>\n",
+            escape_html(gene),
+            tpm
+        ));
+    }
+
+    let missing_html = if ie.missing_genes.is_empty() {
+        String::new()
+    } else {
+        format!(
+            r#"<div class="stat"><span class="stat-label">Missing genes</span><span class="stat-value" style="color:#8b949e">{}</span></div>"#,
+            escape_html(&ie.missing_genes.join(", "))
+        )
+    };
+
+    let note_html = ie.note.as_deref().map(|n| format!(
+        r#"<div class="insight insight-warn"><span class="insight-tag">[NOTE]</span>{}</div>"#,
+        escape_html(n)
+    )).unwrap_or_default();
+
+    let b2m_html = match ie.b2m_tpm {
+        Some(tpm) => format!(
+            r#"<div class="stat"><span class="stat-label">B2M (antigen presentation)</span><span class="stat-value">{:.2} TPM</span></div>"#,
+            tpm
+        ),
+        None => r#"<div class="stat"><span class="stat-label">B2M (antigen presentation)</span><span class="stat-value" style="color:#8b949e">not detected (assumed average)</span></div>"#.to_string(),
+    };
+
+    format!(
+        r#"<section class="section">
+<h2>Immune Evasion Score</h2>
+<div class="cards">
+  <div class="card">
+    <h3>Composite Score</h3>
+    <div style="font-size:48px;font-weight:700;color:var(--accent);text-align:center;padding:16px 0">{score:.3}</div>
+    <div style="text-align:center"><span class="badge {badge}">{cls}</span></div>
+  </div>
+  <div class="card">
+    <h3>Score Components</h3>
+    <div class="stat"><span class="stat-label">Checkpoint score</span><span class="stat-value">{chk:.3}</span></div>
+    <div class="stat"><span class="stat-label">Antigen presentation score</span><span class="stat-value">{ap:.3}</span></div>
+    {b2m_html}
+    {missing_html}
+  </div>
+</div>
+{note_html}
+<h3>Detected Checkpoint Gene Expression</h3>
+<table>
+<thead><tr><th>Gene</th><th>Mean TPM</th></tr></thead>
+<tbody>{gene_rows}</tbody>
+</table>
+<p style="font-size:11px;color:#8b949e;margin-top:8px">Formula: 0.6 x checkpoint_score + 0.4 x (1 - antigen_presentation_score). Reference: Chen &amp; Mellman 2017 (Nature), Ribas &amp; Wolchok 2018 (Science).</p>
+</section>"#,
+        score = ie.immune_evasion_score,
+        badge = badge_class,
+        cls = ie.evasion_class,
+        chk = ie.checkpoint_score,
+        ap = ie.antigen_presentation_score,
+        b2m_html = b2m_html,
+        missing_html = missing_html,
+        note_html = note_html,
+        gene_rows = gene_rows,
+    )
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────

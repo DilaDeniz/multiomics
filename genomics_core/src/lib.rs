@@ -1,6 +1,8 @@
 pub mod accum;
 pub mod cancer;
 pub mod cnv;
+pub mod cosmic;
+pub mod prs;
 pub mod cnv_coverage;
 pub mod fastq;
 pub mod types;

@@ -2,6 +2,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use crate::cancer::{HrdScore, KataegisLocus, LohChromosome, MsiResult, TmbResult, TumorPurityResult};
+use crate::cosmic::MutationalSignatureResult;
+use crate::prs::PrsResult;
 
 /// Whether a SNP is a transition or transversion, or an indel.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -75,4 +77,10 @@ pub struct GenomicsSummary {
     /// Microsatellite instability score derived from homopolymer indel fraction.
     #[serde(default)]
     pub msi: Option<MsiResult>,
+    /// COSMIC mutational signature analysis from 6-channel SBS spectrum.
+    #[serde(default)]
+    pub cosmic_signatures: Option<MutationalSignatureResult>,
+    /// Polygenic risk scores for cancer-relevant GWAS loci.
+    #[serde(default)]
+    pub prs_scores: Vec<PrsResult>,
 }

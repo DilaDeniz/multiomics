@@ -3,7 +3,7 @@
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/Rust-1.78%2B-orange.svg)](https://www.rust-lang.org)
 
-A fast, parallel multi-omics analysis CLI written in Rust. Feed it genomics (VCF), transcriptomics (TSV), epigenomics (BED), proteomics (mzML), single-cell RNA (10x MEX), ATAC-seq, CNV, and more — get back an integrated HTML report, a MultiQC-compatible JSON file, and a live terminal dashboard.
+A fast, parallel multi-omics analysis CLI written in Rust. Feed it genomics (VCF), transcriptomics (TSV), epigenomics (BED), proteomics (mzML), single-cell RNA (10x MEX), ATAC-seq, CNV, and long-reads — get back an integrated HTML report, a MultiQC-compatible JSON file, and a live terminal dashboard.
 
 ```
 ┌─ multiomics ─────────────────────────────────────────────────────────────────┐
@@ -11,10 +11,10 @@ A fast, parallel multi-omics analysis CLI written in Rust. Feed it genomics (VCF
 ├─────────────────────────────────┬────────────────────────────────────────────┤
 │  GENOMICS      [████████░░] 82% │  LIVE INSIGHTS                             │
 │  58,432 rec/s  ETA: 00:00:12   │  [INFO]  Ti/Tv = 2.14 (normal range)       │
-│                                 │  [WARN]  12 high-impact KRAS variants      │
-│  TRANSCRIPTOMICS [░░░░░░░░]  0% │  [INFO]  8,942 expressed genes (TPM≥1)    │
-│  EPIGENOMICS     [░░░░░░░░]  0% │  [CRIT]  Global methylation: 38.2%        │
-│  INTEGRATION     [░░░░░░░░]  0% │  [INFO]  PI3K-Akt pathway enriched        │
+│                                 │  [CRIT]  KRAS high-impact variants         │
+│  TRANSCRIPTOMICS [░░░░░░░░]  0% │  [WARN]  TMB-H: 14.2 mut/Mb → pembrolizumab│
+│  EPIGENOMICS     [░░░░░░░░]  0% │  [WARN]  MSI-H: mismatch repair deficient  │
+│  INTEGRATION     [░░░░░░░░]  0% │  [WARN]  APOBEC mutagenesis (SBS2/SBS13)   │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -22,18 +22,49 @@ A fast, parallel multi-omics analysis CLI written in Rust. Feed it genomics (VCF
 
 ## Features
 
+### Multi-omics analysis modules
+
 | Module | Input | What it computes |
 |---|---|---|
-| **Genomics** | VCF | Ti/Tv ratio, variant density per chromosome, allele-frequency histogram, high-impact variant genes |
-| **Transcriptomics** | TSV (genes × samples) | Expressed gene count, top-100 by TPM, log₂ fold-change DE (when ≥ 2 samples) |
-| **Epigenomics** | BED (bisulfite) | Global methylation %, CpG island detection, hyper/hypomethylated regions |
+| **Genomics** | VCF | Ti/Tv ratio, variant density per chromosome, AF histogram, high-impact variant genes, unique position count (HyperLogLog) |
+| **Transcriptomics** | TSV (genes × samples) | Expressed gene count, top-100 by TPM, log₂ fold-change DE (when ≥ 2 samples), Welch t-test + BH FDR correction |
+| **Epigenomics** | BED (bisulfite) | Global methylation %, CpG island detection (Gardiner-Garden 1987 criteria), hyper/hypomethylated regions |
 | **Proteomics** | mzML + FASTA | Database search, PSM/peptide/protein counts at user-defined FDR, phosphoproteomics |
-| **Single-cell RNA** | 10x MEX directory | QC, log-normalisation, HVG selection, GPU-accelerated UMAP |
-| **ATAC-seq** | narrowPeak BED6+4 | Peak count, median signal, per-chromosome accessibility |
+| **Single-cell RNA** | 10x MEX directory | QC metrics, log-normalisation, HVG selection, GPU-accelerated UMAP (wgpu k-selection shader) |
+| **ATAC-seq** | narrowPeak BED6+4 | Peak count, median signal, per-chromosome chromatin accessibility |
 | **CNV** | VCF with CN field | Segment count, fraction genome altered, estimated ploidy |
 | **Gene quantification** | BAM + GTF | Read-level counting, assignment rate, top expressed genes |
 | **FASTQ QC** | FASTQ | Read count, GC%, Q30% |
-| **Integration** | all of the above | PCA, cross-modality Pearson correlation, KEGG pathway enrichment, rule-based insights |
+| **Integration** | all of the above | PCA, MOFA+ joint factor analysis, cross-modality Pearson correlation, KEGG + GMT pathway enrichment, rule-based insights |
+
+### Cancer genomics — clinical biomarkers
+
+| Analysis | What it does | Clinical relevance |
+|---|---|---|
+| **Tumor Mutational Burden (TMB)** | total_variants / genome_Mb; auto-detects WGS (2800 Mb) or WES (35 Mb) | FDA-approved pembrolizumab biomarker (TMB-H ≥10 mut/Mb; Chalmers 2017) |
+| **Microsatellite Instability (MSI)** | Homopolymer indel fraction + short-indel fraction composite score | FDA-approved pembrolizumab biomarker (MSI-H; Bonneville 2017) |
+| **COSMIC Mutational Signatures** | 6-channel SBS spectrum (C>A/G/T, T>A/C/G); detects SBS1/2/4/6/7/13/17/18 | Identifies etiology: APOBEC, tobacco, MMR-D, UV, aging (Alexandrov 2020) |
+| **Immune Evasion Score** | Expression of CD274 (PD-L1), CTLA4, LAG3, HAVCR2 (TIM-3), TIGIT, PDCD1 + B2M antigen presentation | Identifies checkpoint inhibition and antigen loss (Chen & Mellman 2017) |
+| **Polygenic Risk Score (PRS)** | 37 GWAS variants (p<5×10⁻⁸) across 6 cancers; Z-scored vs. population baseline | Germline cancer risk for CRC, breast, lung, prostate, melanoma, ovarian cancer |
+| **Tumor Purity** | VAF mode × 2 (diploid model) + methylation depletion cross-validation; consensus estimate | Estimates tumor cell fraction (Carter 2012 / ABSOLUTE-inspired) |
+| **Kataegis** | ≥6 consecutive mutations with geometric mean inter-mutation distance < 1000 bp | Hypermutation foci, APOBEC/AID mutagenesis (Alexandrov 2013) |
+| **Homologous Recombination Deficiency (HRD)** | Indel size spectrum (del 1bp / 2–5bp / 6–50bp / ins >3bp); optional microhomology scoring with `--reference` | HRD-HIGH indels suggest BRCA1/2 deficiency, PARP inhibitor sensitivity (Watkins 2020) |
+| **Loss of Heterozygosity (LOH)** | Median \|AF − 0.5\| per chromosome in heterozygous variants | Detects chromosomal arm LOH (≥10 het variants, median deviation >0.15) |
+
+### Epigenomics extras
+
+| Analysis | What it does | Reference |
+|---|---|---|
+| **Horvath Epigenetic Clock** | 353-CpG DNAm age estimate using anti_trafo transform; confidence: HIGH/MODERATE/LOW | Horvath 2013 (Genome Biology) |
+
+### Integration extras
+
+| Analysis | What it does | Reference |
+|---|---|---|
+| **Multi-modal paradox detection** | Identifies genes active in one modality but silenced in another | Roadmap Epigenomics 2015 |
+| **Gene regulatory state classification** | Labels each gene as Active/Silenced/Poised/Bivalent/VariantDriven/Paradoxical/Unknown | Roadmap Epigenomics 2015 |
+| **MOFA+ joint factor analysis** | Multi-omics factor analysis across all modalities; extracts latent shared variance | Argelaguet 2018 (Molecular Systems Biology) |
+| **GSEA pre-ranked** | Gene set enrichment on DE log₂FC ranking | Subramanian 2005 |
 
 ---
 
@@ -96,6 +127,15 @@ multiomics \
   --json \
   --output ./results
 
+# Cancer sample with WES TMB and reference-guided HRD
+multiomics \
+  --genomics tumor.vcf \
+  --transcriptomics rna.tsv \
+  --epigenomics wgbs.bed \
+  --reference GRCh38.fasta \
+  --tmb-genome-mb 35 \
+  --output ./cancer_results
+
 # Single-cell RNA with GPU UMAP
 multiomics \
   --scrna /path/to/10x_mex_dir \
@@ -108,18 +148,47 @@ multiomics \
   --proteomics-fdr 0.01 \
   --output ./prot_results
 
-# Full multi-omics run
+# Full multi-omics tumor run
 multiomics \
   --genomics tumor.vcf \
   --transcriptomics rna.tsv \
   --epigenomics wgbs.bed \
+  --reference GRCh38.fasta \
   --atac peaks.narrowPeak \
   --cnv cnv.vcf \
   --scrna mex/ \
   --proteomics ms1.mzML ms2.mzML \
   --fasta proteome.fasta \
+  --preset cancer \
   --output ./full_results
 ```
+
+---
+
+## Cancer workflow
+
+A typical somatic tumor analysis:
+
+```bash
+multiomics \
+  --genomics somatic_calls.vcf \
+  --transcriptomics tumor_rna.tsv \
+  --epigenomics wgbs.bed \
+  --reference GRCh38.fasta \
+  --preset cancer \
+  --output ./tumor_report
+```
+
+The HTML report will include:
+
+- **FDA biomarker cards** — TMB and MSI with eligibility assessment for pembrolizumab
+- **COSMIC mutational signatures** — dominant SBS signatures with etiology
+- **Immune evasion score** — checkpoint gene panel (CD274/PD-L1, CTLA4, LAG3, TIM-3, TIGIT, B2M)
+- **Polygenic risk scores** — germline risk across 6 cancer types from GWAS catalog
+- **Tumor purity** — VAF + methylation cross-validated estimate
+- **Kataegis loci** — hypermutation foci consistent with APOBEC/AID activity
+- **HRD score** — indel spectrum suggestive of BRCA1/2 deficiency
+- **LOH map** — per-chromosome allele imbalance
 
 ---
 
@@ -130,11 +199,12 @@ multiomics \
 | `--genomics` | VCF 4.x (gzipped or plain). QUAL, INFO/AF, and gene name from INFO/ANN are used when present. |
 | `--transcriptomics` | Tab-separated matrix: first row = sample names, first column = gene ID, values = TPM (or raw counts with `--raw-counts`). |
 | `--epigenomics` | BED with columns: chrom, start, end, name, score, strand, methylation% (ENCODE bisulfite). A simpler 4-column BED (chrom, start, end, methylation%) is also accepted. |
+| `--reference` | Reference FASTA (GRCh38 recommended). Enables reference-guided HRD microhomology scoring. |
 | `--atac` | ENCODE narrowPeak (BED6+4). Requires `--features atac`. |
 | `--cnv` | VCF with `CN=<int>` in INFO. Requires `--features cnv`. |
 | `--scrna` | 10x Genomics MEX directory: `matrix.mtx.gz`, `barcodes.tsv.gz`, `features.tsv.gz`. |
 | `--proteomics` | One or more mzML files. |
-| `--proteomics-dir` | Directory of `*.mzML` files — scanned automatically (alternative to listing files individually). |
+| `--proteomics-dir` | Directory of `*.mzML` files — scanned automatically. |
 | `--fasta` | Protein FASTA for proteomics search. |
 | `--bam` | BAM for gene quantification (requires `--gtf`). |
 | `--gtf` | GTF or GFF3 annotation. |
@@ -149,8 +219,8 @@ All files are written to `--output` (default: `./multiomics_out`).
 
 | File | Description |
 |---|---|
-| `report.html` | Self-contained HTML report with Chart.js charts — open in any browser, no server needed. |
-| `multiqc_bioomics.json` | MultiQC-compatible JSON with all summary statistics. |
+| `report.html` | Self-contained HTML report — inline SVG charts, no external dependencies, opens in any browser. |
+| `multiqc_multiomics.json` | MultiQC-compatible JSON with all summary statistics, biomarker results, and integration outputs. |
 
 ---
 
@@ -163,6 +233,7 @@ All files are written to `--output` (default: `./multiomics_out`).
 | `--genomics FILE` | VCF for variant analysis |
 | `--transcriptomics FILE` | Expression matrix TSV |
 | `--epigenomics FILE` | Bisulfite BED for methylation |
+| `--reference FILE` | Reference FASTA (enables reference-guided HRD microhomology) |
 | `--atac FILE` | ATAC-seq narrowPeak |
 | `--cnv FILE` | VCF with CN field |
 | `--fastq FILE` | FASTQ for QC |
@@ -187,6 +258,12 @@ All files are written to `--output` (default: `./multiomics_out`).
 | `--tumor-bam FILE` | — | Tumor BAM (requires `--normal-bam`) |
 | `--normal-bam FILE` | — | Matched normal BAM |
 | `--somatic-min-lod N` | `6.3` | Minimum log-odds score for PASS calls |
+
+### TMB and cancer biomarkers
+
+| Flag | Default | Description |
+|---|---|---|
+| `--tmb-genome-mb N` | auto | Effective genome size in Mb for TMB. Auto-detected: WGS ≈ 2800, WES ≈ 35. |
 
 ### Comparison mode (tumor vs. normal / treatment vs. control)
 
@@ -216,8 +293,6 @@ All files are written to `--output` (default: `./multiomics_out`).
 | `--raw-counts` | off | Treat `--transcriptomics` as raw counts and apply DESeq2 normalisation |
 
 ### Skip flags — disable individual modules
-
-These let you pass input files (e.g. for path validation or future use) without actually running that analysis module.
 
 | Flag | What it skips |
 |---|---|
@@ -337,6 +412,25 @@ When compiled with `--features gpu`, UMAP uses a WebGPU compute shader for the k
 | `longread` | Long-read (PacBio / Nanopore) epigenomics parsing |
 | `full` | ATAC + CNV + longread |
 | `full,gpu` | Everything |
+
+---
+
+## Scientific references
+
+| Feature | Reference |
+|---|---|
+| TMB | Chalmers et al. 2017 (Genome Medicine); FDA pembrolizumab approval 2020 |
+| MSI | Bonneville et al. 2017 (JCO Precision Oncology); Cortes-Ciriano et al. 2017 (Nature Comms); FDA approval 2017 |
+| COSMIC mutational signatures | Alexandrov et al. 2020 (Nature); COSMIC v3.3 |
+| Immune evasion score | Chen & Mellman 2017 (Nature); Ribas & Wolchok 2018 (Science) |
+| PRS | NHGRI-EBI GWAS Catalog; variants with p < 5×10⁻⁸ |
+| Kataegis | Alexandrov et al. 2013 (Nature) |
+| HRD indel score | Watkins et al. 2020 (Nature Genetics); Chan et al. 2015 (Nature Genetics) |
+| Tumor purity | Carter et al. 2012 (Nature Biotechnology); ABSOLUTE |
+| Horvath epigenetic clock | Horvath 2013 (Genome Biology); 353 CpG sites, hg19 |
+| MOFA+ | Argelaguet et al. 2018 (Molecular Systems Biology) |
+| GSEA | Subramanian et al. 2005 (PNAS) |
+| CpG islands | Gardiner-Garden & Frommer 1987 (Journal of Molecular Biology) |
 
 ---
 

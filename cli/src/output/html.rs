@@ -864,8 +864,10 @@ fn html_cancer_genomics(g: &GenomicsSummary) -> String {
     let has_kataegis = !g.kataegis_loci.is_empty();
     let has_hrd = g.hrd.is_some();
     let has_loh = g.loh_chromosomes.iter().any(|c| c.loh_flagged);
+    let has_tmb = g.tmb.is_some();
+    let has_msi = g.msi.is_some();
 
-    if !has_purity && !has_kataegis && !has_hrd && !has_loh {
+    if !has_purity && !has_kataegis && !has_hrd && !has_loh && !has_tmb && !has_msi {
         return String::new();
     }
 
@@ -873,6 +875,81 @@ fn html_cancer_genomics(g: &GenomicsSummary) -> String {
         r#"<section class="section">
 <h2>Cancer Genomics Analysis</h2>"#,
     );
+
+    // ── FDA Biomarkers: TMB + MSI ──
+    if has_tmb || has_msi {
+        html.push_str(r#"<h3>FDA-Approved Pembrolizumab Biomarkers</h3>
+<div class="cards">"#);
+
+        if let Some(ref tmb) = g.tmb {
+            let badge_class = match tmb.tmb_class.as_str() {
+                "TMB-H" => "badge-red",
+                "TMB-L" => "badge-yellow",
+                _ => "badge-green",
+            };
+            let eligibility = if tmb.tmb_class == "TMB-H" {
+                r#"<div class="insight insight-warn" style="margin-top:8px"><span class="insight-tag">[ELIGIBLE]</span>TMB-High — may qualify for pembrolizumab (FDA approved 2020)</div>"#
+            } else {
+                ""
+            };
+            html.push_str(&format!(
+                r#"<div class="card">
+  <h3>Tumor Mutational Burden (TMB)</h3>
+  <div class="stat"><span class="stat-label">TMB</span><span class="stat-value">{tmb:.2} mut/Mb</span></div>
+  <div class="stat"><span class="stat-label">Class</span><span class="stat-value"><span class="badge {bc}">{cls}</span></span></div>
+  <div class="stat"><span class="stat-label">Total variants</span><span class="stat-value">{n}</span></div>
+  <div class="stat"><span class="stat-label">Genome size</span><span class="stat-value">{mb:.0} Mb ({src})</span></div>
+  {elig}
+</div>"#,
+                tmb = tmb.tmb,
+                bc = badge_class,
+                cls = tmb.tmb_class,
+                n = format_num(tmb.total_variants),
+                mb = tmb.genome_mb,
+                src = escape_html(&tmb.genome_mb_source),
+                elig = eligibility,
+            ));
+        }
+
+        if let Some(ref msi) = g.msi {
+            let badge_class = match msi.msi_class.as_str() {
+                "MSI-H" => "badge-red",
+                "MSI-L" => "badge-yellow",
+                _ => "badge-green",
+            };
+            let eligibility = if msi.msi_class == "MSI-H" {
+                r#"<div class="insight insight-warn" style="margin-top:8px"><span class="insight-tag">[ELIGIBLE]</span>MSI-High — may qualify for pembrolizumab regardless of histology (FDA approved 2017)</div>"#
+            } else {
+                ""
+            };
+            let note_html = msi.note.as_deref().map(|n| format!(
+                r#"<div class="insight insight-info" style="margin-top:6px"><span class="insight-tag">[NOTE]</span>{}</div>"#,
+                escape_html(n)
+            )).unwrap_or_default();
+            html.push_str(&format!(
+                r#"<div class="card">
+  <h3>Microsatellite Instability (MSI)</h3>
+  <div class="stat"><span class="stat-label">MSI score</span><span class="stat-value">{score:.4}</span></div>
+  <div class="stat"><span class="stat-label">Class</span><span class="stat-value"><span class="badge {bc}">{cls}</span></span></div>
+  <div class="stat"><span class="stat-label">Homopolymer indel fraction</span><span class="stat-value">{hf:.3}</span></div>
+  <div class="stat"><span class="stat-label">Short indel fraction</span><span class="stat-value">{sf:.3}</span></div>
+  <div class="stat"><span class="stat-label">Homopolymer indels / total indels</span><span class="stat-value">{hi} / {ti}</span></div>
+  {elig}{note}
+</div>"#,
+                score = msi.msi_score,
+                bc = badge_class,
+                cls = msi.msi_class,
+                hf = msi.homopolymer_indel_frac,
+                sf = msi.short_indel_frac,
+                hi = msi.homopolymer_indels,
+                ti = msi.total_indels,
+                elig = eligibility,
+                note = note_html,
+            ));
+        }
+
+        html.push_str("</div>"); // end .cards
+    }
 
     // ── Tumor Purity ──
     if let Some(ref p) = g.tumor_purity {

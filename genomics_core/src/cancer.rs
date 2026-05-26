@@ -1,10 +1,163 @@
-//! Cancer-specific genomic analyses: tumor purity, kataegis, HRD, LOH.
+//! Cancer-specific genomic analyses: tumor purity, kataegis, HRD, LOH, TMB, MSI.
 
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
 use crate::types::VariantRecord;
+
+// ── Tumor Mutational Burden (TMB) ─────────────────────────────────────────────
+
+/// TMB result: total somatic mutations normalised to megabases of sequenced genome.
+///
+/// FDA approved pembrolizumab for TMB-H solid tumors (≥10 mut/Mb) in 2020.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TmbResult {
+    /// Total variant count used for TMB calculation.
+    pub total_variants: u64,
+    /// Effective genome size in megabases used for normalization.
+    pub genome_mb: f64,
+    /// TMB = total_variants / genome_mb.
+    pub tmb: f64,
+    /// "TMB-H" (≥10), "TMB-L" (1–<10), "TMB-ZERO" (<1).
+    pub tmb_class: String,
+    /// Source of genome_mb: "WGS (auto)", "WES (auto)", "user-specified".
+    pub genome_mb_source: String,
+}
+
+/// Compute TMB from a variant count and an effective genome size.
+///
+/// Reference: Chalmers et al. 2017 (Genome Medicine); FDA approval 2020.
+pub fn compute_tmb(total_variants: u64, genome_mb: f64, genome_mb_source: &str) -> TmbResult {
+    let tmb = total_variants as f64 / genome_mb;
+    let tmb_class = if tmb >= 10.0 {
+        "TMB-H".to_string()
+    } else if tmb >= 1.0 {
+        "TMB-L".to_string()
+    } else {
+        "TMB-ZERO".to_string()
+    };
+    TmbResult {
+        total_variants,
+        genome_mb,
+        tmb,
+        tmb_class,
+        genome_mb_source: genome_mb_source.to_string(),
+    }
+}
+
+// ── Microsatellite Instability (MSI) ─────────────────────────────────────────
+
+/// MSI result derived from the homopolymer indel fraction and short-indel burden.
+///
+/// FDA approved pembrolizumab for MSI-H tumors regardless of histology (2017).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MsiResult {
+    pub total_variants: u64,
+    pub total_indels: u64,
+    /// Number of indels classified as homopolymer-context (≥3 same bases deleted/inserted).
+    pub homopolymer_indels: u64,
+    /// Fraction of indels in homopolymer context.
+    pub homopolymer_indel_frac: f64,
+    /// Fraction of ALL variants that are short (1–4 bp) indels.
+    pub short_indel_frac: f64,
+    /// Composite MSI score: homopolymer_frac × 0.6 + short_indel_frac × 0.4.
+    pub msi_score: f64,
+    /// "MSI-H" (>0.30), "MSI-L" (0.10–0.30), "MSS" (<0.10).
+    pub msi_class: String,
+    /// Note when total_indels < 30: result may be unreliable.
+    pub note: Option<String>,
+}
+
+/// Returns true if the indel (ref, alt) involves a homopolymer run of ≥3 identical bases.
+///
+/// For deletions: checks whether the deleted sequence is a single-base repeat.
+/// For insertions: checks whether the inserted sequence is a single-base repeat.
+fn is_homopolymer_indel(ref_allele: &str, alt_allele: &str) -> bool {
+    let ref_len = ref_allele.len();
+    let alt_len = alt_allele.len();
+    if ref_len == alt_len {
+        return false;
+    }
+    let seq = if ref_len > alt_len {
+        // Deletion: deleted sequence = ref_allele[alt_len..]
+        &ref_allele[alt_len..]
+    } else {
+        // Insertion: inserted sequence = alt_allele[ref_len..]
+        &alt_allele[ref_len..]
+    };
+    if seq.len() < 3 {
+        return false;
+    }
+    let first = seq.as_bytes()[0];
+    seq.bytes().all(|b| b == first)
+}
+
+/// Compute MSI score from the full variant list.
+///
+/// References: Bonneville et al. 2017 (JCO Precision Oncology),
+/// Cortes-Ciriano et al. 2017 (Nature Communications).
+pub fn compute_msi(variants: &[VariantRecord]) -> MsiResult {
+    let total_variants = variants.len() as u64;
+    let mut total_indels: u64 = 0;
+    let mut homopolymer_indels: u64 = 0;
+    let mut short_indels: u64 = 0; // 1–4 bp indels
+
+    for v in variants {
+        let ref_len = v.ref_allele.len();
+        let alt_len = v.alt_allele.len();
+        if ref_len == alt_len {
+            continue; // SNP or MNP — not an indel
+        }
+        total_indels += 1;
+        let indel_size = ref_len.abs_diff(alt_len);
+        if indel_size >= 1 && indel_size <= 4 {
+            short_indels += 1;
+        }
+        if is_homopolymer_indel(&v.ref_allele, &v.alt_allele) {
+            homopolymer_indels += 1;
+        }
+    }
+
+    let homopolymer_indel_frac = if total_indels == 0 {
+        0.0
+    } else {
+        homopolymer_indels as f64 / total_indels as f64
+    };
+
+    let short_indel_frac = if total_variants == 0 {
+        0.0
+    } else {
+        short_indels as f64 / total_variants as f64
+    };
+
+    let msi_score = homopolymer_indel_frac * 0.6 + short_indel_frac * 0.4;
+
+    let msi_class = if msi_score > 0.30 {
+        "MSI-H".to_string()
+    } else if msi_score >= 0.10 {
+        "MSI-L".to_string()
+    } else {
+        "MSS".to_string()
+    };
+
+    let note = if total_indels < 30 {
+        Some("Low indel count — MSI result may be unreliable".to_string())
+    } else {
+        None
+    };
+
+    MsiResult {
+        total_variants,
+        total_indels,
+        homopolymer_indels,
+        homopolymer_indel_frac,
+        short_indel_frac,
+        msi_score,
+        msi_class,
+        note,
+    }
+}
 
 // ── Tumor Purity ──────────────────────────────────────────────────────────────
 

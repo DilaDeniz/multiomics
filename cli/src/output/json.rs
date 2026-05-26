@@ -7,7 +7,7 @@ use serde::Serialize;
 
 use epigenomics_core::clock::MethylationAgeResult;
 use epigenomics_core::EpigenomicsSummary;
-use genomics_core::cancer::{HrdScore, KataegisLocus, LohChromosome, TumorPurityResult};
+use genomics_core::cancer::{HrdScore, KataegisLocus, LohChromosome, MsiResult, TmbResult, TumorPurityResult};
 use genomics_core::GenomicsSummary;
 use integration_layer::{EnrichmentResult, GeneParadox, GeneRegulatoryProfile, Insight, IntegrationSummary};
 use transcriptomics_core::TranscriptomicsSummary;
@@ -49,6 +49,8 @@ pub struct JsonGenomicsSection {
     pub kataegis_loci: Vec<KataegisLocus>,
     pub hrd: Option<HrdScore>,
     pub loh_chromosomes: Vec<LohChromosome>,
+    pub tmb: Option<TmbResult>,
+    pub msi: Option<MsiResult>,
 }
 
 #[derive(Debug, Serialize)]
@@ -208,6 +210,8 @@ pub fn build_multiqc_output(
             kataegis_loci: genomics.kataegis_loci.clone(),
             hrd: genomics.hrd.clone(),
             loh_chromosomes: genomics.loh_chromosomes.clone(),
+            tmb: genomics.tmb.clone(),
+            msi: genomics.msi.clone(),
         },
         multiomics_transcriptomics: JsonTranscriptomicsSection {
             total_genes: transcr.total_genes,

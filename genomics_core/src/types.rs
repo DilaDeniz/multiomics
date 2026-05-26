@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use crate::cancer::{HrdScore, KataegisLocus, LohChromosome, TumorPurityResult};
+use crate::cancer::{HrdScore, KataegisLocus, LohChromosome, MsiResult, TmbResult, TumorPurityResult};
 
 /// Whether a SNP is a transition or transversion, or an indel.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -69,4 +69,10 @@ pub struct GenomicsSummary {
     /// Per-chromosome loss of heterozygosity assessment.
     #[serde(default)]
     pub loh_chromosomes: Vec<LohChromosome>,
+    /// Tumor mutational burden (filled in by runner after context detection).
+    #[serde(default)]
+    pub tmb: Option<TmbResult>,
+    /// Microsatellite instability score derived from homopolymer indel fraction.
+    #[serde(default)]
+    pub msi: Option<MsiResult>,
 }

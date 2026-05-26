@@ -49,6 +49,12 @@ pub struct IntegrationSummary {
     /// Horvath epigenetic age clock result (cloned from epigenomics summary).
     #[serde(default)]
     pub methylation_age: Option<epigenomics_core::clock::MethylationAgeResult>,
+    /// Tumor mutational burden result (cloned from genomics summary).
+    #[serde(default)]
+    pub tmb: Option<genomics_core::cancer::TmbResult>,
+    /// Microsatellite instability result (cloned from genomics summary).
+    #[serde(default)]
+    pub msi: Option<genomics_core::cancer::MsiResult>,
 }
 
 impl IntegrationSummary {
@@ -71,6 +77,8 @@ impl IntegrationSummary {
             gene_states: Vec::new(),
             tumor_purity: None,
             methylation_age: None,
+            tmb: None,
+            msi: None,
         }
     }
 }
@@ -336,6 +344,51 @@ pub fn run_integration(
         }
     }
 
+    // TMB / MSI insights
+    let tmb_high = genomics
+        .tmb
+        .as_ref()
+        .map(|t| t.tmb_class == "TMB-H")
+        .unwrap_or(false);
+    let msi_high = genomics
+        .msi
+        .as_ref()
+        .map(|m| m.msi_class == "MSI-H")
+        .unwrap_or(false);
+
+    if tmb_high && msi_high {
+        insights.push(insights::Insight {
+            level: insights::InsightLevel::Warning,
+            modality: insights::InsightModality::Integration,
+            message: "[WARN] TMB-H + MSI-H — strong immunotherapy candidate".to_string(),
+        });
+    } else {
+        if tmb_high {
+            if let Some(ref tmb) = genomics.tmb {
+                insights.push(insights::Insight {
+                    level: insights::InsightLevel::Warning,
+                    modality: insights::InsightModality::Integration,
+                    message: format!(
+                        "[WARN] TMB-H: {:.1} mut/Mb — may benefit from immune checkpoint therapy (pembrolizumab)",
+                        tmb.tmb
+                    ),
+                });
+            }
+        }
+        if msi_high {
+            if let Some(ref msi) = genomics.msi {
+                insights.push(insights::Insight {
+                    level: insights::InsightLevel::Warning,
+                    modality: insights::InsightModality::Integration,
+                    message: format!(
+                        "[WARN] MSI-H detected (score={:.2}) — mismatch repair deficient; pembrolizumab indicated",
+                        msi.msi_score
+                    ),
+                });
+            }
+        }
+    }
+
     Ok(IntegrationSummary {
         correlation_matrix,
         pca,
@@ -346,5 +399,7 @@ pub fn run_integration(
         gene_states,
         tumor_purity: Some(tumor_purity_result),
         methylation_age: epigen.methylation_age.clone(),
+        tmb: genomics.tmb.clone(),
+        msi: genomics.msi.clone(),
     })
 }

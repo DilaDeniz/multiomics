@@ -145,6 +145,11 @@ pub struct Cli {
     #[arg(long, value_name = "DIR", default_value = "./multiomics_out")]
     pub output: PathBuf,
 
+    /// Effective genome size in Mb for TMB calculation.
+    /// Auto-detected from input (WGS≈2800, WES≈35) when not specified.
+    #[arg(long, value_name = "MB")]
+    pub tmb_genome_mb: Option<f64>,
+
     /// Number of parallel worker threads (default: all logical cores)
     #[arg(long, value_name = "N")]
     pub threads: Option<usize>,

@@ -110,6 +110,36 @@ pub fn run_pipeline(
         (g, t, e)
     };
 
+    // Compute TMB using genome size from CLI flag, context detection, or default
+    {
+        let (genome_mb, genome_mb_source) = if let Some(mb) = cli.tmb_genome_mb {
+            (mb, "user-specified")
+        } else if let Some(ctx) = sample_context {
+            match ctx.genomics_assay.as_ref().map(|a| a.as_str()) {
+                Some("WGS") => (2800.0, "WGS (auto)"),
+                Some("WES") => (35.0, "WES (auto)"),
+                _ => (2800.0, "WGS (default)"),
+            }
+        } else {
+            (2800.0, "WGS (default)")
+        };
+        genomics.tmb = Some(genomics_core::cancer::compute_tmb(
+            genomics.total_variants,
+            genome_mb,
+            genome_mb_source,
+        ));
+        if let Some(ref tmb) = genomics.tmb {
+            log::info!(
+                "TMB: {:.2} mut/Mb ({} variants / {:.0} Mb) — {} [{}]",
+                tmb.tmb,
+                tmb.total_variants,
+                tmb.genome_mb,
+                tmb.tmb_class,
+                tmb.genome_mb_source,
+            );
+        }
+    }
+
     // Optional: reference-guided microhomology HRD scoring
     if let (Some(ref ref_path), Some(_)) = (&cli.reference, &genomics.hrd) {
         match genomics_core::cancer::compute_hrd_score_with_reference(

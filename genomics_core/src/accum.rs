@@ -2,7 +2,7 @@ use ahash::AHashMap;
 
 use biomics_core::{BatchAccum, HyperLogLog};
 
-use crate::cancer::{compute_hrd_score, detect_kataegis, detect_loh};
+use crate::cancer::{compute_hrd_score, compute_msi, detect_kataegis, detect_loh};
 use crate::types::{ChromDensity, GenomicsSummary, TiTvClass, VariantRecord};
 
 /// Compact position key: FNV-1a hash of (chrom, pos).
@@ -149,6 +149,7 @@ impl BatchAccum for GenomicsAccum {
         let kataegis_loci = detect_kataegis(&self.all_variants);
         let hrd = Some(compute_hrd_score(&self.all_variants));
         let loh_chromosomes = detect_loh(&self.all_variants);
+        let msi = Some(compute_msi(&self.all_variants));
 
         Ok(GenomicsSummary {
             total_variants: self.total,
@@ -164,6 +165,8 @@ impl BatchAccum for GenomicsAccum {
             kataegis_loci,
             hrd,
             loh_chromosomes,
+            tmb: None, // filled in by runner.rs after context detection
+            msi,
         })
     }
 }

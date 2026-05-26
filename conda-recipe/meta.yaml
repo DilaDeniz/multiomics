@@ -7,8 +7,7 @@ package:
 
 source:
   url: https://github.com/DilaDeniz/{{ name }}/archive/refs/tags/v{{ version }}.tar.gz
-  sha256: 0000000000000000000000000000000000000000000000000000000000000000
-  # ↑ Replace with: curl -sL <url> | sha256sum
+  sha256: 6d32927872046edfd0c3c7a98f7b54e05d8048ae8ef786ca456fdbbf2ba142bb
 
 build:
   number: 0

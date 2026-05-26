@@ -22,11 +22,7 @@ requirements:
 test:
   commands:
     - multiomics --version | grep '{{ version }}'
-    - multiomics --genomics "${SRC_DIR}/test_data/minimal.vcf"
-                 --transcriptomics "${SRC_DIR}/test_data/minimal.tsv"
-                 --epigenomics "${SRC_DIR}/test_data/minimal.bed"
-                 --output "${TMPDIR}/multiomics_test"
-                 --json
+    - multiomics --genomics "${SRC_DIR}/test_data/minimal.vcf" --transcriptomics "${SRC_DIR}/test_data/minimal.tsv" --epigenomics "${SRC_DIR}/test_data/minimal.bed" --output "${TMPDIR}/multiomics_test" --json
 
 about:
   home: "https://github.com/DilaDeniz/{{ name }}"

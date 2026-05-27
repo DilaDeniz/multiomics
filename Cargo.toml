@@ -11,6 +11,7 @@ members = [
     "integration_layer",
     "cli",
     "pybioomics",
+    "wasm",
 ]
 
 [workspace.package]

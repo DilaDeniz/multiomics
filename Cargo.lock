@@ -767,8 +767,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ff2abc00be7fca6ebc474524697ae276ad847ad0a6b3faa4bcb027e9a4614ad0"
 dependencies = [
  "cfg-if",
+ "js-sys",
  "libc",
  "wasi",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -1436,6 +1438,22 @@ dependencies = [
  "serde_json",
  "toml",
  "transcriptomics_core",
+]
+
+[[package]]
+name = "multiomics-wasm"
+version = "0.1.0"
+dependencies = [
+ "biomics_core",
+ "epigenomics_core",
+ "genomics_core",
+ "getrandom 0.2.17",
+ "integration_layer",
+ "js-sys",
+ "serde_json",
+ "transcriptomics_core",
+ "wasm-bindgen",
+ "web-sys",
 ]
 
 [[package]]

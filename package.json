@@ -1,0 +1,15 @@
+{
+  "name": "multiomics-wasm",
+  "type": "module",
+  "version": "0.1.0",
+  "files": [
+    "multiomics_wasm_bg.wasm",
+    "multiomics_wasm.js",
+    "multiomics_wasm.d.ts"
+  ],
+  "main": "multiomics_wasm.js",
+  "types": "multiomics_wasm.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}

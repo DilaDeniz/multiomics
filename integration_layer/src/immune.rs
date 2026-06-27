@@ -122,3 +122,109 @@ pub fn compute_immune_evasion(transcr: &TranscriptomicsSummary) -> Option<Immune
         note,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+    use transcriptomics_core::GeneStats;
+
+    fn summary_with(genes: &[(&str, f64)]) -> TranscriptomicsSummary {
+        let mut gene_stats = HashMap::new();
+        for (name, mean) in genes {
+            gene_stats.insert(name.to_string(), GeneStats { mean: *mean, std: 0.0, max: *mean });
+        }
+        TranscriptomicsSummary {
+            total_genes: genes.len() as u64,
+            expressed_genes: genes.len() as u64,
+            gene_stats,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn empty_gene_stats_returns_none() {
+        let summary = TranscriptomicsSummary::default();
+        assert!(compute_immune_evasion(&summary).is_none());
+    }
+
+    #[test]
+    fn no_checkpoint_genes_present_gives_zero_checkpoint_score() {
+        let summary = summary_with(&[("ACTB", 50.0)]);
+        let result = compute_immune_evasion(&summary).unwrap();
+        assert_eq!(result.checkpoint_score, 0.0);
+        assert_eq!(result.detected_genes.len(), 0);
+        assert_eq!(result.missing_genes.len(), 7);
+    }
+
+    #[test]
+    fn missing_b2m_assumes_average_antigen_presentation() {
+        let summary = summary_with(&[("CD274", 80.0)]);
+        let result = compute_immune_evasion(&summary).unwrap();
+        assert!(result.b2m_tpm.is_none());
+        assert_eq!(result.antigen_presentation_score, 0.5);
+    }
+
+    #[test]
+    fn alias_lookup_resolves_when_canonical_name_absent() {
+        // PD-L1 is an alias for CD274.
+        let summary = summary_with(&[("PD-L1", 90.0)]);
+        let result = compute_immune_evasion(&summary).unwrap();
+        assert_eq!(result.detected_genes.len(), 1);
+        assert_eq!(result.detected_genes[0].0, "CD274");
+        assert_eq!(result.detected_genes[0].1, 90.0);
+    }
+
+    #[test]
+    fn high_checkpoint_expression_and_low_b2m_yields_high_evasion_class() {
+        let summary = summary_with(&[
+            ("CD274", 100.0),
+            ("PDCD1", 100.0),
+            ("CTLA4", 100.0),
+            ("LAG3", 100.0),
+            ("HAVCR2", 100.0),
+            ("TIGIT", 100.0),
+            ("FOXP3", 100.0),
+            ("B2M", 0.0),
+        ]);
+        let result = compute_immune_evasion(&summary).unwrap();
+        assert_eq!(result.evasion_class, "HIGH");
+        assert!(result.immune_evasion_score > 0.40);
+    }
+
+    #[test]
+    fn low_checkpoint_expression_and_high_b2m_yields_low_evasion_class() {
+        let summary = summary_with(&[
+            ("CD274", 0.0),
+            ("PDCD1", 0.0),
+            ("CTLA4", 0.0),
+            ("B2M", 100.0),
+        ]);
+        let result = compute_immune_evasion(&summary).unwrap();
+        assert_eq!(result.evasion_class, "LOW");
+    }
+
+    #[test]
+    fn fewer_than_three_detected_genes_produces_a_confidence_note() {
+        let summary = summary_with(&[("CD274", 50.0), ("PDCD1", 50.0)]);
+        let result = compute_immune_evasion(&summary).unwrap();
+        assert!(result.note.is_some());
+        assert!(result.note.unwrap().contains("2/7"));
+    }
+
+    #[test]
+    fn three_or_more_detected_genes_has_no_note() {
+        let summary = summary_with(&[("CD274", 50.0), ("PDCD1", 50.0), ("CTLA4", 50.0)]);
+        let result = compute_immune_evasion(&summary).unwrap();
+        assert!(result.note.is_none());
+    }
+
+    #[test]
+    fn scores_are_clamped_to_unit_interval() {
+        let summary = summary_with(&[("CD274", 1_000_000.0), ("B2M", 1_000_000.0)]);
+        let result = compute_immune_evasion(&summary).unwrap();
+        assert!(result.checkpoint_score >= 0.0 && result.checkpoint_score <= 1.0);
+        assert!(result.antigen_presentation_score >= 0.0 && result.antigen_presentation_score <= 1.0);
+        assert!(result.immune_evasion_score >= 0.0 && result.immune_evasion_score <= 1.0);
+    }
+}

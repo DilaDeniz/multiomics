@@ -258,3 +258,142 @@ pub fn compute_mutational_signatures(variants: &[VariantRecord]) -> MutationalSi
     let spec = compute_sbs6_spectrum(variants);
     detect_signatures_from_6ch(&spec)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::TiTvClass;
+
+    fn snv(chrom: &str, pos: u64, r: &str, a: &str) -> VariantRecord {
+        VariantRecord {
+            chrom: chrom.to_string(),
+            pos,
+            ref_allele: r.to_string(),
+            alt_allele: a.to_string(),
+            qual: 50.0,
+            titv: TiTvClass::Transition,
+            af: None,
+            gene: None,
+        }
+    }
+
+    #[test]
+    fn empty_variants_yield_zero_spectrum() {
+        let spec = compute_sbs6_spectrum(&[]);
+        assert_eq!(spec.total_snvs, 0);
+        assert_eq!(spec.fractions, [0.0; 6]);
+    }
+
+    #[test]
+    fn indels_and_mnps_are_excluded_from_spectrum() {
+        let variants = vec![
+            snv("chr1", 100, "C", "CA"), // insertion
+            snv("chr1", 200, "AT", "A"), // deletion
+            snv("chr1", 300, "AC", "GT"), // MNP
+        ];
+        let spec = compute_sbs6_spectrum(&variants);
+        assert_eq!(spec.total_snvs, 0);
+    }
+
+    #[test]
+    fn purine_substitutions_are_normalized_to_pyrimidine_context() {
+        // G>T on the reference strand is the complement of C>A.
+        let variants = vec![snv("chr1", 100, "G", "T")];
+        let spec = compute_sbs6_spectrum(&variants);
+        assert_eq!(spec.total_snvs, 1);
+        assert_eq!(spec.c_to_a, 1);
+        assert_eq!(spec.c_to_g, 0);
+    }
+
+    #[test]
+    fn identical_ref_and_alt_are_skipped() {
+        let variants = vec![snv("chr1", 100, "C", "C")];
+        let spec = compute_sbs6_spectrum(&variants);
+        assert_eq!(spec.total_snvs, 0);
+    }
+
+    #[test]
+    fn fractions_sum_to_one_when_spectrum_nonempty() {
+        let variants = vec![
+            snv("chr1", 100, "C", "A"),
+            snv("chr1", 200, "C", "T"),
+            snv("chr1", 300, "T", "C"),
+            snv("chr1", 400, "T", "G"),
+        ];
+        let spec = compute_sbs6_spectrum(&variants);
+        assert_eq!(spec.total_snvs, 4);
+        let sum: f64 = spec.fractions.iter().sum();
+        assert!((sum - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn uv_signature_detected_from_extreme_c_to_t_enrichment() {
+        let mut variants = Vec::new();
+        for i in 0..80 {
+            variants.push(snv("chr1", i, "C", "T"));
+        }
+        for i in 80..100 {
+            variants.push(snv("chr1", i, "C", "A"));
+        }
+        let result = compute_mutational_signatures(&variants);
+        assert!(result.uv_signature);
+        assert!(result.dominant_signatures.iter().any(|s| s.signature == "SBS7a/7b"));
+    }
+
+    #[test]
+    fn tobacco_signature_detected_from_high_c_to_a() {
+        let mut variants = Vec::new();
+        for i in 0..40 {
+            variants.push(snv("chr1", i, "C", "A"));
+        }
+        for i in 40..100 {
+            variants.push(snv("chr1", i, "T", "C"));
+        }
+        let result = compute_mutational_signatures(&variants);
+        assert!(result.tobacco_signature);
+        assert!(result.dominant_signatures.iter().any(|s| s.signature == "SBS4"));
+    }
+
+    #[test]
+    fn low_snv_count_produces_a_confidence_note() {
+        let variants = vec![snv("chr1", 100, "C", "A"); 10];
+        let result = compute_mutational_signatures(&variants);
+        assert!(result.note.is_some());
+        assert!(result.note.unwrap().contains("10 SNVs"));
+    }
+
+    #[test]
+    fn no_dominant_pattern_gives_default_summary() {
+        let spec = SbsSpectrum6 {
+            c_to_a: 0,
+            c_to_g: 0,
+            c_to_t: 0,
+            t_to_a: 0,
+            t_to_c: 0,
+            t_to_g: 0,
+            total_snvs: 0,
+            fractions: [0.0; 6],
+        };
+        let result = detect_signatures_from_6ch(&spec);
+        assert!(result.dominant_signatures.is_empty());
+        assert!(result.summary.contains("No dominant"));
+    }
+
+    #[test]
+    fn signatures_are_sorted_by_weight_descending() {
+        let mut variants = Vec::new();
+        for i in 0..50 {
+            variants.push(snv("chr1", i, "T", "G")); // SBS17
+        }
+        for i in 50..70 {
+            variants.push(snv("chr1", i, "C", "A")); // contributes to SBS18/SBS4
+        }
+        for i in 70..90 {
+            variants.push(snv("chr1", i, "T", "C"));
+        }
+        let result = compute_mutational_signatures(&variants);
+        for pair in result.dominant_signatures.windows(2) {
+            assert!(pair[0].weight >= pair[1].weight);
+        }
+    }
+}

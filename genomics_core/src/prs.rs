@@ -191,3 +191,91 @@ pub fn compute_prs(variants: &[VariantRecord]) -> Vec<PrsResult> {
     results.sort_by(|a, b| b.z_score.partial_cmp(&a.z_score).unwrap_or(std::cmp::Ordering::Equal));
     results
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::TiTvClass;
+
+    fn variant(chrom: &str, pos: u64, r: &str, a: &str) -> VariantRecord {
+        VariantRecord {
+            chrom: chrom.to_string(),
+            pos,
+            ref_allele: r.to_string(),
+            alt_allele: a.to_string(),
+            qual: 50.0,
+            titv: TiTvClass::Transition,
+            af: None,
+            gene: None,
+        }
+    }
+
+    #[test]
+    fn no_variants_returns_one_result_per_disease_with_zero_score() {
+        let results = compute_prs(&[]);
+        assert_eq!(results.len(), 6); // 6 disease categories in DISEASE_BASELINES
+        for r in &results {
+            assert_eq!(r.raw_score, 0.0);
+            assert_eq!(r.n_variants_matched, 0);
+            assert!(r.n_variants_total > 0);
+        }
+    }
+
+    #[test]
+    fn chr_prefix_is_normalized_when_matching() {
+        // rs6983267, chr8:128439563 G>A — Colorectal cancer (MYC), ln_or 0.167
+        let results = compute_prs(&[variant("chr8", 128439563, "G", "A")]);
+        let crc = results.iter().find(|r| r.disease == "Colorectal cancer").unwrap();
+        assert_eq!(crc.n_variants_matched, 1);
+        assert!((crc.raw_score - 0.167).abs() < 1e-9);
+        assert_eq!(crc.matched_variants[0].0, "rs6983267");
+    }
+
+    #[test]
+    fn mismatched_allele_does_not_count_as_a_hit() {
+        // Same position, but with the non-risk allele.
+        let results = compute_prs(&[variant("8", 128439563, "G", "T")]);
+        let crc = results.iter().find(|r| r.disease == "Colorectal cancer").unwrap();
+        assert_eq!(crc.n_variants_matched, 0);
+        assert_eq!(crc.raw_score, 0.0);
+    }
+
+    #[test]
+    fn multiple_matches_accumulate_raw_score() {
+        let results = compute_prs(&[
+            variant("8", 128439563, "G", "A"),  // rs6983267, ln_or 0.167
+            variant("8", 117630213, "A", "G"),  // rs16892766, ln_or 0.131
+        ]);
+        let crc = results.iter().find(|r| r.disease == "Colorectal cancer").unwrap();
+        assert_eq!(crc.n_variants_matched, 2);
+        assert!((crc.raw_score - (0.167 + 0.131)).abs() < 1e-9);
+    }
+
+    #[test]
+    fn high_risk_class_requires_z_score_above_threshold() {
+        // Stack every colorectal-risk allele to push the raw score far above baseline.
+        let variants = vec![
+            variant("8", 128439563, "G", "A"),
+            variant("8", 117630213, "A", "G"),
+            variant("18", 47832525, "G", "A"),
+            variant("10", 114614460, "T", "C"),
+            variant("15", 32958578, "G", "A"),
+            variant("11", 111168524, "G", "T"),
+            variant("14", 53431963, "A", "G"),
+            variant("16", 68820541, "A", "G"),
+        ];
+        let results = compute_prs(&variants);
+        let crc = results.iter().find(|r| r.disease == "Colorectal cancer").unwrap();
+        assert_eq!(crc.n_variants_matched, 8);
+        assert_eq!(crc.risk_class, "HIGH");
+        assert!(crc.z_score > 1.5);
+    }
+
+    #[test]
+    fn results_are_sorted_by_z_score_descending() {
+        let results = compute_prs(&[variant("8", 128439563, "G", "A")]);
+        for pair in results.windows(2) {
+            assert!(pair[0].z_score >= pair[1].z_score);
+        }
+    }
+}

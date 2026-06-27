@@ -1459,6 +1459,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "multiomics_py"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "biomics_core",
+ "epigenomics_core",
+ "genomics_core",
+ "integration_layer",
+ "pyo3",
+ "serde",
+ "serde_json",
+ "transcriptomics_core",
+]
+
+[[package]]
 name = "naga"
 version = "29.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1900,21 +1915,6 @@ dependencies = [
  "rayon",
  "serde",
  "serde_json",
-]
-
-[[package]]
-name = "pybioomics"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "biomics_core",
- "epigenomics_core",
- "genomics_core",
- "integration_layer",
- "pyo3",
- "serde",
- "serde_json",
- "transcriptomics_core",
 ]
 
 [[package]]

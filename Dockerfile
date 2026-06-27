@@ -18,15 +18,15 @@ COPY . .
 ARG RUSTFLAGS="-C target-cpu=x86-64-v3"
 ENV RUSTFLAGS=${RUSTFLAGS}
 
-# Build only the CLI binary; exclude pybioomics (cdylib requires Python headers).
-RUN cargo build --release --bin bioomics --workspace --exclude pybioomics
+# Build only the CLI binary; exclude multiomics_py (cdylib requires Python headers).
+RUN cargo build --release --bin multiomics --workspace --exclude multiomics_py
 
 # ── Runtime stage ─────────────────────────────────────────────────────────────
 # Minimal Debian image — only ca-certificates is needed for HTTPS access in
 # potential future network features.
 FROM debian:bookworm-slim
 
-LABEL org.opencontainers.image.title="BioMultiOmics" \
+LABEL org.opencontainers.image.title="Multiomics" \
       org.opencontainers.image.description="Fast multi-omics analysis: genomics, transcriptomics, epigenomics" \
       org.opencontainers.image.url="https://github.com/diladeniz/multiomics" \
       org.opencontainers.image.source="https://github.com/diladeniz/multiomics" \
@@ -36,10 +36,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /build/target/release/bioomics /usr/local/bin/bioomics
+COPY --from=builder /build/target/release/multiomics /usr/local/bin/multiomics
 
 # Smoke-test: verify the binary executes and prints a version string.
-RUN bioomics --version
+RUN multiomics --version
 
-ENTRYPOINT ["bioomics"]
+ENTRYPOINT ["multiomics"]
 CMD ["--help"]

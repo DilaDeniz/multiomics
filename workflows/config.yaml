@@ -1,4 +1,4 @@
-# config.yaml — BioMultiOmics Snakemake configuration
+# config.yaml — Multiomics Snakemake configuration
 #
 # Copy this file, fill in your paths, and run:
 #   snakemake --configfile config.yaml --cores 8
@@ -24,7 +24,7 @@ samples:
 # ---------------------------------------------------------------------------
 
 # Base directory for all outputs.  Each sample gets its own subdirectory.
-output_dir: bioomics_out
+output_dir: multiomics_out
 
 # Number of CPU threads to use per sample.
 # Omit or set to null to use all available cores.
@@ -41,8 +41,8 @@ json_only: false
 # Skip the ML integration layer (PCA and cross-modality correlation matrix).
 no_ml: false
 
-# Run MultiQC over all sample outputs after bioomics completes.
-# Requires the multiqc_bioomics plugin:  pip install workflows/../multiqc_bioomics/
+# Run MultiQC over all sample outputs after multiomics completes.
+# Requires the multiqc_multiomics plugin:  pip install workflows/../multiqc_multiomics/
 run_multiqc: true
 
 # Optional path to a custom multiqc_config.yaml file.

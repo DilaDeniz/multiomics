@@ -1,14 +1,14 @@
 #!/usr/bin/env nextflow
 
 /*
- * BioMultiOmics — Nextflow DSL2 wrapper
+ * Multiomics — Nextflow DSL2 wrapper
  *
- * Runs the bioomics binary inside a container and publishes all outputs
+ * Runs the multiomics binary inside a container and publishes all outputs
  * (HTML report + JSON) to the directory specified by ``params.output``.
  *
  * Usage
  * -----
- *   nextflow run bioomics.nf \
+ *   nextflow run multiomics.nf \
  *     --genomics     sample.vcf.gz \
  *     --transcriptomics counts.tsv \
  *     --epigenomics  methylation.bed \
@@ -37,7 +37,7 @@ params.epigenomics      = null          // required: BED methylation file
 params.atac             = null          // optional: ENCODE narrowPeak BED
 params.cnv              = null          // optional: VCF with CN INFO field
 params.gmt              = null          // optional: GMT pathway file
-params.output           = "bioomics_out"
+params.output           = "multiomics_out"
 params.threads          = Runtime.runtime.availableProcessors()
 params.raw_counts       = false
 params.json_only        = false
@@ -64,13 +64,13 @@ require_param("epigenomics",     params.epigenomics)
 process BIOOMICS {
     tag { genomics_file.simpleName }
 
-    label "bioomics"
+    label "multiomics"
 
     // Publish every output file to params.output.
     publishDir params.output, mode: "copy", overwrite: true
 
     // Container image — overridden per-profile in nextflow.config.
-    container "ghcr.io/diladeniz/bioomics:latest"
+    container "ghcr.io/diladeniz/multiomics:latest"
 
     input:
     path genomics_file
@@ -81,9 +81,9 @@ process BIOOMICS {
     path gmt_file
 
     output:
-    path "bioomics_out/report.html",               emit: html,   optional: true
-    path "bioomics_out/multiqc_bioomics.json",     emit: json
-    path "bioomics_out/**",                        emit: all_outputs
+    path "multiomics_out/report.html",               emit: html,   optional: true
+    path "multiomics_out/multiqc_multiomics.json",     emit: json
+    path "multiomics_out/**",                        emit: all_outputs
 
     script:
     // Build the command incrementally so that optional flags are only
@@ -96,14 +96,14 @@ process BIOOMICS {
     def no_ml_arg      = params.no_ml                         ? "--no-ml"                          : ""
 
     """
-    bioomics \\
+    multiomics \\
         --genomics        ${genomics_file} \\
         --transcriptomics ${transcriptomics_file} \\
         --epigenomics     ${epigenomics_file} \\
         ${atac_arg} \\
         ${cnv_arg} \\
         ${gmt_arg} \\
-        --output          bioomics_out \\
+        --output          multiomics_out \\
         --threads         ${params.threads} \\
         ${raw_arg} \\
         ${json_arg} \\
@@ -145,6 +145,6 @@ workflow {
     )
 
     // Emit output paths for downstream workflows to consume.
-    BIOOMICS.out.json.view { json -> "BioMultiOmics JSON report: ${json}" }
-    BIOOMICS.out.html.view { html -> "BioMultiOmics HTML report: ${html}" }
+    BIOOMICS.out.json.view { json -> "Multiomics JSON report: ${json}" }
+    BIOOMICS.out.html.view { html -> "Multiomics HTML report: ${html}" }
 }

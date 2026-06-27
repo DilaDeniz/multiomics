@@ -1,8 +1,8 @@
 """
-Snakefile — BioMultiOmics Snakemake workflow
+Snakefile — Multiomics Snakemake workflow
 =============================================
 
-Runs the ``bioomics`` binary and, optionally, MultiQC to aggregate the JSON
+Runs the ``multiomics`` binary and, optionally, MultiQC to aggregate the JSON
 output into a MultiQC HTML report.
 
 Quick start
@@ -28,7 +28,7 @@ Optional per-sample:
   samples.<name>.gmt:       path to GMT pathway file
 
 Global optional:
-  output_dir:       base output directory (default: "bioomics_out")
+  output_dir:       base output directory (default: "multiomics_out")
   threads:          worker threads per sample (default: all cores)
   raw_counts:       treat transcriptomics input as raw counts (default: false)
   json_only:        emit JSON only, no HTML/TUI (default: false)
@@ -46,7 +46,7 @@ from pathlib import Path
 
 configfile: "config.yaml"
 
-OUTPUT_DIR   = config.get("output_dir",  "bioomics_out")
+OUTPUT_DIR   = config.get("output_dir",  "multiomics_out")
 THREADS      = config.get("threads",     workflow.cores)
 RAW_COUNTS   = config.get("raw_counts",  False)
 JSON_ONLY    = config.get("json_only",   False)
@@ -84,7 +84,7 @@ rule all:
     """Default target: produce JSON + HTML for every sample."""
     input:
         expand(
-            os.path.join(OUTPUT_DIR, "{sample}", "multiqc_bioomics.json"),
+            os.path.join(OUTPUT_DIR, "{sample}", "multiqc_multiomics.json"),
             sample=SAMPLES,
         ),
         expand(
@@ -96,12 +96,12 @@ rule all:
 
 
 # ---------------------------------------------------------------------------
-# Rule: bioomics — run the main analysis binary
+# Rule: multiomics — run the main analysis binary
 # ---------------------------------------------------------------------------
 
-rule bioomics:
+rule multiomics:
     """
-    Run BioMultiOmics for a single sample.
+    Run Multiomics for a single sample.
 
     Inputs
     ------
@@ -111,7 +111,7 @@ rule bioomics:
 
     Outputs
     -------
-    json   : multiqc_bioomics.json (always produced)
+    json   : multiqc_multiomics.json (always produced)
     html   : report.html           (unless --json flag is set)
     """
     input:
@@ -124,7 +124,7 @@ rule bioomics:
         cnv   = lambda wc: SAMPLES[wc.sample].get("cnv",   []),
         gmt   = lambda wc: SAMPLES[wc.sample].get("gmt",   []),
     output:
-        json  = os.path.join(OUTPUT_DIR, "{sample}", "multiqc_bioomics.json"),
+        json  = os.path.join(OUTPUT_DIR, "{sample}", "multiqc_multiomics.json"),
         html  = os.path.join(OUTPUT_DIR, "{sample}", "report.html"),
     params:
         sample_cfg = lambda wc: SAMPLES[wc.sample],
@@ -138,12 +138,12 @@ rule bioomics:
         gmt_arg    = lambda wc: opt_path(SAMPLES[wc.sample], "gmt",  "--gmt"),
     threads: THREADS
     log:
-        os.path.join(OUTPUT_DIR, "{sample}", "logs", "bioomics.log"),
+        os.path.join(OUTPUT_DIR, "{sample}", "logs", "multiomics.log"),
     shell:
         """
         mkdir -p {params.out_dir}/logs
 
-        bioomics \\
+        multiomics \\
             --genomics        {input.genomics}        \\
             --transcriptomics {input.transcriptomics} \\
             --epigenomics     {input.epigenomics}     \\
@@ -165,18 +165,18 @@ rule bioomics:
 
 rule multiqc:
     """
-    Run MultiQC over all BioMultiOmics JSON outputs.
+    Run MultiQC over all Multiomics JSON outputs.
 
-    Requires the ``multiqc_bioomics`` Python plugin to be installed::
+    Requires the ``multiqc_multiomics`` Python plugin to be installed::
 
-        pip install multiqc_bioomics/
+        pip install multiqc_multiomics/
 
     This rule is only included in the DAG when ``run_multiqc: true`` in the
     config (the default).
     """
     input:
         jsons = expand(
-            os.path.join(OUTPUT_DIR, "{sample}", "multiqc_bioomics.json"),
+            os.path.join(OUTPUT_DIR, "{sample}", "multiqc_multiomics.json"),
             sample=SAMPLES,
         ),
     output:

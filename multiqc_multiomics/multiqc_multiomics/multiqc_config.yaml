@@ -1,0 +1,9 @@
+# MultiQC configuration fragment automatically loaded when the
+# multiqc_multiomics plugin is installed.
+#
+# Registers the search pattern so that MultiQC can locate
+# ``multiqc_multiomics.json`` files produced by the Multiomics CLI.
+
+sp:
+  multiomics:
+    fn: "multiqc_multiomics.json"

@@ -1,4 +1,4 @@
-//! Python bindings for BioMultiOmics via PyO3.
+//! Python bindings for Multiomics via PyO3.
 //!
 //! Every function returns a JSON-serialised string so callers can use any
 //! Python JSON parser and avoid round-trip overhead on the Rust side.
@@ -12,7 +12,7 @@
 //!
 //! # Usage
 //! ```python
-//! import pybioomics as bmo
+//! import multiomics_py as bmo
 //! import json
 //!
 //! genomics = json.loads(bmo.analyze_vcf("variants.vcf"))
@@ -384,13 +384,13 @@ fn run_gsea_preranked(ranked: &[(String, f64)], min_size: usize, n_perm: usize) 
 
 // ── module definition ─────────────────────────────────────────────────────────
 
-/// Python module `pybioomics._core`.
+/// Python module `multiomics_py._core`.
 ///
-/// Do not import this directly from Python — use `pybioomics` (the wrapper
+/// Do not import this directly from Python — use `multiomics_py` (the wrapper
 /// package) which parses JSON results into native dicts automatically.
 #[pymodule]
-fn pybioomics(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    // Expose the crate version as `pybioomics.__version__`.
+fn multiomics_py(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    // Expose the crate version as `multiomics_py.__version__`.
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
 
     m.add_function(wrap_pyfunction!(analyze_vcf, m)?)?;

@@ -1,5 +1,5 @@
 """
-Setup file for the multiqc_bioomics MultiQC plugin.
+Setup file for the multiqc_multiomics MultiQC plugin.
 
 Install with:
     pip install .
@@ -12,11 +12,11 @@ MultiQC discovers plugins via the ``multiqc.modules`` entry point group.
 from setuptools import setup, find_packages
 
 setup(
-    name="multiqc_bioomics",
+    name="multiqc_multiomics",
     version="0.1.0",
-    author="BioMultiOmics Contributors",
+    author="Multiomics Contributors",
     author_email="",
-    description="MultiQC plugin for BioMultiOmics multi-omics reports",
+    description="MultiQC plugin for Multiomics multi-omics reports",
     long_description=open("../README.md").read() if __import__("os").path.exists("../README.md") else "",
     long_description_content_type="text/markdown",
     url="https://github.com/diladeniz/multiomics",
@@ -29,11 +29,11 @@ setup(
     entry_points={
         # MultiQC plugin discovery — the key must be ``multiqc.modules``
         "multiqc.modules": [
-            "bioomics = multiqc_bioomics:MultiqcModule",
+            "multiomics = multiqc_multiomics:MultiqcModule",
         ],
         # Register the search pattern so MultiQC can find our JSON files
         "multiqc.cli_options": [
-            "bioomics = multiqc_bioomics:cli_options",
+            "multiomics = multiqc_multiomics:cli_options",
         ],
     },
     classifiers=[

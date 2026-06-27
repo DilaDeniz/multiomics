@@ -1,9 +1,0 @@
-# MultiQC configuration fragment automatically loaded when the
-# multiqc_bioomics plugin is installed.
-#
-# Registers the search pattern so that MultiQC can locate
-# ``multiqc_bioomics.json`` files produced by the BioMultiOmics CLI.
-
-sp:
-  bioomics:
-    fn: "multiqc_bioomics.json"

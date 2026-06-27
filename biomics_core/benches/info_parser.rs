@@ -1,4 +1,4 @@
-//! Benchmark: VCF INFO field extraction — BioMultiOmics vs competitor patterns.
+//! Benchmark: VCF INFO field extraction — Multiomics vs competitor patterns.
 //!
 //! INFO parsing is the hot path in any VCF tool. This benchmark compares how
 //! different tools extract key=value pairs from a VCF INFO string:
@@ -6,7 +6,7 @@
 //!  A) python_str_split   — .split(';') + .split('='), approximate Python/pysam
 //!  B) bcftools_scan      — sequential byte scan per key (C bcftools / htslib)
 //!  C) repeated_memchr    — info_value_bytes called N times (naive Rust)
-//!  D) aho_corasick_1x    — InfoMultiParser, one pass for all keys (BioMultiOmics)
+//!  D) aho_corasick_1x    — InfoMultiParser, one pass for all keys (Multiomics)
 //!
 //! Run:
 //!   cargo bench --bench info_parser -p biomics_core
@@ -129,7 +129,7 @@ fn bench_per_record(c: &mut Criterion) {
         );
 
         group.bench_with_input(
-            BenchmarkId::new("D_bioomics_aho_corasick", label),
+            BenchmarkId::new("D_multiomics_aho_corasick", label),
             &info,
             |b, &info| b.iter(|| black_box(parser.extract(black_box(info)))),
         );
@@ -191,7 +191,7 @@ fn bench_record_throughput(c: &mut Criterion) {
         })
     });
 
-    group.bench_function("D_bioomics_aho_corasick", |b| {
+    group.bench_function("D_multiomics_aho_corasick", |b| {
         b.iter(|| {
             infos
                 .iter()

@@ -1,19 +1,19 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-    bioomics.xml — Galaxy tool wrapper for BioMultiOmics
+    multiomics.xml — Galaxy tool wrapper for Multiomics
 
     Place this file (and the companion tool_data_table_conf.xml.sample if
     required) in your Galaxy tool directory and restart the server, or add
     it to a Tool Shed repository.
 
-    Tool id:      bioomics
+    Tool id:      multiomics
     Version:      0.1.0
-    Name:         BioMultiOmics
-    Author:       BioMultiOmics Contributors
+    Name:         Multiomics
+    Author:       Multiomics Contributors
     Repository:   https://github.com/diladeniz/multiomics
     License:      Apache-2.0
 -->
-<tool id="bioomics" name="BioMultiOmics" version="0.1.0" python_template_version="3.5"
+<tool id="multiomics" name="Multiomics" version="0.1.0" python_template_version="3.5"
       profile="23.0">
 
     <description>Integrated multi-omics analysis (genomics, transcriptomics, epigenomics)</description>
@@ -22,25 +22,25 @@
          Requirements
          ================================================================ -->
     <requirements>
-        <!-- The bioomics binary must be on the PATH.  Galaxy can satisfy
+        <!-- The multiomics binary must be on the PATH.  Galaxy can satisfy
              this via a conda package or a Docker/Singularity container. -->
-        <requirement type="package" version="0.1.0">bioomics</requirement>
+        <requirement type="package" version="0.1.0">multiomics</requirement>
     </requirements>
 
     <!-- ================================================================
          Version command — used by Galaxy to record the tool version in
          job metadata and to check for version mismatches.
          ================================================================ -->
-    <version_command>bioomics --version</version_command>
+    <version_command>multiomics --version</version_command>
 
     <!-- ================================================================
          Command block (Cheetah templating)
          ================================================================ -->
     <command detect_errors="exit_code"><![CDATA[
 ## Create a writable output directory inside the job working directory.
-mkdir -p "\$TMPDIR/bioomics_out" &&
+mkdir -p "\$TMPDIR/multiomics_out" &&
 
-bioomics
+multiomics
     --genomics        '$genomics'
     --transcriptomics '$transcriptomics'
     --epigenomics     '$epigenomics'
@@ -57,7 +57,7 @@ bioomics
     --gmt '$optional_inputs.gmt'
 #end if
 
-    --output   "\$TMPDIR/bioomics_out"
+    --output   "\$TMPDIR/multiomics_out"
     --threads  $threads
 
 #if $raw_counts:
@@ -77,9 +77,9 @@ bioomics
 ## Copy outputs to Galaxy dataset paths.
 ## The HTML report may be absent when --json-only is set.
 #if not $json_only:
-cp "\$TMPDIR/bioomics_out/report.html" '$output_html' &&
+cp "\$TMPDIR/multiomics_out/report.html" '$output_html' &&
 #end if
-cp "\$TMPDIR/bioomics_out/multiqc_bioomics.json" '$output_json'
+cp "\$TMPDIR/multiomics_out/multiqc_multiomics.json" '$output_json'
     ]]></command>
 
     <!-- ================================================================
@@ -161,7 +161,7 @@ cp "\$TMPDIR/bioomics_out/multiqc_bioomics.json" '$output_json'
                falsevalue="false"
                checked="false"
                label="Treat transcriptomics input as raw counts"
-               help="When enabled, BioMultiOmics applies DESeq2-style size-factor
+               help="When enabled, Multiomics applies DESeq2-style size-factor
                      normalisation before differential expression analysis.
                      Leave unchecked if your matrix already contains TPM or RPKM values." />
 
@@ -173,7 +173,7 @@ cp "\$TMPDIR/bioomics_out/multiqc_bioomics.json" '$output_json'
                label="JSON output only (skip HTML report)"
                help="Emit only the MultiQC-compatible JSON file.  The HTML report will
                      not be produced.  Useful when the JSON will be aggregated by
-                     MultiQC with the multiqc_bioomics plugin." />
+                     MultiQC with the multiqc_multiomics plugin." />
 
         <param name="no_ml"
                type="boolean"
@@ -218,17 +218,17 @@ cp "\$TMPDIR/bioomics_out/multiqc_bioomics.json" '$output_json'
             <param name="no_ml"           value="true" />
             <output name="output_json">
                 <assert_contents>
-                    <has_text text="bioomics_genomics" />
-                    <has_text text="bioomics_epigenomics" />
-                    <has_text text="bioomics_transcriptomics" />
-                    <has_text text="bioomics_integration" />
+                    <has_text text="multiomics_genomics" />
+                    <has_text text="multiomics_epigenomics" />
+                    <has_text text="multiomics_transcriptomics" />
+                    <has_text text="multiomics_integration" />
                     <has_text text="total_variants" />
                     <has_text text="global_methylation_pct" />
                 </assert_contents>
             </output>
             <output name="output_html">
                 <assert_contents>
-                    <has_text text="BioMultiOmics" />
+                    <has_text text="Multiomics" />
                 </assert_contents>
             </output>
         </test>
@@ -242,7 +242,7 @@ cp "\$TMPDIR/bioomics_out/multiqc_bioomics.json" '$output_json'
             <param name="no_ml"           value="true" />
             <output name="output_json">
                 <assert_contents>
-                    <has_text text="bioomics_genomics" />
+                    <has_text text="multiomics_genomics" />
                 </assert_contents>
             </output>
         </test>
@@ -254,7 +254,7 @@ cp "\$TMPDIR/bioomics_out/multiqc_bioomics.json" '$output_json'
     <help><![CDATA[
 .. class:: infomark
 
-**BioMultiOmics** is a high-performance Rust command-line tool that integrates
+**Multiomics** is a high-performance Rust command-line tool that integrates
 three major omics modalities — genomics (VCF), transcriptomics (expression
 matrix), and epigenomics (BED methylation) — into a single cohesive report.
 
@@ -262,7 +262,7 @@ matrix), and epigenomics (BED methylation) — into a single cohesive report.
 
 **What it does**
 
-BioMultiOmics processes each modality in parallel using a multi-threaded
+Multiomics processes each modality in parallel using a multi-threaded
 pipeline and then performs cross-modality integration:
 
 * **Genomics** — parses the input VCF to count SNPs, indels, and
@@ -289,8 +289,8 @@ pipeline and then performs cross-modality integration:
 * **HTML report** — an interactive self-contained HTML file with tables,
   charts, and insights (omitted when *JSON only* is enabled).
 
-* **MultiQC JSON** — a ``multiqc_bioomics.json`` file compatible with the
-  ``multiqc_bioomics`` MultiQC plugin, which can aggregate results from
+* **MultiQC JSON** — a ``multiqc_multiomics.json`` file compatible with the
+  ``multiqc_multiomics`` MultiQC plugin, which can aggregate results from
   multiple samples into a single QC report.
 
 -----
@@ -323,7 +323,7 @@ pipeline and then performs cross-modality integration:
 
 *Treat as raw counts*
     Enable when the expression matrix contains integer read counts rather
-    than pre-normalised TPM/RPKM values.  BioMultiOmics will apply
+    than pre-normalised TPM/RPKM values.  Multiomics will apply
     DESeq2-style median-of-ratios size-factor normalisation.
 
 *JSON only*
@@ -341,7 +341,7 @@ pipeline and then performs cross-modality integration:
 
 ::
 
-    bioomics \\
+    multiomics \\
         --genomics        sample.vcf.gz \\
         --transcriptomics counts.tsv    \\
         --epigenomics     methylation.bed \\
@@ -352,10 +352,10 @@ pipeline and then performs cross-modality integration:
 
 **References**
 
-See the `BioMultiOmics repository`_ for full documentation, test data, and
+See the `Multiomics repository`_ for full documentation, test data, and
 the Nextflow / Snakemake workflow wrappers.
 
-.. _BioMultiOmics repository: https://github.com/diladeniz/multiomics
+.. _Multiomics repository: https://github.com/diladeniz/multiomics
     ]]></help>
 
     <!-- ================================================================

@@ -3,9 +3,9 @@ requires = ["maturin>=1.4,<2.0"]
 build-backend = "maturin"
 
 [project]
-name = "pybioomics"
+name = "multiomics_py"
 requires-python = ">=3.8"
-description = "Python bindings for BioMultiOmics — fast multi-omics analysis"
+description = "Python bindings for Multiomics — fast multi-omics analysis"
 license = { text = "Apache-2.0" }
 keywords = ["bioinformatics", "genomics", "multi-omics", "rust"]
 classifiers = [
@@ -17,4 +17,4 @@ classifiers = [
 [tool.maturin]
 features = ["pyo3/extension-module"]
 python-source = "python"
-module-name = "pybioomics._core"
+module-name = "multiomics_py._core"

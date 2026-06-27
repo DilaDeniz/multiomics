@@ -1,12 +1,12 @@
 [package]
-name    = "pybioomics"
+name    = "multiomics_py"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Python bindings for BioMultiOmics — fast multi-omics analysis"
+description = "Python bindings for Multiomics — fast multi-omics analysis"
 
 [lib]
-name       = "pybioomics"
+name       = "multiomics_py"
 crate-type = ["cdylib"]
 
 [dependencies]

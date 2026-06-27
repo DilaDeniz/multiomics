@@ -5,7 +5,7 @@
 //!  A) python_counter_style  — HashMap<u64, u32> count map (Python Counter / R table)
 //!  B) sorted_vec_dedup      — Vec::sort + dedup (common in older bioinformatics tools)
 //!  C) ahashset_u64          — AHashSet<u64>, what most Rust tools use today
-//!  D) hyperloglog           — BioMultiOmics, fixed 16 KB, O(1) merge
+//!  D) hyperloglog           — Multiomics, fixed 16 KB, O(1) merge
 //!
 //! For WGS data (n = 10M), A and B become impractical; only C and D scale.
 //! The merge benchmark is the rayon reduce cost (critical for parallel folds).
@@ -73,9 +73,9 @@ fn bench_insert_throughput(c: &mut Criterion) {
             },
         );
 
-        // D: HyperLogLog — BioMultiOmics
+        // D: HyperLogLog — Multiomics
         group.bench_with_input(
-            BenchmarkId::new("D_hyperloglog_bioomics", n),
+            BenchmarkId::new("D_hyperloglog_multiomics", n),
             &n,
             |b, &n| {
                 b.iter(|| {

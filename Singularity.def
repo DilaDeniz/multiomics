@@ -4,7 +4,7 @@ From: debian:bookworm-slim
 %labels
     Author DilaDeniz
     Version 0.1.0
-    Description BioMultiOmics — multi-omics analysis tool
+    Description Multiomics — multi-omics analysis tool
 
 %post
     apt-get update && apt-get install -y --no-install-recommends \
@@ -15,17 +15,17 @@ From: debian:bookworm-slim
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
     . "$HOME/.cargo/env"
 
-    # Build and install the bioomics CLI directly from the upstream repository.
+    # Build and install the multiomics CLI directly from the upstream repository.
     # Target x86-64-v3 (AVX2) for cloud-instance compatibility.
     cd /opt
     RUSTFLAGS="-C target-cpu=x86-64-v3" cargo install \
-        --git https://github.com/DilaDeniz/BioMultiOmics --bin bioomics
+        --git https://github.com/DilaDeniz/Multiomics --bin multiomics
 
 %environment
     export PATH="$PATH:/usr/local/bin"
 
 %runscript
-    exec bioomics "$@"
+    exec multiomics "$@"
 
 %test
-    bioomics --version
+    multiomics --version

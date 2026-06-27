@@ -10,7 +10,7 @@ members = [
     "proteomics_core",
     "integration_layer",
     "cli",
-    "pybioomics",
+    "multiomics_py",
     "wasm",
 ]
 
@@ -18,7 +18,7 @@ members = [
 version    = "0.1.0"
 edition    = "2021"
 license    = "Apache-2.0"
-authors    = ["BioMultiOmics Contributors"]
+authors    = ["Multiomics Contributors"]
 repository = "https://github.com/diladeniz/multiomics"
 
 [workspace.dependencies]

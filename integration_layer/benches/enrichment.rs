@@ -1,4 +1,4 @@
-//! Benchmark: pathway enrichment — BioMultiOmics vs. competitor patterns.
+//! Benchmark: pathway enrichment — Multiomics vs. competitor patterns.
 //!
 //! Compares three implementations for the "which pathways overlap my gene set?"
 //! question, modelling what each major tool roughly does under the hood:
@@ -8,7 +8,7 @@
 //!  B) btreemap_scan        — BTreeMap sorted set + range scan.
 //!                            Approximates bcftools / samtools auxdata patterns.
 //!  C) inverted_index       — gene → pathway index, O(Q) lookup.
-//!                            BioMultiOmics approach.
+//!                            Multiomics approach.
 //!
 //! Sweep: 50 / 500 / 5 000 pathways × 100 / 1 000 query genes.
 //!
@@ -80,7 +80,7 @@ fn btreemap_scan(query: &[String], pathways: &[(String, Vec<String>)]) -> usize 
         .sum()
 }
 
-// ── BioMultiOmics: inverted gene index ────────────────────────────────────────
+// ── Multiomics: inverted gene index ────────────────────────────────────────
 // Build gene → pathway indices map once, then O(Q) query.
 
 fn inverted_index(query: &[String], pathways: &[(String, Vec<String>)]) -> usize {
@@ -153,7 +153,7 @@ fn bench_enrichment_scale(c: &mut Criterion) {
         );
 
         group.bench_with_input(
-            BenchmarkId::new("D_bioomics_inverted_index", &label),
+            BenchmarkId::new("D_multiomics_inverted_index", &label),
             &(&query, &pathways),
             |b, (q, pw)| b.iter(|| inverted_index(q, pw)),
         );
@@ -176,7 +176,7 @@ fn bench_msigdb_scale(c: &mut Criterion) {
         b.iter(|| naive_per_pathway(&query, &pathways))
     });
 
-    group.bench_function("D_bioomics_inverted_index", |b| {
+    group.bench_function("D_multiomics_inverted_index", |b| {
         b.iter(|| inverted_index(&query, &pathways))
     });
 

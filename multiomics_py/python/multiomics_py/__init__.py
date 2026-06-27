@@ -1,12 +1,12 @@
-"""pybioomics — Python bindings for BioMultiOmics.
+"""multiomics_py — Python bindings for Multiomics.
 
-This thin wrapper imports the compiled Rust extension ``pybioomics._core`` and
+This thin wrapper imports the compiled Rust extension ``multiomics_py._core`` and
 re-exports every public function with automatic JSON decoding so that callers
 always receive plain Python ``dict`` / ``list`` objects.
 
 Example usage
 -------------
->>> import pybioomics as bmo
+>>> import multiomics_py as bmo
 >>> genomics = bmo.analyze_vcf("variants.vcf")
 >>> transcr  = bmo.analyze_tsv("expr.tsv")
 >>> epigen   = bmo.analyze_bed("meth.bed")
@@ -19,7 +19,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from pybioomics import _core  # type: ignore[import]
+from multiomics_py import _core  # type: ignore[import]
 
 __version__: str = _core.__version__
 __all__ = [

@@ -1,0 +1,880 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Multiomics — Browser Analysis</title>
+  <style>
+    :root {
+      --bg:        #0d1117;
+      --surface:   #161b22;
+      --border:    #30363d;
+      --text:      #c9d1d9;
+      --muted:     #8b949e;
+      --accent:    #58a6ff;
+      --accent-dim:#1f6feb;
+      --green:     #3fb950;
+      --yellow:    #d29922;
+      --red:       #f85149;
+      --purple:    #bc8cff;
+      --font:      -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      --mono:      "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      --radius:    8px;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 14px;
+      line-height: 1.6;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Header ──────────────────────────────────────────────────────────────── */
+    header {
+      border-bottom: 1px solid var(--border);
+      padding: 20px 32px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      background: var(--surface);
+    }
+    header .logo { font-size: 28px; }
+    header .title-group h1 {
+      font-size: 20px;
+      font-weight: 600;
+      color: #e6edf3;
+    }
+    header .title-group p {
+      font-size: 13px;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+    header nav {
+      margin-left: auto;
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+    header nav a {
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 13px;
+      transition: color .15s;
+    }
+    header nav a:hover { color: var(--accent); }
+    header nav .version-badge {
+      background: var(--border);
+      color: var(--muted);
+      font-size: 11px;
+      font-family: var(--mono);
+      padding: 2px 8px;
+      border-radius: 20px;
+    }
+
+    /* ── Layout ──────────────────────────────────────────────────────────────── */
+    main {
+      flex: 1;
+      max-width: 960px;
+      width: 100%;
+      margin: 32px auto;
+      padding: 0 24px;
+    }
+
+    /* ── Section titles ──────────────────────────────────────────────────────── */
+    .section-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: #e6edf3;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .section-title::after {
+      content: "";
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+    }
+
+    /* ── Upload card ─────────────────────────────────────────────────────────── */
+    .upload-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 24px;
+      margin-bottom: 24px;
+    }
+    .inputs {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+    .file-field {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .file-field .label-text {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .5px;
+    }
+    .file-field .req { color: var(--red); }
+    .file-field .opt { color: var(--muted); font-weight: 400; }
+    .file-input-wrapper {
+      position: relative;
+      border: 1px dashed var(--border);
+      border-radius: 6px;
+      padding: 12px 14px;
+      cursor: pointer;
+      transition: border-color .15s, background .15s;
+      background: var(--bg);
+    }
+    .file-input-wrapper:hover,
+    .file-input-wrapper.has-file {
+      border-color: var(--accent-dim);
+      background: rgba(31, 111, 235, .06);
+    }
+    .file-input-wrapper input[type="file"] {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      cursor: pointer;
+      width: 100%;
+      height: 100%;
+    }
+    .file-name {
+      font-size: 13px;
+      color: var(--muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      pointer-events: none;
+    }
+    .file-input-wrapper.has-file .file-name { color: var(--accent); }
+
+    .analyze-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--accent-dim);
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      padding: 10px 22px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background .15s, opacity .15s;
+    }
+    .analyze-btn:hover:not(:disabled) { background: var(--accent); }
+    .analyze-btn:disabled {
+      opacity: .45;
+      cursor: not-allowed;
+    }
+    .analyze-btn .icon { font-size: 16px; }
+
+    /* ── Loading ─────────────────────────────────────────────────────────────── */
+    #loading {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 14px;
+      padding: 48px 0;
+    }
+    .spinner {
+      width: 36px;
+      height: 36px;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin .75s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #loading p { color: var(--muted); font-size: 14px; }
+
+    /* ── Error ───────────────────────────────────────────────────────────────── */
+    #error {
+      background: rgba(248, 81, 73, .08);
+      border: 1px solid rgba(248, 81, 73, .4);
+      border-radius: var(--radius);
+      padding: 16px 20px;
+      color: var(--red);
+      font-family: var(--mono);
+      font-size: 13px;
+      margin-bottom: 24px;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    /* ── Result cards grid ───────────────────────────────────────────────────── */
+    .cards-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 18px 20px;
+    }
+    .card-title {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .6px;
+      margin-bottom: 10px;
+    }
+    .card-value {
+      font-size: 28px;
+      font-weight: 700;
+      color: #e6edf3;
+      line-height: 1.1;
+    }
+    .card-sub {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 4px;
+    }
+
+    /* ── Badges ──────────────────────────────────────────────────────────────── */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 10px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+      margin-top: 8px;
+    }
+    .badge-red    { background: rgba(248,81,73,.15);   color: var(--red);    border: 1px solid rgba(248,81,73,.3);   }
+    .badge-yellow { background: rgba(210,153,34,.15);  color: var(--yellow); border: 1px solid rgba(210,153,34,.3);  }
+    .badge-green  { background: rgba(63,185,80,.15);   color: var(--green);  border: 1px solid rgba(63,185,80,.3);   }
+    .badge-blue   { background: rgba(88,166,255,.12);  color: var(--accent); border: 1px solid rgba(88,166,255,.25); }
+    .badge-purple { background: rgba(188,140,255,.12); color: var(--purple); border: 1px solid rgba(188,140,255,.25);}
+
+    /* ── Wide cards ──────────────────────────────────────────────────────────── */
+    .card-wide {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 18px 20px;
+      margin-bottom: 16px;
+    }
+
+    /* ── Signatures list ─────────────────────────────────────────────────────── */
+    .sig-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .sig-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .sig-name {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--accent);
+      min-width: 80px;
+    }
+    .sig-bar-bg {
+      flex: 1;
+      height: 8px;
+      background: var(--border);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    .sig-bar {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent-dim), var(--accent));
+      border-radius: 4px;
+      transition: width .4s ease;
+    }
+    .sig-pct {
+      font-size: 12px;
+      color: var(--muted);
+      min-width: 38px;
+      text-align: right;
+    }
+
+    /* ── PRS table ───────────────────────────────────────────────────────────── */
+    .prs-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      margin-top: 8px;
+    }
+    .prs-table th {
+      text-align: left;
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .5px;
+      padding: 6px 10px;
+      border-bottom: 1px solid var(--border);
+    }
+    .prs-table td {
+      padding: 7px 10px;
+      border-bottom: 1px solid rgba(48,54,61,.5);
+      color: var(--text);
+    }
+    .prs-table tr:last-child td { border-bottom: none; }
+    .prs-table td:nth-child(2) { font-family: var(--mono); color: var(--accent); }
+
+    /* ── Immune score gauge ──────────────────────────────────────────────────── */
+    .gauge-row {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-top: 8px;
+    }
+    .gauge-track {
+      flex: 1;
+      height: 12px;
+      background: var(--border);
+      border-radius: 6px;
+      overflow: hidden;
+    }
+    .gauge-fill {
+      height: 100%;
+      border-radius: 6px;
+      transition: width .4s ease;
+    }
+    .gauge-val {
+      font-size: 18px;
+      font-weight: 700;
+      color: #e6edf3;
+      min-width: 42px;
+      text-align: right;
+    }
+
+    /* ── Raw JSON details ────────────────────────────────────────────────────── */
+    details.raw-json {
+      margin-top: 24px;
+    }
+    details.raw-json summary {
+      font-size: 13px;
+      color: var(--muted);
+      cursor: pointer;
+      user-select: none;
+      padding: 8px 0;
+      list-style: none;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    details.raw-json summary::-webkit-details-marker { display: none; }
+    details.raw-json summary::before {
+      content: "▶";
+      font-size: 10px;
+      transition: transform .2s;
+    }
+    details[open].raw-json summary::before { transform: rotate(90deg); }
+    details.raw-json pre {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+      font-family: var(--mono);
+      font-size: 12px;
+      overflow-x: auto;
+      color: var(--text);
+      margin-top: 8px;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+
+    /* ── Footer ──────────────────────────────────────────────────────────────── */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 16px 32px;
+      text-align: center;
+      font-size: 12px;
+      color: var(--muted);
+      background: var(--surface);
+    }
+    footer a { color: var(--muted); text-decoration: none; }
+    footer a:hover { color: var(--accent); }
+
+    /* ── Hidden util ─────────────────────────────────────────────────────────── */
+    [hidden] { display: none !important; }
+
+    @media (max-width: 600px) {
+      header { padding: 14px 16px; flex-wrap: wrap; }
+      header nav { margin-left: 0; width: 100%; }
+      main { padding: 0 16px; }
+      .cards-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <span class="logo">🧬</span>
+  <div class="title-group">
+    <h1>Multiomics</h1>
+    <p>Multi-omics analysis in your browser — no server, no installation</p>
+  </div>
+  <nav>
+    <span class="version-badge" id="ver-badge">v…</span>
+    <a href="https://github.com/DilaDeniz/multiomics" target="_blank" rel="noopener">GitHub ↗</a>
+  </nav>
+</header>
+
+<main>
+
+  <!-- Upload ---------------------------------------------------------------- -->
+  <div class="upload-card">
+    <div class="section-title">Input Files</div>
+    <div class="inputs">
+      <div class="file-field">
+        <span class="label-text">VCF <span class="req">required</span></span>
+        <div class="file-input-wrapper" id="vcf-wrapper">
+          <input type="file" id="vcf" accept=".vcf,.vcf.gz" aria-label="VCF file">
+          <div class="file-name">Choose .vcf file…</div>
+        </div>
+      </div>
+      <div class="file-field">
+        <span class="label-text">Expression TSV <span class="opt">(optional)</span></span>
+        <div class="file-input-wrapper" id="tsv-wrapper">
+          <input type="file" id="tsv" accept=".tsv,.txt" aria-label="Expression TSV file">
+          <div class="file-name">Choose .tsv file…</div>
+        </div>
+      </div>
+      <div class="file-field">
+        <span class="label-text">Methylation BED <span class="opt">(optional)</span></span>
+        <div class="file-input-wrapper" id="bed-wrapper">
+          <input type="file" id="bed" accept=".bed" aria-label="Methylation BED file">
+          <div class="file-name">Choose .bed file…</div>
+        </div>
+      </div>
+    </div>
+    <button class="analyze-btn" id="analyze-btn" disabled>
+      <span class="icon">⚡</span> Analyze
+    </button>
+  </div>
+
+  <!-- Loading --------------------------------------------------------------- -->
+  <div id="loading" hidden>
+    <div class="spinner"></div>
+    <p>Running analysis…</p>
+  </div>
+
+  <!-- Error ----------------------------------------------------------------- -->
+  <div id="error" hidden></div>
+
+  <!-- Results --------------------------------------------------------------- -->
+  <div id="results" hidden></div>
+
+</main>
+
+<footer>
+  <a href="https://github.com/DilaDeniz/multiomics" target="_blank" rel="noopener">DilaDeniz/multiomics</a>
+  &nbsp;·&nbsp; Runs entirely in your browser via WebAssembly &nbsp;·&nbsp;
+  No data leaves your device
+</footer>
+
+<script type="module">
+// ── WASM bootstrap ──────────────────────────────────────────────────────────
+import init, {
+  analyze_genomics,
+  analyze_transcriptomics,
+  analyze_epigenomics,
+  analyze_all,
+  get_version,
+} from './multiomics_wasm.js';
+
+// ── DOM refs ────────────────────────────────────────────────────────────────
+const vcfInput    = document.getElementById('vcf');
+const tsvInput    = document.getElementById('tsv');
+const bedInput    = document.getElementById('bed');
+const analyzeBtn  = document.getElementById('analyze-btn');
+const loadingEl   = document.getElementById('loading');
+const errorEl     = document.getElementById('error');
+const resultsEl   = document.getElementById('results');
+const verBadge    = document.getElementById('ver-badge');
+
+// ── File-input helpers ──────────────────────────────────────────────────────
+function wireFileInput(input, wrapperId) {
+  const wrapper  = document.getElementById(wrapperId);
+  const nameSpan = wrapper.querySelector('.file-name');
+  input.addEventListener('change', () => {
+    const file = input.files[0];
+    if (file) {
+      nameSpan.textContent = file.name;
+      wrapper.classList.add('has-file');
+    } else {
+      nameSpan.textContent = 'Choose file…';
+      wrapper.classList.remove('has-file');
+    }
+    analyzeBtn.disabled = !vcfInput.files[0];
+  });
+}
+wireFileInput(vcfInput, 'vcf-wrapper');
+wireFileInput(tsvInput, 'tsv-wrapper');
+wireFileInput(bedInput, 'bed-wrapper');
+
+// ── Read file as Uint8Array ─────────────────────────────────────────────────
+function readFile(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload  = e => resolve(new Uint8Array(e.target.result));
+    reader.onerror = () => reject(new Error(`Failed to read ${file.name}`));
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+// ── Run analysis ────────────────────────────────────────────────────────────
+analyzeBtn.addEventListener('click', async () => {
+  errorEl.hidden  = true;
+  resultsEl.hidden = true;
+  resultsEl.innerHTML = '';
+  loadingEl.hidden = false;
+  analyzeBtn.disabled = true;
+
+  try {
+    const vcfBytes = await readFile(vcfInput.files[0]);
+    const tsvBytes = tsvInput.files[0] ? await readFile(tsvInput.files[0]) : new Uint8Array(0);
+    const bedBytes = bedInput.files[0] ? await readFile(bedInput.files[0]) : new Uint8Array(0);
+
+    // Yield to the event loop so the spinner actually renders
+    await new Promise(r => setTimeout(r, 0));
+
+    let result;
+    const hasTsv = tsvBytes.length > 0;
+    const hasBed = bedBytes.length > 0;
+
+    if (hasTsv || hasBed) {
+      result = JSON.parse(analyze_all(vcfBytes, tsvBytes, bedBytes));
+    } else {
+      const g = JSON.parse(analyze_genomics(vcfBytes));
+      result = { genomics: g };
+    }
+
+    if (result.error) throw new Error(result.error);
+
+    renderResults(result);
+    resultsEl.hidden = false;
+  } catch (err) {
+    errorEl.textContent = String(err);
+    errorEl.hidden = false;
+  } finally {
+    loadingEl.hidden = true;
+    analyzeBtn.disabled = false;
+  }
+});
+
+// ── Rendering helpers ────────────────────────────────────────────────────────
+
+function badge(text, level) {
+  // level: 'high' | 'moderate' | 'low' | 'blue' | 'purple'
+  const map = {
+    high:     'badge-red',
+    moderate: 'badge-yellow',
+    low:      'badge-green',
+    blue:     'badge-blue',
+    purple:   'badge-purple',
+  };
+  const cls = map[level] ?? 'badge-blue';
+  return `<span class="badge ${cls}">${text}</span>`;
+}
+
+function badgeForTmb(tmb) {
+  if (tmb >= 10) return badge('TMB-High', 'high');
+  if (tmb >= 6)  return badge('TMB-Intermediate', 'yellow');
+  return badge('TMB-Low', 'low');
+}
+
+function badgeForMsi(msi) {
+  if (!msi) return '';
+  const s = String(msi).toLowerCase();
+  if (s === 'msi-h' || s === 'high') return badge('MSI-H', 'high');
+  if (s === 'msi-l' || s === 'low')  return badge('MSI-L', 'low');
+  return badge(msi, 'blue');
+}
+
+function card(title, valueHtml, subHtml = '') {
+  return `<div class="card">
+    <div class="card-title">${title}</div>
+    <div class="card-value">${valueHtml}</div>
+    ${subHtml ? `<div class="card-sub">${subHtml}</div>` : ''}
+  </div>`;
+}
+
+function fmt(n, decimals = 2) {
+  if (n == null || isNaN(n)) return '—';
+  return Number(n).toFixed(decimals);
+}
+
+function renderResults(data) {
+  const g  = data.genomics        || null;
+  const t  = data.transcriptomics || null;
+  const e  = data.epigenomics     || null;
+  const i  = data.integration     || null;
+
+  let html = '';
+
+  // ── Genomics cards ────────────────────────────────────────────────────────
+  if (g) {
+    html += `<div class="section-title">Genomics</div><div class="cards-grid">`;
+
+    // TMB
+    const tmb     = g.tmb ?? g.tumor_mutational_burden ?? null;
+    const tmbDisp = tmb != null ? fmt(tmb, 1) : '—';
+    html += card('Tumor Mutational Burden',
+      `${tmbDisp} <span style="font-size:14px;color:var(--muted)">mut/Mb</span>`,
+      tmb != null ? badgeForTmb(tmb) : '');
+
+    // MSI
+    const msi = g.msi_status ?? g.msi ?? null;
+    html += card('MSI Status',
+      msi ? String(msi).toUpperCase() : '—',
+      msi ? badgeForMsi(msi) : '');
+
+    // Ti/Tv
+    const titv     = g.ti_tv_ratio ?? g.titv_ratio ?? null;
+    const ti_count = g.transition_count ?? g.ti ?? null;
+    const tv_count = g.transversion_count ?? g.tv ?? null;
+    const tiSub    = (ti_count != null && tv_count != null)
+                   ? `Ti ${ti_count} · Tv ${tv_count}` : '';
+    html += card('Ti / Tv Ratio', titv != null ? fmt(titv) : '—', tiSub);
+
+    // Total variants
+    const total = g.total_variants ?? g.variant_count ?? null;
+    html += card('Total Variants', total != null ? total.toLocaleString() : '—', '');
+
+    // SNVs / Indels
+    const snvs   = g.snv_count   ?? g.snvs   ?? null;
+    const indels = g.indel_count ?? g.indels ?? null;
+    if (snvs != null || indels != null) {
+      html += card('SNVs / Indels',
+        `${snvs ?? '—'} <span style="font-size:14px;color:var(--muted)">/ ${indels ?? '—'}</span>`, '');
+    }
+
+    html += `</div>`;
+
+    // COSMIC signatures
+    const sigs = g.cosmic_signatures ?? g.signatures ?? null;
+    if (sigs && (Array.isArray(sigs) ? sigs.length : Object.keys(sigs).length)) {
+      html += renderSignatures(sigs);
+    }
+  }
+
+  // ── Transcriptomics cards ─────────────────────────────────────────────────
+  if (t) {
+    html += `<div class="section-title" style="margin-top:24px">Transcriptomics</div><div class="cards-grid">`;
+
+    const expressed = t.expressed_gene_count ?? t.expressed_genes ?? null;
+    html += card('Expressed Genes', expressed != null ? expressed.toLocaleString() : '—', '');
+
+    const total_genes = t.total_gene_count ?? t.total_genes ?? null;
+    if (total_genes != null) {
+      html += card('Total Genes Detected', total_genes.toLocaleString(), '');
+    }
+
+    const samples = t.sample_count ?? null;
+    if (samples != null) {
+      const names = t.sample_names ?? [];
+      html += card('Samples', samples, names.slice(0, 4).join(', ') + (names.length > 4 ? '…' : ''));
+    }
+
+    const de = t.diff_expr ?? null;
+    if (de) {
+      const up   = de.up_regulated   ?? de.upregulated   ?? null;
+      const down = de.down_regulated ?? de.downregulated ?? null;
+      if (up != null || down != null) {
+        html += card('Differentially Expressed',
+          `<span style="color:var(--red)">↑${up??0}</span> <span style="color:var(--green)">↓${down??0}</span>`,
+          'genes vs first sample');
+      }
+    }
+
+    html += `</div>`;
+  }
+
+  // ── Epigenomics cards ─────────────────────────────────────────────────────
+  if (e) {
+    html += `<div class="section-title" style="margin-top:24px">Epigenomics</div><div class="cards-grid">`;
+
+    const global_meth = e.global_methylation ?? e.mean_methylation ?? null;
+    html += card('Global Methylation',
+      global_meth != null ? `${fmt(global_meth, 1)}%` : '—',
+      '');
+
+    const hyper = e.hypermethylated ?? e.hyper_count ?? null;
+    const hypo  = e.hypomethylated  ?? e.hypo_count  ?? null;
+    if (hyper != null || hypo != null) {
+      html += card('Hyper / Hypo Methylated',
+        `<span style="color:var(--red)">${hyper??'—'}</span> <span style="color:var(--accent)">/ ${hypo??'—'}</span>`,
+        'regions');
+    }
+
+    const cpgs = e.cpg_count ?? e.total_sites ?? null;
+    if (cpgs != null) {
+      html += card('CpG Sites', cpgs.toLocaleString(), '');
+    }
+
+    html += `</div>`;
+  }
+
+  // ── Integration ───────────────────────────────────────────────────────────
+  if (i) {
+    html += `<div class="section-title" style="margin-top:24px">Integration</div>`;
+
+    // Immune evasion score
+    const ies = i.immune_evasion_score ?? i.immune_score ?? null;
+    if (ies != null) {
+      html += renderImmuneScore(ies);
+    }
+
+    // PRS table
+    const prs = i.polygenic_risk_scores ?? i.prs ?? null;
+    if (prs && (Array.isArray(prs) ? prs.length : Object.keys(prs).length)) {
+      html += renderPrsTable(prs);
+    }
+  }
+
+  // ── Raw JSON toggle ───────────────────────────────────────────────────────
+  html += `
+    <details class="raw-json">
+      <summary>Raw JSON output</summary>
+      <pre>${escHtml(JSON.stringify(data, null, 2))}</pre>
+    </details>`;
+
+  resultsEl.innerHTML = html;
+}
+
+// ── COSMIC signatures renderer ───────────────────────────────────────────────
+function renderSignatures(sigs) {
+  let entries;
+  if (Array.isArray(sigs)) {
+    entries = sigs.map(s => ({
+      name: s.name ?? s.signature ?? s.id ?? '?',
+      pct:  s.contribution ?? s.weight ?? s.pct ?? 0,
+    }));
+  } else {
+    entries = Object.entries(sigs).map(([k, v]) => ({ name: k, pct: Number(v) }));
+  }
+  entries.sort((a, b) => b.pct - a.pct);
+  const top = entries.slice(0, 8);
+  const maxPct = Math.max(...top.map(s => s.pct), 1);
+
+  let html = `<div class="card-wide">
+    <div class="card-title">COSMIC Mutational Signatures</div>
+    <div class="sig-list">`;
+  for (const s of top) {
+    const w = Math.round((s.pct / maxPct) * 100);
+    const pctDisp = s.pct < 1 ? fmt(s.pct * 100, 1) + '%' : fmt(s.pct, 1) + '%';
+    html += `<div class="sig-item">
+      <span class="sig-name">${escHtml(String(s.name))}</span>
+      <div class="sig-bar-bg"><div class="sig-bar" style="width:${w}%"></div></div>
+      <span class="sig-pct">${pctDisp}</span>
+    </div>`;
+  }
+  html += `</div></div>`;
+  return html;
+}
+
+// ── Immune evasion score renderer ────────────────────────────────────────────
+function renderImmuneScore(score) {
+  const pct = Math.min(100, Math.max(0, Math.round(score * 100)));
+  let color;
+  if (pct >= 70)      color = 'var(--red)';
+  else if (pct >= 40) color = 'var(--yellow)';
+  else                color = 'var(--green)';
+
+  const level = pct >= 70 ? badge('High', 'high') : pct >= 40 ? badge('Moderate', 'moderate') : badge('Low', 'low');
+
+  return `<div class="card-wide" style="margin-bottom:16px">
+    <div class="card-title">Immune Evasion Score</div>
+    <div class="gauge-row">
+      <div class="gauge-track">
+        <div class="gauge-fill" style="width:${pct}%;background:${color}"></div>
+      </div>
+      <div class="gauge-val">${fmt(score, 3)}</div>
+    </div>
+    <div style="margin-top:8px">${level}</div>
+  </div>`;
+}
+
+// ── PRS table renderer ───────────────────────────────────────────────────────
+function renderPrsTable(prs) {
+  let rows;
+  if (Array.isArray(prs)) {
+    rows = prs;
+  } else {
+    rows = Object.entries(prs).map(([trait, score]) => ({ trait, score }));
+  }
+
+  let html = `<div class="card-wide">
+    <div class="card-title">Polygenic Risk Scores</div>
+    <table class="prs-table">
+      <thead><tr><th>Trait / Condition</th><th>Score</th><th>Risk</th></tr></thead>
+      <tbody>`;
+
+  for (const row of rows) {
+    const trait = row.trait ?? row.name ?? row.disease ?? '—';
+    const score = row.score ?? row.prs ?? row.value ?? null;
+    const scoreFmt = score != null ? fmt(Number(score), 4) : '—';
+    const s = Number(score);
+    let riskBadge = '';
+    if (!isNaN(s)) {
+      if      (s >= 2)   riskBadge = badge('HIGH', 'high');
+      else if (s >= 1.5) riskBadge = badge('ELEVATED', 'yellow');
+      else               riskBadge = badge('NORMAL', 'low');
+    }
+    html += `<tr>
+      <td>${escHtml(String(trait))}</td>
+      <td>${scoreFmt}</td>
+      <td>${riskBadge}</td>
+    </tr>`;
+  }
+  html += `</tbody></table></div>`;
+  return html;
+}
+
+// ── Utility ──────────────────────────────────────────────────────────────────
+function escHtml(str) {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+// ── Init WASM ────────────────────────────────────────────────────────────────
+async function main() {
+  try {
+    await init();
+    verBadge.textContent = 'v' + get_version();
+    analyzeBtn.disabled = !vcfInput.files[0];
+    vcfInput.dispatchEvent(new Event('change'));  // sync initial state
+  } catch (err) {
+    errorEl.textContent = 'Failed to load WASM module: ' + err;
+    errorEl.hidden = false;
+  }
+}
+main();
+</script>
+</body>
+</html>

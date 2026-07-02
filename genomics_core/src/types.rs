@@ -83,4 +83,9 @@ pub struct GenomicsSummary {
     /// Polygenic risk scores for cancer-relevant GWAS loci.
     #[serde(default)]
     pub prs_scores: Vec<PrsResult>,
+    /// Complete variant list, retained in memory for reference-guided analyses
+    /// (e.g. 96-channel COSMIC deconvolution) that run after the parse phase.
+    /// Never serialized — it would bloat the JSON report with the full VCF.
+    #[serde(skip)]
+    pub all_variants: Vec<VariantRecord>,
 }

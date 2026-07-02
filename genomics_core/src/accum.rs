@@ -171,6 +171,7 @@ impl BatchAccum for GenomicsAccum {
             msi,
             cosmic_signatures,
             prs_scores,
+            all_variants: self.all_variants,
         })
     }
 }

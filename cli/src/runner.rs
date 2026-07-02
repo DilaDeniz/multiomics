@@ -159,6 +159,33 @@ pub fn run_pipeline(
         }
     }
 
+    // Optional: reference-guided 96-channel COSMIC signature deconvolution.
+    // Without a reference the 6-channel heuristic computed in the accumulator stands.
+    if let Some(ref ref_path) = cli.reference {
+        if genomics.cosmic_signatures.is_some() && !genomics.all_variants.is_empty() {
+            match genomics_core::cosmic::compute_mutational_signatures_with_reference(
+                &genomics.all_variants,
+                ref_path,
+            ) {
+                Ok(sig) => {
+                    log::info!(
+                        "Reference-guided COSMIC: {} ({} SNVs, cosine {:.3}) — {}",
+                        sig.method,
+                        sig.sbs96.as_ref().map(|s| s.total).unwrap_or(0),
+                        sig.reconstruction_cosine.unwrap_or(0.0),
+                        sig.summary,
+                    );
+                    genomics.cosmic_signatures = Some(sig);
+                }
+                Err(e) => log::warn!("Reference-based COSMIC signature analysis failed: {e:#}"),
+            }
+        }
+    }
+
+    // The full variant list is no longer needed after reference-guided analyses;
+    // release it before the integration and report phases.
+    genomics.all_variants = Vec::new();
+
     drain_progress_channel(&grx, &state, |st, ev| {
         st.genomics_pct = ev.fraction() * 100.0;
         st.genomics_rps = ev.records_per_sec;

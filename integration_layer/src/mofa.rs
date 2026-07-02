@@ -113,7 +113,7 @@ pub fn run_mofa(views: &[(&str, &Array2<f64>)], cfg: &MofaConfig) -> anyhow::Res
     let mut w: Vec<Array2<f64>> = dims
         .iter()
         .enumerate()
-        .map(|(m, &d)| init_w(d, k, cfg.seed ^ (m as u64 * 0x9E3779B97F4A7C15)))
+        .map(|(m, &d)| init_w(d, k, cfg.seed ^ (m as u64).wrapping_mul(0x9E3779B97F4A7C15)))
         .collect();
 
     // ARD precisions α[m][k]: one per (view, factor).

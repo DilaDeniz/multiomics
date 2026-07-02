@@ -536,6 +536,15 @@ fn microhomology_length(
     left_mh.max(right_mh)
 }
 
+/// Public wrapper around [`parse_fasta_selective`] for reuse by other modules
+/// (e.g. reference-guided COSMIC signature analysis).
+pub fn parse_fasta_selective_pub(
+    data: &[u8],
+    needed_chroms: &std::collections::HashSet<&str>,
+) -> HashMap<String, Vec<u8>> {
+    parse_fasta_selective(data, needed_chroms)
+}
+
 /// Parse a FASTA file into a map of chromosome name → uppercase sequence bytes.
 /// Only chromosomes present in `needed_chroms` are retained to save memory.
 fn parse_fasta_selective(

@@ -1195,14 +1195,38 @@ fn html_cancer_genomics(g: &GenomicsSummary) -> String {
         bars_svg.push_str("</svg>");
 
         html.push_str(&format!(
-            r#"<h3>COSMIC Mutational Signatures (6-channel SBS Spectrum)</h3>
+            r#"<h3>COSMIC Mutational Signatures</h3>
+<div class="stat"><span class="stat-label">Method</span><span class="stat-value">{method}</span></div>
 <div class="stat"><span class="stat-label">Total SNVs in spectrum</span><span class="stat-value">{total}</span></div>
-<div class="stat"><span class="stat-label">Summary</span><span class="stat-value">{summary}</span></div>
-{bars_svg}"#,
+<div class="stat"><span class="stat-label">Summary</span><span class="stat-value">{summary}</span></div>"#,
+            method = escape_html(&sig.method),
             total = spec.total_snvs,
             summary = escape_html(&sig.summary),
-            bars_svg = bars_svg,
         ));
+
+        // Reference-guided 96-channel results: reconstruction quality + full spectrum.
+        if let Some(ref s96) = sig.sbs96 {
+            if let Some(cos) = sig.reconstruction_cosine {
+                let cos_class = if cos >= 0.95 {
+                    "badge-green"
+                } else if cos >= 0.85 {
+                    "badge-yellow"
+                } else {
+                    "badge-red"
+                };
+                html.push_str(&format!(
+                    r#"<div class="stat"><span class="stat-label">Reconstruction cosine</span><span class="stat-value"><span class="badge {cls}">{cos:.3}</span></span></div>
+<div class="stat"><span class="stat-label">SNVs with resolved context</span><span class="stat-value">{n} (skipped {skip})</span></div>"#,
+                    cls = cos_class,
+                    cos = cos,
+                    n = s96.total,
+                    skip = s96.skipped_no_context,
+                ));
+            }
+            html.push_str(&render_sbs96_chart(&s96.fractions));
+        }
+
+        html.push_str(&bars_svg);
 
         if !sig.dominant_signatures.is_empty() {
             html.push_str(r#"<table><thead><tr>
@@ -1352,6 +1376,67 @@ fn html_immune_evasion(integration: &IntegrationSummary) -> String {
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
+
+/// Render the iconic 96-channel COSMIC SBS spectrum as an SVG bar chart.
+///
+/// `fractions` is indexed in the crate's canonical order (5' base · 24 +
+/// substitution · 4 + 3' base). Bars are regrouped substitution-major (6 blocks
+/// of 16) to match the standard COSMIC plot layout.
+fn render_sbs96_chart(fractions: &[f64]) -> String {
+    if fractions.len() != 96 {
+        return String::new();
+    }
+    // Standard COSMIC substitution-class colors.
+    let sub_colors = ["#03bcee", "#010101", "#e32926", "#cbcacb", "#a1cf63", "#ecc6c5"];
+    let sub_labels = ["C>A", "C>G", "C>T", "T>A", "T>C", "T>G"];
+    let max_frac = fractions.iter().cloned().fold(0.0_f64, f64::max).max(0.001);
+
+    let bar_w = 5u32;
+    let bar_gap = 1u32;
+    let block_gap = 8u32;
+    let chart_h = 110u32;
+    let block_w = 16 * (bar_w + bar_gap);
+    let total_w = 6 * block_w + 5 * block_gap + 20;
+
+    let mut svg = format!(
+        r#"<svg viewBox="0 0 {w} {h}" xmlns="http://www.w3.org/2000/svg" style="max-width:640px;display:block;margin:8px 0" role="img" aria-label="96-channel SBS mutational spectrum">"#,
+        w = total_w,
+        h = chart_h + 34
+    );
+    for sub in 0..6u32 {
+        let block_x = 10 + sub * (block_w + block_gap);
+        // Class color header bar + label.
+        svg.push_str(&format!(
+            r#"<rect x="{bx}" y="0" width="{bw}" height="6" fill="{c}"/><text x="{tx}" y="{ty}" text-anchor="middle" font-size="10" fill="{c}" font-weight="bold">{lbl}</text>"#,
+            bx = block_x,
+            bw = block_w,
+            c = sub_colors[sub as usize],
+            tx = block_x + block_w / 2,
+            ty = chart_h + 30,
+            lbl = sub_labels[sub as usize],
+        ));
+        for p5 in 0..4u32 {
+            for p3 in 0..4u32 {
+                let within = p5 * 4 + p3; // 0..16 within the class block
+                let channel = (p5 * 24 + sub * 4 + p3) as usize;
+                let frac = fractions[channel];
+                let bh = (frac / max_frac * chart_h as f64) as u32;
+                let x = block_x + within * (bar_w + bar_gap);
+                let y = 10 + chart_h - bh;
+                svg.push_str(&format!(
+                    r#"<rect x="{x}" y="{y}" width="{bw}" height="{bh}" fill="{c}"/>"#,
+                    x = x,
+                    y = y,
+                    bw = bar_w,
+                    bh = bh,
+                    c = sub_colors[sub as usize],
+                ));
+            }
+        }
+    }
+    svg.push_str("</svg>");
+    svg
+}
 
 fn format_num(n: u64) -> String {
     let s = n.to_string();

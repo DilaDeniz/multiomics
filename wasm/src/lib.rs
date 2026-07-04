@@ -70,6 +70,13 @@ struct ChromDensity {
     indels: u64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SignatureMatch {
+    signature: String,
+    weight: f64,
+    etiology: String,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct GenomicsSummary {
     total_variants: u64,
@@ -80,6 +87,18 @@ struct GenomicsSummary {
     af_histogram: Vec<u64>,
     unique_positions: u64,
     high_impact_genes: Vec<String>,
+    /// Tumor mutational burden (mut/Mb), assuming a WGS-sized effective genome.
+    tmb: f64,
+    /// "TMB-H" (≥10) or "TMB-L" (<10).
+    tmb_class: String,
+    /// Microsatellite-instability class: "MSI-H", "MSI-L", or "MSS".
+    msi: String,
+    /// Composite MSI score (homopolymer + short-indel fractions).
+    msi_score: f64,
+    /// COSMIC signatures inferred from the 6-channel SBS spectrum (browser build
+    /// has no reference FASTA, so uses the pattern heuristic — the CLI performs
+    /// full 96-channel NNLS deconvolution).
+    cosmic_signatures: Vec<SignatureMatch>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -151,6 +170,12 @@ struct IntegrationSummary {
     total_variants: u64,
     total_transcriptome_genes: u64,
     total_methylation_sites: u64,
+    /// Composite immune-evasion score in [0, 1] (None if no checkpoint genes seen).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    immune_evasion_score: Option<f64>,
+    /// "HIGH", "MODERATE", or "LOW".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    immune_evasion_class: Option<String>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -362,6 +387,200 @@ fn parse_bed_bytes(data: &[u8]) -> Vec<MethylationRecord> {
 // Accumulators (inline, no C deps)
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Cancer biomarkers (self-contained ports of the genomics_core / integration_layer
+// formulas; kept in-crate so the wasm build stays free of C/BLAS dependencies).
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Effective WGS genome size (Mb) used for TMB in the browser build, matching
+/// the CLI's WGS default. FDA cutoff for pembrolizumab is ≥10 mut/Mb.
+const WGS_GENOME_MB: f64 = 2800.0;
+
+fn compute_tmb(total_variants: u64) -> (f64, String) {
+    let tmb = total_variants as f64 / WGS_GENOME_MB;
+    let class = if tmb >= 10.0 { "TMB-H" } else { "TMB-L" };
+    (tmb, class.to_string())
+}
+
+fn is_homopolymer_indel(ref_allele: &str, alt_allele: &str) -> bool {
+    let (ref_len, alt_len) = (ref_allele.len(), alt_allele.len());
+    if ref_len == alt_len {
+        return false;
+    }
+    let seq = if ref_len > alt_len {
+        &ref_allele[alt_len..]
+    } else {
+        &alt_allele[ref_len..]
+    };
+    if seq.len() < 3 {
+        return false;
+    }
+    let first = seq.as_bytes()[0];
+    seq.bytes().all(|b| b == first)
+}
+
+/// MSI score = 0.6·(homopolymer-indel fraction) + 0.4·(short-indel fraction).
+fn compute_msi(records: &[VariantRecord]) -> (f64, String) {
+    let total_variants = records.len() as u64;
+    let mut total_indels = 0u64;
+    let mut homopolymer_indels = 0u64;
+    let mut short_indels = 0u64;
+    for v in records {
+        let (rl, al) = (v.ref_allele.len(), v.alt_allele.len());
+        if rl == al {
+            continue;
+        }
+        total_indels += 1;
+        let size = rl.abs_diff(al);
+        if (1..=4).contains(&size) {
+            short_indels += 1;
+        }
+        if is_homopolymer_indel(&v.ref_allele, &v.alt_allele) {
+            homopolymer_indels += 1;
+        }
+    }
+    let hp_frac = if total_indels == 0 { 0.0 } else { homopolymer_indels as f64 / total_indels as f64 };
+    let short_frac = if total_variants == 0 { 0.0 } else { short_indels as f64 / total_variants as f64 };
+    let score = hp_frac * 0.6 + short_frac * 0.4;
+    let class = if score > 0.30 {
+        "MSI-H"
+    } else if score >= 0.10 {
+        "MSI-L"
+    } else {
+        "MSS"
+    };
+    (score, class.to_string())
+}
+
+/// 6-channel SBS signature heuristic (pyrimidine-normalized), mirroring
+/// genomics_core::cosmic. Full 96-channel NNLS requires a reference FASTA and is
+/// CLI-only. Returns the dominant putative signatures, sorted by weight.
+fn compute_cosmic_6ch(records: &[VariantRecord]) -> Vec<SignatureMatch> {
+    fn to_pyr(b: u8) -> Option<u8> {
+        match b {
+            b'C' | b'T' => Some(b),
+            b'A' => Some(b'T'),
+            b'G' => Some(b'C'),
+            _ => None,
+        }
+    }
+    fn comp(b: u8) -> u8 {
+        match b {
+            b'A' => b'T',
+            b'T' => b'A',
+            b'C' => b'G',
+            b'G' => b'C',
+            x => x,
+        }
+    }
+    let (mut ca, mut cg, mut ct, mut ta, mut tc, mut tg) = (0u64, 0u64, 0u64, 0u64, 0u64, 0u64);
+    for v in records {
+        if v.ref_allele.len() != 1 || v.alt_allele.len() != 1 {
+            continue;
+        }
+        let r = v.ref_allele.as_bytes()[0].to_ascii_uppercase();
+        let a = v.alt_allele.as_bytes()[0].to_ascii_uppercase();
+        if r == a {
+            continue;
+        }
+        let (rp, ap) = match to_pyr(r) {
+            Some(rp) if rp == r => (r, a),
+            Some(_) => (comp(r), comp(a)),
+            None => continue,
+        };
+        match (rp, ap) {
+            (b'C', b'A') => ca += 1,
+            (b'C', b'G') => cg += 1,
+            (b'C', b'T') => ct += 1,
+            (b'T', b'A') => ta += 1,
+            (b'T', b'C') => tc += 1,
+            (b'T', b'G') => tg += 1,
+            _ => {}
+        }
+    }
+    let total = ca + cg + ct + ta + tc + tg;
+    if total == 0 {
+        return Vec::new();
+    }
+    let n = total as f64;
+    let (fca, fcg, fct, _fta, ftc, ftg) =
+        (ca as f64 / n, cg as f64 / n, ct as f64 / n, ta as f64 / n, tc as f64 / n, tg as f64 / n);
+
+    let mut sigs: Vec<SignatureMatch> = Vec::new();
+    let uv = fct > 0.65;
+    let apobec = fct > 0.35 && fcg > 0.08;
+    if uv {
+        sigs.push(SignatureMatch { signature: "SBS7a/7b".into(), weight: fct, etiology: "UV light exposure (skin cancer)".into() });
+    }
+    if apobec && !uv {
+        sigs.push(SignatureMatch { signature: "SBS2/SBS13".into(), weight: (fct + fcg) / 2.0, etiology: "APOBEC3A/B cytidine deaminase activity".into() });
+    }
+    if fca > 0.28 {
+        sigs.push(SignatureMatch { signature: "SBS4".into(), weight: fca, etiology: "Tobacco smoking".into() });
+    }
+    if fct > 0.30 && !apobec && !uv {
+        sigs.push(SignatureMatch { signature: "SBS1/SBS5".into(), weight: fct * 0.7, etiology: "Aging / spontaneous CpG deamination".into() });
+    }
+    if ftg > 0.18 {
+        sigs.push(SignatureMatch { signature: "SBS17a/17b".into(), weight: ftg, etiology: "5-FU chemotherapy / ROS".into() });
+    }
+    if fca > 0.20 && ftc > 0.20 && fca <= 0.28 {
+        sigs.push(SignatureMatch { signature: "SBS18".into(), weight: (fca + ftc) / 2.0, etiology: "Reactive oxygen species (oxidative stress)".into() });
+    }
+    sigs.sort_by(|a, b| b.weight.partial_cmp(&a.weight).unwrap_or(std::cmp::Ordering::Equal));
+    sigs
+}
+
+/// Immune-evasion score from checkpoint-gene expression, mirroring
+/// integration_layer::immune. Returns (score, class) or None if no panel genes
+/// are expressed.
+fn compute_immune_evasion(gene_stats: &HashMap<String, GeneStats>) -> Option<(f64, String)> {
+    if gene_stats.is_empty() {
+        return None;
+    }
+    // (canonical, aliases, weight)
+    let panel: [(&str, &[&str], f64); 7] = [
+        ("CD274", &["PD-L1", "PDCD1LG1"], 1.0),
+        ("PDCD1", &["PD-1"], 0.9),
+        ("CTLA4", &["CTLA-4"], 1.0),
+        ("LAG3", &["LAG-3"], 0.8),
+        ("HAVCR2", &["TIM3", "TIM-3"], 0.8),
+        ("TIGIT", &[], 0.8),
+        ("FOXP3", &[], 0.6),
+    ];
+    let log2_101 = 101.0_f64.log2();
+    let (mut wsum, mut wtot, mut detected) = (0.0, 0.0, 0usize);
+    for (canon, aliases, weight) in panel.iter() {
+        let tpm = gene_stats.get(*canon).map(|s| s.mean).or_else(|| {
+            aliases.iter().find_map(|a| gene_stats.get(*a).map(|s| s.mean))
+        });
+        if let Some(tpm) = tpm {
+            let norm = (tpm + 1.0).log2() / log2_101;
+            wsum += norm * weight;
+            wtot += weight;
+            detected += 1;
+        }
+    }
+    if detected == 0 {
+        return None;
+    }
+    let checkpoint = (wsum / wtot).clamp(0.0, 1.0);
+    let b2m = gene_stats.get("B2M").map(|s| s.mean);
+    let antigen = match b2m {
+        Some(tpm) => ((tpm + 1.0).log2() / log2_101).clamp(0.0, 1.0),
+        None => 0.5,
+    };
+    let score = (0.6 * checkpoint + 0.4 * (1.0 - antigen)).clamp(0.0, 1.0);
+    let class = if score > 0.40 {
+        "HIGH"
+    } else if score >= 0.20 {
+        "MODERATE"
+    } else {
+        "LOW"
+    };
+    Some((score, class.to_string()))
+}
+
 fn fold_genomics(records: &[VariantRecord]) -> GenomicsSummary {
     let mut total = 0u64;
     let mut snps = 0u64;
@@ -427,6 +646,10 @@ fn fold_genomics(records: &[VariantRecord]) -> GenomicsSummary {
     high_impact_genes.sort_unstable();
     high_impact_genes.dedup();
 
+    let (tmb, tmb_class) = compute_tmb(total);
+    let (msi_score, msi) = compute_msi(records);
+    let cosmic_signatures = compute_cosmic_6ch(records);
+
     GenomicsSummary {
         total_variants: total,
         snp_count: snps,
@@ -436,6 +659,11 @@ fn fold_genomics(records: &[VariantRecord]) -> GenomicsSummary {
         af_histogram: af_histogram.to_vec(),
         unique_positions: unique_positions.len() as u64,
         high_impact_genes,
+        tmb,
+        tmb_class,
+        msi,
+        msi_score,
+        cosmic_signatures,
     }
 }
 
@@ -719,6 +947,12 @@ pub fn analyze_all(vcf: &[u8], tsv: &[u8], bed: &[u8]) -> String {
     let transcriptomics = fold_transcriptomics(&tsv_records, sample_names);
     let epigenomics = fold_epigenomics(&bed_records);
 
+    let (immune_evasion_score, immune_evasion_class) =
+        match compute_immune_evasion(&transcriptomics.gene_stats) {
+            Some((s, c)) => (Some(s), Some(c)),
+            None => (None, None),
+        };
+
     let integration = IntegrationSummary {
         high_impact_genes_in_genomics: genomics.high_impact_genes.clone(),
         expressed_genes: transcriptomics.expressed_genes,
@@ -727,6 +961,8 @@ pub fn analyze_all(vcf: &[u8], tsv: &[u8], bed: &[u8]) -> String {
         total_variants: genomics.total_variants,
         total_transcriptome_genes: transcriptomics.total_genes,
         total_methylation_sites: epigenomics.total_sites,
+        immune_evasion_score,
+        immune_evasion_class,
     };
 
     let combined = serde_json::json!({
@@ -737,4 +973,105 @@ pub fn analyze_all(vcf: &[u8], tsv: &[u8], bed: &[u8]) -> String {
     });
 
     serde_json::to_string(&combined).unwrap_or_else(|e| error_json(&e.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn snv(chrom: &str, pos: u64, r: &str, a: &str, gene: Option<&str>) -> VariantRecord {
+        VariantRecord {
+            chrom: chrom.into(),
+            pos,
+            ref_allele: r.into(),
+            alt_allele: a.into(),
+            qual: 50.0,
+            titv: classify_titv(r.as_bytes()[0], a.as_bytes()[0]),
+            af: Some(0.3),
+            gene: gene.map(|g| g.into()),
+        }
+    }
+
+    #[test]
+    fn tmb_classifies_high_and_low() {
+        // 40,000 variants / 2800 Mb ≈ 14.3 → TMB-H
+        let (tmb, class) = compute_tmb(40_000);
+        assert!(tmb > 10.0);
+        assert_eq!(class, "TMB-H");
+        let (_, class_low) = compute_tmb(100);
+        assert_eq!(class_low, "TMB-L");
+    }
+
+    #[test]
+    fn homopolymer_indel_detection_matches_core_rule() {
+        assert!(is_homopolymer_indel("ATTTT", "A")); // deleted "TTTT" homopolymer
+        assert!(!is_homopolymer_indel("AT", "A"));    // deleted "T" < 3 bp
+        assert!(!is_homopolymer_indel("ACGT", "A"));  // deleted non-homopolymer
+        assert!(!is_homopolymer_indel("A", "A"));     // not an indel
+    }
+
+    #[test]
+    fn msi_high_when_homopolymer_indels_dominate() {
+        let mut recs = Vec::new();
+        for i in 0..30 {
+            recs.push(snv("chr1", i, "ATTTT", "A", None)); // homopolymer deletions
+        }
+        let (score, class) = compute_msi(&recs);
+        assert!(score > 0.30, "score={score}");
+        assert_eq!(class, "MSI-H");
+    }
+
+    #[test]
+    fn msi_stable_when_only_snvs() {
+        let recs: Vec<_> = (0..50).map(|i| snv("chr1", i, "C", "T", None)).collect();
+        let (score, class) = compute_msi(&recs);
+        assert_eq!(score, 0.0);
+        assert_eq!(class, "MSS");
+    }
+
+    #[test]
+    fn cosmic_6ch_detects_uv_from_c_to_t_enrichment() {
+        let mut recs = Vec::new();
+        for i in 0..90 {
+            recs.push(snv("chr1", i, "C", "T", None));
+        }
+        for i in 90..100 {
+            recs.push(snv("chr1", i, "C", "A", None));
+        }
+        let sigs = compute_cosmic_6ch(&recs);
+        assert!(sigs.iter().any(|s| s.signature.starts_with("SBS7")));
+    }
+
+    #[test]
+    fn cosmic_6ch_empty_for_no_snvs() {
+        assert!(compute_cosmic_6ch(&[]).is_empty());
+    }
+
+    #[test]
+    fn immune_evasion_high_with_checkpoint_up_and_b2m_down() {
+        let mut gs = HashMap::new();
+        for g in ["CD274", "PDCD1", "CTLA4", "LAG3", "HAVCR2", "TIGIT", "FOXP3"] {
+            gs.insert(g.to_string(), GeneStats { mean: 100.0, std: 0.0, max: 100.0 });
+        }
+        gs.insert("B2M".into(), GeneStats { mean: 0.0, std: 0.0, max: 0.0 });
+        let (score, class) = compute_immune_evasion(&gs).unwrap();
+        assert!(score > 0.40, "score={score}");
+        assert_eq!(class, "HIGH");
+    }
+
+    #[test]
+    fn immune_evasion_none_when_no_panel_genes() {
+        let mut gs = HashMap::new();
+        gs.insert("ACTB".into(), GeneStats { mean: 500.0, std: 0.0, max: 500.0 });
+        assert!(compute_immune_evasion(&gs).is_none());
+    }
+
+    #[test]
+    fn analyze_genomics_emits_biomarker_fields() {
+        let vcf = b"#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\nchr1\t100\t.\tC\tT\t50\tPASS\t.\n";
+        let out = analyze_genomics(vcf);
+        assert!(out.contains("\"tmb\""));
+        assert!(out.contains("\"msi\""));
+        assert!(out.contains("\"tmb_class\""));
+    }
 }

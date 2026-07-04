@@ -781,6 +781,7 @@ function renderSignatures(sigs) {
 
   let html = `<div class="card-wide">
     <div class="card-title">COSMIC Mutational Signatures</div>
+    <div style="font-size:12px;color:var(--muted);margin:-4px 0 10px">6-channel SBS heuristic (browser). The CLI performs full 96-channel NNLS deconvolution against the COSMIC v3.3 catalogue with a reference genome.</div>
     <div class="sig-list">`;
   for (const s of top) {
     const w = Math.round((s.pct / maxPct) * 100);

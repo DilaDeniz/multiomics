@@ -86,9 +86,9 @@ pub struct LongReadMethCall {
 /// # Arguments
 /// * `path`     – Filesystem path to the BAM file.
 /// * `min_mapq` – Minimum mapping quality; reads below this threshold are
-///                discarded.
+///   discarded.
 /// * `min_prob` – Probability threshold for calling a site methylated.
-///                Typically 0.5.
+///   Typically 0.5.
 ///
 /// # Returns
 /// A `Vec<LongReadMethCall>` sorted by `(chrom, position)` ascending.
@@ -101,7 +101,7 @@ pub fn parse_longread_methylation(
     min_mapq: u8,
     min_prob: f64,
 ) -> Result<Vec<LongReadMethCall>> {
-    let mut reader = bam::io::reader::Builder::default()
+    let mut reader = bam::io::reader::Builder
         .build_from_path(path)
         .with_context(|| format!("cannot open BAM file: {}", path.display()))?;
 
@@ -198,6 +198,7 @@ pub fn longread_to_methylation_records(calls: &[LongReadMethCall]) -> Vec<Methyl
             start: c.position,
             end: c.position + 1,
             methylation: c.methylation_prob * 100.0,
+            gene: None,
         })
         .collect()
 }
@@ -331,7 +332,7 @@ fn ml_offset_for_cm(mm_str: &str) -> Result<usize> {
             break;
         }
         // Count the skip-count values: everything after the first comma.
-        if let Some(rest) = c.splitn(2, ',').nth(1) {
+        if let Some(rest) = c.split_once(',').map(|(_, rest)| rest) {
             offset += rest.split(',').filter(|s| !s.is_empty()).count();
         }
     }

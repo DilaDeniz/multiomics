@@ -8,7 +8,7 @@ use rayon::ThreadPoolBuilder;
 use biomics_core::ProgressEvent;
 use epigenomics_core::{analyze_bed, EpigenomicsSummary};
 use genomics_core::{analyze_vcf, GenomicsSummary};
-use integration_layer::{run_integration, IntegrationSummary};
+use integration_layer::{run_integration_with, IntegrationSummary, Modalities};
 use transcriptomics_core::{analyze_count_tsv, analyze_tsv, TranscriptomicsSummary};
 
 use crate::args::Cli;
@@ -160,8 +160,9 @@ pub fn run_pipeline(
 
     // Optional: reference-guided microhomology HRD scoring
     if let (Some(ref ref_path), Some(_)) = (&cli.reference, &genomics.hrd) {
+        // Same variant set as the reference-free HRD score (all variants).
         match genomics_core::cancer::compute_hrd_score_with_reference(
-            &genomics.high_impact,
+            &genomics.all_variants,
             ref_path,
         ) {
             Ok(hrd) => {
@@ -560,7 +561,13 @@ pub fn run_pipeline(
     } else {
         set_phase(&state, Phase::Integration);
         log::info!("Running integration layer");
-        let result = run_integration(&genomics, &transcriptomics, &epigenomics, false)?;
+        let provided = Modalities {
+            genomics: run_g,
+            transcriptomics: run_t,
+            epigenomics: run_e,
+        };
+        let result =
+            run_integration_with(&genomics, &transcriptomics, &epigenomics, false, provided)?;
         complete_progress(&state, |s| {
             s.integration_pct = 100.0;
         });

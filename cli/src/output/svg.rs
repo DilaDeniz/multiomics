@@ -433,11 +433,15 @@ pub fn heatmap_svg(
         svg.text(plot_x - 6.0, cy, &lbl_short, 10, "end");
     }
 
-    // Cells
+    // Cells (NaN = undefined, drawn grey and labelled n/a)
     for (i, row) in matrix.iter().enumerate() {
         for (j, &val) in row.iter().enumerate() {
             let clamped = val.clamp(-1.0, 1.0);
-            let fill = heatmap_color(clamped);
+            let fill = if val.is_nan() {
+                "#e0e0e0".to_string()
+            } else {
+                heatmap_color(clamped)
+            };
             let cx = plot_x + j as f64 * cell_w;
             let cy = plot_y + i as f64 * cell_h;
             svg.rect(cx, cy, cell_w - 1.0, cell_h - 1.0, &fill, 1.0);
@@ -448,12 +452,17 @@ pub fn heatmap_svg(
             } else {
                 "#333333"
             };
+            let label = if val.is_nan() {
+                "n/a".to_string()
+            } else {
+                format!("{clamped:.2}")
+            };
             svg.elements.push(format!(
-                r#"<text x="{:.2}" y="{:.2}" font-size="10" text-anchor="middle" fill="{}" font-family="Arial, sans-serif">{:.2}</text>"#,
+                r#"<text x="{:.2}" y="{:.2}" font-size="10" text-anchor="middle" fill="{}" font-family="Arial, sans-serif">{}</text>"#,
                 cx + cell_w / 2.0,
                 cy + cell_h / 2.0 + 4.0,
                 text_color,
-                clamped,
+                label,
             ));
         }
     }

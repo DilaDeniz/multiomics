@@ -52,6 +52,9 @@ pub struct JsonGenomicsSection {
     pub titv_ratio: f64,
     pub high_impact_count: usize,
     pub high_impact_genes: Vec<String>,
+    /// How high-impact genes were defined (SnpEff/VEP IMPACT=HIGH or QUAL>30 fallback).
+    pub impact_source: String,
+    pub annotated_variants: u64,
     pub unique_positions: u64,
     pub af_histogram: Vec<u64>,
     pub per_chrom: HashMap<String, ChromStats>,
@@ -220,8 +223,14 @@ pub fn build_multiqc_output(
             transitions: genomics.transitions,
             transversions: genomics.transversions,
             titv_ratio: genomics.titv_ratio,
-            high_impact_count: genomics.high_impact.len(),
+            high_impact_count: if genomics.annotated_variants > 0 {
+                genomics.impact_high_variants as usize
+            } else {
+                genomics.high_impact.len()
+            },
             high_impact_genes: genomics.high_impact_genes.clone(),
+            impact_source: genomics.impact_source.clone(),
+            annotated_variants: genomics.annotated_variants,
             unique_positions: genomics.unique_positions,
             af_histogram: genomics.af_histogram.clone(),
             per_chrom,

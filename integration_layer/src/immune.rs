@@ -24,7 +24,8 @@ const B2M: (&str, &[&str]) = ("B2M", &[]);
 /// - antigen_presentation_score = log2(B2M_TPM+1)/log2(101) (high = good, low = escape)
 /// - immune_evasion_score = 0.6 × checkpoint_score + 0.4 × (1 - antigen_presentation_score)
 ///
-/// Classification: HIGH > 0.40, MODERATE 0.20–0.40, LOW < 0.20
+/// Classification: HIGH > 0.40, MODERATE 0.20–0.40, LOW < 0.20; INSUFFICIENT_DATA
+/// when fewer than 3 checkpoint genes or no B2M expression is found.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ImmuneEvasionScore {
     /// Weighted mean normalized checkpoint gene expression (0–1).
@@ -103,7 +104,12 @@ pub fn compute_immune_evasion(transcr: &TranscriptomicsSummary) -> Option<Immune
     let immune_evasion_score =
         (0.6 * checkpoint_score + 0.4 * (1.0 - antigen_presentation_score)).clamp(0.0, 1.0);
 
-    let evasion_class = if immune_evasion_score > 0.40 {
+    // A class is only assigned when the panel is reasonably covered; otherwise
+    // the score rests on imputed values (B2M defaults to 0.5).
+    let enough_genes = detected_genes.len() >= 3;
+    let evasion_class = if !enough_genes || b2m_tpm.is_none() {
+        "INSUFFICIENT_DATA".to_string()
+    } else if immune_evasion_score > 0.40 {
         "HIGH".to_string()
     } else if immune_evasion_score >= 0.20 {
         "MODERATE".to_string()
@@ -111,14 +117,17 @@ pub fn compute_immune_evasion(transcr: &TranscriptomicsSummary) -> Option<Immune
         "LOW".to_string()
     };
 
-    let note = if detected_genes.len() < 3 {
-        Some(format!(
-            "Only {}/{} checkpoint genes detected — immune evasion score may be unreliable",
+    let note = match (enough_genes, b2m_tpm.is_some()) {
+        (true, true) => None,
+        (false, _) => Some(format!(
+            "Only {}/{} checkpoint genes detected — no immune evasion class assigned",
             detected_genes.len(),
             CHECKPOINT_GENES.len()
-        ))
-    } else {
-        None
+        )),
+        (true, false) => Some(
+            "B2M not detected — antigen presentation unknown; no immune evasion class assigned"
+                .to_string(),
+        ),
     };
 
     Some(ImmuneEvasionScore {
@@ -230,10 +239,29 @@ mod tests {
     }
 
     #[test]
-    fn three_or_more_detected_genes_has_no_note() {
-        let summary = summary_with(&[("CD274", 50.0), ("PDCD1", 50.0), ("CTLA4", 50.0)]);
+    fn three_or_more_detected_genes_with_b2m_has_no_note() {
+        let summary = summary_with(&[
+            ("CD274", 50.0),
+            ("PDCD1", 50.0),
+            ("CTLA4", 50.0),
+            ("B2M", 500.0),
+        ]);
         let result = compute_immune_evasion(&summary).unwrap();
         assert!(result.note.is_none());
+        assert_ne!(result.evasion_class, "INSUFFICIENT_DATA");
+    }
+
+    #[test]
+    fn missing_b2m_or_sparse_panel_gives_no_class() {
+        let no_b2m = summary_with(&[("CD274", 50.0), ("PDCD1", 50.0), ("CTLA4", 50.0)]);
+        let result = compute_immune_evasion(&no_b2m).unwrap();
+        assert_eq!(result.evasion_class, "INSUFFICIENT_DATA");
+        assert!(result.note.unwrap().contains("B2M"));
+        let sparse = summary_with(&[("CD274", 50.0), ("B2M", 500.0)]);
+        assert_eq!(
+            compute_immune_evasion(&sparse).unwrap().evasion_class,
+            "INSUFFICIENT_DATA"
+        );
     }
 
     #[test]

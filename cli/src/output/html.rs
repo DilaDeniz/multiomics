@@ -391,7 +391,7 @@ fn html_summary_cards(
     <div class="stat"><span class="stat-label">SNPs</span><span class="stat-value">{}</span></div>
     <div class="stat"><span class="stat-label">Indels</span><span class="stat-value">{}</span></div>
     <div class="stat"><span class="stat-label">Ti/Tv Ratio</span><span class="stat-value">{}</span></div>
-    <div class="stat"><span class="stat-label">High-Impact (QUAL&gt;30)</span><span class="stat-value">{}</span></div>
+    <div class="stat"><span class="stat-label">High-Impact Variants</span><span class="stat-value">{}</span></div>
     <div class="stat"><span class="stat-label">Unique Positions</span><span class="stat-value">{}</span></div>
   </div>
   <div class="card">
@@ -414,7 +414,14 @@ fn html_summary_cards(
         format_num(g.snp_count),
         format_num(g.indel_count),
         titv_badge,
-        format_num(g.high_impact.len() as u64),
+        if g.annotated_variants > 0 {
+            format!("{} (IMPACT=HIGH)", format_num(g.impact_high_variants))
+        } else {
+            format!(
+                "{} (QUAL&gt;30, unannotated)",
+                format_num(g.high_impact.len() as u64)
+            )
+        },
         format_num(g.unique_positions),
         format_num(t.total_genes),
         format_num(t.expressed_genes),
@@ -624,7 +631,12 @@ fn html_correlation_heatmap(integration: &IntegrationSummary) -> String {
         .enumerate()
         .map(|(i, _)| {
             (0..3)
-                .map(|j| corr.get(i).and_then(|r| r.get(j)).copied().unwrap_or(0.0))
+                .map(|j| {
+                    corr.get(i)
+                        .and_then(|r| r.get(j))
+                        .copied()
+                        .unwrap_or(f64::NAN)
+                })
                 .collect()
         })
         .collect();
@@ -640,6 +652,9 @@ fn html_correlation_heatmap(integration: &IntegrationSummary) -> String {
 }
 
 fn html_pca_chart(integration: &IntegrationSummary) -> String {
+    if integration.pca.points.is_empty() {
+        return String::new();
+    }
     let ev = &integration.pca.explained_variance_ratio;
     let ev0 = ev.first().copied().unwrap_or(0.0) * 100.0;
     let ev1 = ev.get(1).copied().unwrap_or(0.0) * 100.0;

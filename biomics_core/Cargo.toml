@@ -25,6 +25,7 @@ memmap2           = { workspace = true }
 flate2            = { workspace = true }
 
 [dev-dependencies]
+serde_json = { workspace = true }
 criterion = { workspace = true }
 ahash     = { workspace = true }
 memchr    = { workspace = true }

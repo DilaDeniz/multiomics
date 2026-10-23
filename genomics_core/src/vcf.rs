@@ -1,7 +1,6 @@
 use std::path::Path;
 
 use anyhow::{Context, Result};
-use memmap2::Mmap;
 
 use crate::types::{TiTvClass, VariantRecord};
 use biomics_core::parse::{
@@ -106,24 +105,17 @@ fn parse_vcf_line(line: &[u8]) -> Option<VariantRecord> {
     })
 }
 
-/// Parse a VCF file into a `Vec<VariantRecord>` using memory-mapped I/O and
+/// Parse a VCF file (plain, gzip or BGZF) into a `Vec<VariantRecord>` using
 /// zero-alloc byte-level line/field parsing.
 ///
-/// - `madvise(SEQUENTIAL)` hints the kernel to prefetch pages ahead.
+/// - Plain files are memory-mapped with `madvise(SEQUENTIAL)`; `.vcf.gz` files
+///   are decompressed in memory (see [`biomics_core::io::open_input`]).
 /// - `Vec::with_capacity` pre-allocates based on file-size estimate (≈200 bytes/variant).
-/// - No intermediate `String` per line — fields are borrowed from the mmap slice.
+/// - No intermediate `String` per line — fields are borrowed from the input slice.
 pub fn parse_vcf(path: &Path) -> Result<Vec<VariantRecord>> {
-    let file = std::fs::File::open(path)
-        .with_context(|| format!("Cannot open VCF file '{}'", path.display()))?;
-
-    // SAFETY: the file is not modified while this process holds the Mmap.
-    let mmap = unsafe { Mmap::map(&file) }
-        .with_context(|| format!("Cannot mmap VCF file '{}'", path.display()))?;
-
-    // Advise sequential access: kernel will read-ahead pages before we need them.
-    let _ = mmap.advise(memmap2::Advice::Sequential);
-
-    let data = mmap.as_ref();
+    let input = biomics_core::io::open_input(path)
+        .with_context(|| format!("Cannot read VCF file '{}'", path.display()))?;
+    let data: &[u8] = &input;
     let mut records = Vec::with_capacity(data.len() / 200);
 
     for line in ByteLines::new(data) {

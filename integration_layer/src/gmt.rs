@@ -11,7 +11,6 @@
 //! identical to [`crate::pathway::enrichment_analysis`], enabling direct
 //! comparison of results across KEGG built-in pathways and custom GMT files.
 
-use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 
@@ -53,10 +52,9 @@ pub struct GmtPathway {
 /// Returns an error if the file cannot be opened or if a non-comment, non-blank
 /// line has fewer than 2 tab-separated columns.
 pub fn parse_gmt(path: &Path) -> anyhow::Result<Vec<GmtPathway>> {
-    let file =
-        File::open(path).with_context(|| format!("parse_gmt: cannot open {}", path.display()))?;
-    let reader = BufReader::new(file);
-    parse_gmt_reader(reader)
+    let input = biomics_core::io::open_input(path)
+        .with_context(|| format!("parse_gmt: cannot read {}", path.display()))?;
+    parse_gmt_reader(BufReader::new(&input[..]))
 }
 
 /// Internal parser that works on any `BufRead` (enables in-memory testing).

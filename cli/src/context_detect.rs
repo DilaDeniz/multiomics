@@ -231,15 +231,8 @@ pub fn detect_sample_context(
 // ── VCF scanning ──────────────────────────────────────────────────────────────
 
 fn scan_vcf(path: &Path) -> Result<VcfScan, String> {
-    let mmap_result = try_mmap(path);
-    let data_owned: Vec<u8>;
-    let data: &[u8] = match mmap_result {
-        Ok(ref m) => m,
-        Err(_) => {
-            data_owned = std::fs::read(path).map_err(|e| e.to_string())?;
-            &data_owned
-        }
-    };
+    let input = biomics_core::io::open_input(path).map_err(|e| format!("{e:#}"))?;
+    let data: &[u8] = &input;
 
     let mut chrom_set: ahash::AHashSet<String> = ahash::AHashSet::new();
     let mut per_chrom: HashMap<String, u64> = HashMap::new();
@@ -411,15 +404,8 @@ fn classify_titv(r: u8, a: u8) -> Option<bool> {
 // ── BED scanning ──────────────────────────────────────────────────────────────
 
 fn scan_bed(path: &Path) -> Result<BedScan, String> {
-    let mmap_result = try_mmap(path);
-    let data_owned: Vec<u8>;
-    let data: &[u8] = match mmap_result {
-        Ok(ref m) => m,
-        Err(_) => {
-            data_owned = std::fs::read(path).map_err(|e| e.to_string())?;
-            &data_owned
-        }
-    };
+    let input = biomics_core::io::open_input(path).map_err(|e| format!("{e:#}"))?;
+    let data: &[u8] = &input;
 
     let mut chrom_set: ahash::AHashSet<String> = ahash::AHashSet::new();
     let mut per_chrom: HashMap<String, u64> = HashMap::new();
@@ -498,8 +484,8 @@ fn scan_bed(path: &Path) -> Result<BedScan, String> {
 // ── TSV scanning ──────────────────────────────────────────────────────────────
 
 fn scan_tsv(path: &Path) -> Result<TsvScan, String> {
-    let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
-    let reader = BufReader::new(file);
+    let input = biomics_core::io::open_input(path).map_err(|e| format!("{e:#}"))?;
+    let reader = BufReader::new(&input[..]);
 
     let mut n_samples = 0usize;
     for (i, line) in reader.lines().enumerate() {
@@ -579,14 +565,6 @@ fn coefficient_of_variation(counts: &HashMap<String, u64>) -> f64 {
     }
     let variance = vals.iter().map(|&v| (v - mean).powi(2)).sum::<f64>() / n;
     variance.sqrt() / mean
-}
-
-// ── Memory-map helper ─────────────────────────────────────────────────────────
-
-fn try_mmap(path: &Path) -> Result<memmap2::Mmap, String> {
-    let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
-    // SAFETY: we treat the mapped memory as read-only bytes
-    unsafe { memmap2::Mmap::map(&file).map_err(|e| e.to_string()) }
 }
 
 // ── Concordance ───────────────────────────────────────────────────────────────

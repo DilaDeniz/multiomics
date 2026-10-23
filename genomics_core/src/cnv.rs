@@ -164,15 +164,10 @@ pub fn parse_cnv_from_vcf_line(line: &[u8]) -> Option<CnvRecord> {
 /// Parse all CNV records from a VCF file, ignoring non-CNV lines.
 pub fn parse_cnv_vcf(path: &std::path::Path) -> anyhow::Result<Vec<CnvRecord>> {
     use anyhow::Context;
-    use memmap2::Mmap;
 
-    let file = std::fs::File::open(path)
-        .with_context(|| format!("Cannot open CNV VCF '{}'", path.display()))?;
-    let mmap = unsafe { Mmap::map(&file) }
-        .with_context(|| format!("Cannot mmap CNV VCF '{}'", path.display()))?;
-    let _ = mmap.advise(memmap2::Advice::Sequential);
-
-    let data = mmap.as_ref();
+    let input = biomics_core::io::open_input(path)
+        .with_context(|| format!("Cannot read CNV VCF '{}'", path.display()))?;
+    let data: &[u8] = &input;
     let mut records = Vec::with_capacity(data.len() / 300);
 
     for line in ByteLines::new(data) {

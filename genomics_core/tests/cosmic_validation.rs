@@ -51,11 +51,17 @@ fn recovers_known_sbs4_ground_truth_from_synthetic_sample() {
     assert!(cosine > 0.99, "reconstruction cosine too low: {cosine}");
 
     // Ground truth: SBS4 dominates.
-    assert!(!result.cosmic_exposures.is_empty(), "no exposures recovered");
+    assert!(
+        !result.cosmic_exposures.is_empty(),
+        "no exposures recovered"
+    );
     let top = &result.cosmic_exposures[0];
     assert_eq!(top.signature, "SBS4", "expected SBS4 as dominant signature");
     assert!(top.weight > 0.9, "SBS4 weight too low: {}", top.weight);
 
     // The tobacco process flag must derive from the recovered signature.
-    assert!(result.tobacco_signature, "tobacco flag should be set for SBS4");
+    assert!(
+        result.tobacco_signature,
+        "tobacco flag should be set for SBS4"
+    );
 }

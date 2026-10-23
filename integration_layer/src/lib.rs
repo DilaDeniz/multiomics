@@ -227,7 +227,10 @@ pub fn run_integration(
 
     // Run paradox detection across all three modalities
     let paradoxes = detect_paradoxes(genomics, transcr, epigen);
-    log::info!("Multi-modal paradox detection: {} paradoxes found", paradoxes.len());
+    log::info!(
+        "Multi-modal paradox detection: {} paradoxes found",
+        paradoxes.len()
+    );
     if !paradoxes.is_empty() {
         insights.push(insights::Insight {
             level: insights::InsightLevel::Info,
@@ -241,9 +244,18 @@ pub fn run_integration(
 
     // Run per-gene regulatory state classification
     let gene_states = classify_gene_states(genomics, transcr, epigen, &paradoxes);
-    let count_active = gene_states.iter().filter(|g| g.state == GeneState::Active).count();
-    let count_silenced = gene_states.iter().filter(|g| g.state == GeneState::Silenced).count();
-    let count_paradoxical = gene_states.iter().filter(|g| g.state == GeneState::Paradoxical).count();
+    let count_active = gene_states
+        .iter()
+        .filter(|g| g.state == GeneState::Active)
+        .count();
+    let count_silenced = gene_states
+        .iter()
+        .filter(|g| g.state == GeneState::Silenced)
+        .count();
+    let count_paradoxical = gene_states
+        .iter()
+        .filter(|g| g.state == GeneState::Paradoxical)
+        .count();
     log::info!(
         "Gene state classification: {} genes classified ({} active, {} silenced, {} paradoxical)",
         gene_states.len(),

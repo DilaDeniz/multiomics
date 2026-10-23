@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use crate::types::VariantRecord;
+use serde::{Deserialize, Serialize};
 
 /// A single GWAS variant entry from the catalog.
 struct GwasVariant {
@@ -30,6 +30,7 @@ struct DiseaseBaseline {
     std_score: f64,
 }
 
+#[rustfmt::skip]
 static DISEASE_BASELINES: &[DiseaseBaseline] = &[
     DiseaseBaseline { disease: "Colorectal cancer", mean_score: 0.45, std_score: 0.18 },
     DiseaseBaseline { disease: "Breast cancer",     mean_score: 0.52, std_score: 0.20 },
@@ -41,6 +42,7 @@ static DISEASE_BASELINES: &[DiseaseBaseline] = &[
 
 // Static GWAS catalog — selected from NHGRI-EBI GWAS Catalog (www.ebi.ac.uk/gwas/)
 // Only p < 5e-8 associations included. Positions are GRCh38.
+#[rustfmt::skip]
 static GWAS_CATALOG: &[GwasVariant] = &[
     // -- Colorectal cancer (CRC) --
     GwasVariant { chrom: "8",  pos: 128439563, ref_allele: "G", risk_allele: "A", ln_or: 0.167, disease: "Colorectal cancer", gene: "MYC",   rsid: "rs6983267" },
@@ -117,7 +119,8 @@ pub fn compute_prs(variants: &[VariantRecord]) -> Vec<PrsResult> {
     }
 
     // Group GWAS catalog by disease
-    let mut disease_scores: HashMap<&str, (f64, usize, Vec<(String, String, f64)>)> = HashMap::new();
+    let mut disease_scores: HashMap<&str, (f64, usize, Vec<(String, String, f64)>)> =
+        HashMap::new();
     let mut disease_totals: HashMap<&str, usize> = HashMap::new();
 
     for gv in GWAS_CATALOG {
@@ -129,10 +132,14 @@ pub fn compute_prs(variants: &[VariantRecord]) -> Vec<PrsResult> {
                 if vcf_v.ref_allele.eq_ignore_ascii_case(gv.ref_allele)
                     && vcf_v.alt_allele.eq_ignore_ascii_case(gv.risk_allele)
                 {
-                    let entry = disease_scores.entry(gv.disease).or_insert((0.0, 0, Vec::new()));
+                    let entry = disease_scores
+                        .entry(gv.disease)
+                        .or_insert((0.0, 0, Vec::new()));
                     entry.0 += gv.ln_or;
                     entry.1 += 1;
-                    entry.2.push((gv.rsid.to_string(), gv.gene.to_string(), gv.ln_or));
+                    entry
+                        .2
+                        .push((gv.rsid.to_string(), gv.gene.to_string(), gv.ln_or));
                 }
             }
         }
@@ -188,7 +195,11 @@ pub fn compute_prs(variants: &[VariantRecord]) -> Vec<PrsResult> {
     }
 
     // Sort by z_score descending
-    results.sort_by(|a, b| b.z_score.partial_cmp(&a.z_score).unwrap_or(std::cmp::Ordering::Equal));
+    results.sort_by(|a, b| {
+        b.z_score
+            .partial_cmp(&a.z_score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     results
 }
 
@@ -225,7 +236,10 @@ mod tests {
     fn chr_prefix_is_normalized_when_matching() {
         // rs6983267, chr8:128439563 G>A — Colorectal cancer (MYC), ln_or 0.167
         let results = compute_prs(&[variant("chr8", 128439563, "G", "A")]);
-        let crc = results.iter().find(|r| r.disease == "Colorectal cancer").unwrap();
+        let crc = results
+            .iter()
+            .find(|r| r.disease == "Colorectal cancer")
+            .unwrap();
         assert_eq!(crc.n_variants_matched, 1);
         assert!((crc.raw_score - 0.167).abs() < 1e-9);
         assert_eq!(crc.matched_variants[0].0, "rs6983267");
@@ -235,7 +249,10 @@ mod tests {
     fn mismatched_allele_does_not_count_as_a_hit() {
         // Same position, but with the non-risk allele.
         let results = compute_prs(&[variant("8", 128439563, "G", "T")]);
-        let crc = results.iter().find(|r| r.disease == "Colorectal cancer").unwrap();
+        let crc = results
+            .iter()
+            .find(|r| r.disease == "Colorectal cancer")
+            .unwrap();
         assert_eq!(crc.n_variants_matched, 0);
         assert_eq!(crc.raw_score, 0.0);
     }
@@ -243,10 +260,13 @@ mod tests {
     #[test]
     fn multiple_matches_accumulate_raw_score() {
         let results = compute_prs(&[
-            variant("8", 128439563, "G", "A"),  // rs6983267, ln_or 0.167
-            variant("8", 117630213, "A", "G"),  // rs16892766, ln_or 0.131
+            variant("8", 128439563, "G", "A"), // rs6983267, ln_or 0.167
+            variant("8", 117630213, "A", "G"), // rs16892766, ln_or 0.131
         ]);
-        let crc = results.iter().find(|r| r.disease == "Colorectal cancer").unwrap();
+        let crc = results
+            .iter()
+            .find(|r| r.disease == "Colorectal cancer")
+            .unwrap();
         assert_eq!(crc.n_variants_matched, 2);
         assert!((crc.raw_score - (0.167 + 0.131)).abs() < 1e-9);
     }
@@ -265,7 +285,10 @@ mod tests {
             variant("16", 68820541, "A", "G"),
         ];
         let results = compute_prs(&variants);
-        let crc = results.iter().find(|r| r.disease == "Colorectal cancer").unwrap();
+        let crc = results
+            .iter()
+            .find(|r| r.disease == "Colorectal cancer")
+            .unwrap();
         assert_eq!(crc.n_variants_matched, 8);
         assert_eq!(crc.risk_class, "HIGH");
         assert!(crc.z_score > 1.5);

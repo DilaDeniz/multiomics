@@ -439,8 +439,16 @@ fn compute_msi(records: &[VariantRecord]) -> (f64, String) {
             homopolymer_indels += 1;
         }
     }
-    let hp_frac = if total_indels == 0 { 0.0 } else { homopolymer_indels as f64 / total_indels as f64 };
-    let short_frac = if total_variants == 0 { 0.0 } else { short_indels as f64 / total_variants as f64 };
+    let hp_frac = if total_indels == 0 {
+        0.0
+    } else {
+        homopolymer_indels as f64 / total_indels as f64
+    };
+    let short_frac = if total_variants == 0 {
+        0.0
+    } else {
+        short_indels as f64 / total_variants as f64
+    };
     let score = hp_frac * 0.6 + short_frac * 0.4;
     let class = if score > 0.30 {
         "MSI-H"
@@ -503,31 +511,65 @@ fn compute_cosmic_6ch(records: &[VariantRecord]) -> Vec<SignatureMatch> {
         return Vec::new();
     }
     let n = total as f64;
-    let (fca, fcg, fct, _fta, ftc, ftg) =
-        (ca as f64 / n, cg as f64 / n, ct as f64 / n, ta as f64 / n, tc as f64 / n, tg as f64 / n);
+    let (fca, fcg, fct, _fta, ftc, ftg) = (
+        ca as f64 / n,
+        cg as f64 / n,
+        ct as f64 / n,
+        ta as f64 / n,
+        tc as f64 / n,
+        tg as f64 / n,
+    );
 
     let mut sigs: Vec<SignatureMatch> = Vec::new();
     let uv = fct > 0.65;
     let apobec = fct > 0.35 && fcg > 0.08;
     if uv {
-        sigs.push(SignatureMatch { signature: "SBS7a/7b".into(), weight: fct, etiology: "UV light exposure (skin cancer)".into() });
+        sigs.push(SignatureMatch {
+            signature: "SBS7a/7b".into(),
+            weight: fct,
+            etiology: "UV light exposure (skin cancer)".into(),
+        });
     }
     if apobec && !uv {
-        sigs.push(SignatureMatch { signature: "SBS2/SBS13".into(), weight: (fct + fcg) / 2.0, etiology: "APOBEC3A/B cytidine deaminase activity".into() });
+        sigs.push(SignatureMatch {
+            signature: "SBS2/SBS13".into(),
+            weight: (fct + fcg) / 2.0,
+            etiology: "APOBEC3A/B cytidine deaminase activity".into(),
+        });
     }
     if fca > 0.28 {
-        sigs.push(SignatureMatch { signature: "SBS4".into(), weight: fca, etiology: "Tobacco smoking".into() });
+        sigs.push(SignatureMatch {
+            signature: "SBS4".into(),
+            weight: fca,
+            etiology: "Tobacco smoking".into(),
+        });
     }
     if fct > 0.30 && !apobec && !uv {
-        sigs.push(SignatureMatch { signature: "SBS1/SBS5".into(), weight: fct * 0.7, etiology: "Aging / spontaneous CpG deamination".into() });
+        sigs.push(SignatureMatch {
+            signature: "SBS1/SBS5".into(),
+            weight: fct * 0.7,
+            etiology: "Aging / spontaneous CpG deamination".into(),
+        });
     }
     if ftg > 0.18 {
-        sigs.push(SignatureMatch { signature: "SBS17a/17b".into(), weight: ftg, etiology: "5-FU chemotherapy / ROS".into() });
+        sigs.push(SignatureMatch {
+            signature: "SBS17a/17b".into(),
+            weight: ftg,
+            etiology: "5-FU chemotherapy / ROS".into(),
+        });
     }
     if fca > 0.20 && ftc > 0.20 && fca <= 0.28 {
-        sigs.push(SignatureMatch { signature: "SBS18".into(), weight: (fca + ftc) / 2.0, etiology: "Reactive oxygen species (oxidative stress)".into() });
+        sigs.push(SignatureMatch {
+            signature: "SBS18".into(),
+            weight: (fca + ftc) / 2.0,
+            etiology: "Reactive oxygen species (oxidative stress)".into(),
+        });
     }
-    sigs.sort_by(|a, b| b.weight.partial_cmp(&a.weight).unwrap_or(std::cmp::Ordering::Equal));
+    sigs.sort_by(|a, b| {
+        b.weight
+            .partial_cmp(&a.weight)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     sigs
 }
 
@@ -552,7 +594,9 @@ fn compute_immune_evasion(gene_stats: &HashMap<String, GeneStats>) -> Option<(f6
     let (mut wsum, mut wtot, mut detected) = (0.0, 0.0, 0usize);
     for (canon, aliases, weight) in panel.iter() {
         let tpm = gene_stats.get(*canon).map(|s| s.mean).or_else(|| {
-            aliases.iter().find_map(|a| gene_stats.get(*a).map(|s| s.mean))
+            aliases
+                .iter()
+                .find_map(|a| gene_stats.get(*a).map(|s| s.mean))
         });
         if let Some(tpm) = tpm {
             let norm = (tpm + 1.0).log2() / log2_101;
@@ -722,7 +766,14 @@ fn fold_transcriptomics(
             0.0
         };
         let max = means.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-        gene_stats.insert(gene.clone(), GeneStats { mean: overall_mean, std, max });
+        gene_stats.insert(
+            gene.clone(),
+            GeneStats {
+                mean: overall_mean,
+                std,
+                max,
+            },
+        );
         if overall_mean >= 1.0 {
             expressed_genes += 1;
         } else {
@@ -731,7 +782,8 @@ fn fold_transcriptomics(
         mean_by_gene.push((gene.clone(), overall_mean));
     }
 
-    mean_by_gene.sort_unstable_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    mean_by_gene
+        .sort_unstable_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
     let top_expressed: Vec<(String, f64)> = mean_by_gene.into_iter().take(100).collect();
 
     // Simple differential expression: compare first half of samples vs second half.
@@ -810,7 +862,10 @@ fn fold_epigenomics(records: &[MethylationRecord]) -> EpigenomicsSummary {
             .or_default()
             .push((r.start, r.end, r.methylation));
         if let Some(ref gene) = r.gene {
-            gene_sites.entry(gene.clone()).or_default().push(r.methylation);
+            gene_sites
+                .entry(gene.clone())
+                .or_default()
+                .push(r.methylation);
         }
     }
 
@@ -1005,9 +1060,9 @@ mod tests {
     #[test]
     fn homopolymer_indel_detection_matches_core_rule() {
         assert!(is_homopolymer_indel("ATTTT", "A")); // deleted "TTTT" homopolymer
-        assert!(!is_homopolymer_indel("AT", "A"));    // deleted "T" < 3 bp
-        assert!(!is_homopolymer_indel("ACGT", "A"));  // deleted non-homopolymer
-        assert!(!is_homopolymer_indel("A", "A"));     // not an indel
+        assert!(!is_homopolymer_indel("AT", "A")); // deleted "T" < 3 bp
+        assert!(!is_homopolymer_indel("ACGT", "A")); // deleted non-homopolymer
+        assert!(!is_homopolymer_indel("A", "A")); // not an indel
     }
 
     #[test]
@@ -1050,10 +1105,26 @@ mod tests {
     #[test]
     fn immune_evasion_high_with_checkpoint_up_and_b2m_down() {
         let mut gs = HashMap::new();
-        for g in ["CD274", "PDCD1", "CTLA4", "LAG3", "HAVCR2", "TIGIT", "FOXP3"] {
-            gs.insert(g.to_string(), GeneStats { mean: 100.0, std: 0.0, max: 100.0 });
+        for g in [
+            "CD274", "PDCD1", "CTLA4", "LAG3", "HAVCR2", "TIGIT", "FOXP3",
+        ] {
+            gs.insert(
+                g.to_string(),
+                GeneStats {
+                    mean: 100.0,
+                    std: 0.0,
+                    max: 100.0,
+                },
+            );
         }
-        gs.insert("B2M".into(), GeneStats { mean: 0.0, std: 0.0, max: 0.0 });
+        gs.insert(
+            "B2M".into(),
+            GeneStats {
+                mean: 0.0,
+                std: 0.0,
+                max: 0.0,
+            },
+        );
         let (score, class) = compute_immune_evasion(&gs).unwrap();
         assert!(score > 0.40, "score={score}");
         assert_eq!(class, "HIGH");
@@ -1062,13 +1133,21 @@ mod tests {
     #[test]
     fn immune_evasion_none_when_no_panel_genes() {
         let mut gs = HashMap::new();
-        gs.insert("ACTB".into(), GeneStats { mean: 500.0, std: 0.0, max: 500.0 });
+        gs.insert(
+            "ACTB".into(),
+            GeneStats {
+                mean: 500.0,
+                std: 0.0,
+                max: 500.0,
+            },
+        );
         assert!(compute_immune_evasion(&gs).is_none());
     }
 
     #[test]
     fn analyze_genomics_emits_biomarker_fields() {
-        let vcf = b"#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\nchr1\t100\t.\tC\tT\t50\tPASS\t.\n";
+        let vcf =
+            b"#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\nchr1\t100\t.\tC\tT\t50\tPASS\t.\n";
         let out = analyze_genomics(vcf);
         assert!(out.contains("\"tmb\""));
         assert!(out.contains("\"msi\""));

@@ -180,7 +180,15 @@ fn gpu_knn_umap(
     let knn = pollster::block_on(gpu_knn_exact(&data_f32, n_cells, n_dims, k))?;
 
     let (adjacency, rho) = compute_fuzzy_graph_from_knn(&knn, n_cells);
-    run_umap_from_graph(&adjacency, &rho, n_cells, n_epochs, min_dist, learning_rate, seed)
+    run_umap_from_graph(
+        &adjacency,
+        &rho,
+        n_cells,
+        n_epochs,
+        min_dist,
+        learning_rate,
+        seed,
+    )
 }
 
 /// GPU exact k-NN via per-cell k-selection shader.
@@ -279,11 +287,13 @@ async fn gpu_knn_exact(
 
     let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
         label: Some("umap_kselect_pipeline"),
-        layout: Some(&device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: None,
-            bind_group_layouts: &[Some(&bgl)],
-            immediate_size: 0,
-        })),
+        layout: Some(
+            &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: None,
+                bind_group_layouts: &[Some(&bgl)],
+                immediate_size: 0,
+            }),
+        ),
         module: &shader,
         entry_point: Some("main"),
         compilation_options: wgpu::PipelineCompilationOptions::default(),
@@ -294,21 +304,31 @@ async fn gpu_knn_exact(
         label: None,
         layout: &bgl,
         entries: &[
-            wgpu::BindGroupEntry { binding: 0, resource: input_buf.as_entire_binding() },
-            wgpu::BindGroupEntry { binding: 1, resource: idx_buf.as_entire_binding() },
-            wgpu::BindGroupEntry { binding: 2, resource: dist_buf.as_entire_binding() },
-            wgpu::BindGroupEntry { binding: 3, resource: uniform_buf.as_entire_binding() },
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: input_buf.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: idx_buf.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: dist_buf.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 3,
+                resource: uniform_buf.as_entire_binding(),
+            },
         ],
     });
 
     // ── Dispatch (one thread per cell) ────────────────────────────────────────
 
     let wg_count = ((n_cells as u32) + 255) / 256;
-    let mut encoder =
-        device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
     {
-        let mut pass =
-            encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, &bind_group, &[]);
         pass.dispatch_workgroups(wg_count, 1, 1);
@@ -325,7 +345,10 @@ async fn gpu_knn_exact(
     let (tx_d, rx_d) = std::sync::mpsc::channel();
     idx_slice.map_async(wgpu::MapMode::Read, move |v| tx_i.send(v).unwrap());
     dist_slice.map_async(wgpu::MapMode::Read, move |v| tx_d.send(v).unwrap());
-    device.poll(wgpu::PollType::Wait { submission_index: None, timeout: None })?;
+    device.poll(wgpu::PollType::Wait {
+        submission_index: None,
+        timeout: None,
+    })?;
     rx_i.recv()??;
     rx_d.recv()??;
 
@@ -388,7 +411,11 @@ mod tests {
     fn gpu_umap_falls_back_on_small_dataset() {
         let data = Array2::from_shape_fn((4, 3), |(i, j)| (i * 3 + j) as f64);
         let result = run_umap_gpu(&data, 2, 10, 0.1, 1.0, 42);
-        assert!(result.is_ok(), "should succeed via CPU fallback: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "should succeed via CPU fallback: {:?}",
+            result
+        );
         let r = result.unwrap();
         assert_eq!(r.embedding.nrows(), 4);
         assert_eq!(r.embedding.ncols(), 2);

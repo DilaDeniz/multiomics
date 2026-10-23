@@ -1,8 +1,8 @@
+use crate::cosmic_ref::{COSMIC_SBS, N_CHANNELS};
+use crate::types::VariantRecord;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::collections::HashSet;
-use crate::types::VariantRecord;
-use crate::cosmic_ref::{COSMIC_SBS, N_CHANNELS};
 
 /// 6-channel SBS mutation spectrum (no reference required).
 ///
@@ -178,7 +178,16 @@ pub fn compute_sbs6_spectrum(variants: &[VariantRecord]) -> SbsSpectrum6 {
         [0.0; 6]
     };
 
-    SbsSpectrum6 { c_to_a, c_to_g, c_to_t, t_to_a, t_to_c, t_to_g, total_snvs, fractions }
+    SbsSpectrum6 {
+        c_to_a,
+        c_to_g,
+        c_to_t,
+        t_to_a,
+        t_to_c,
+        t_to_g,
+        total_snvs,
+        fractions,
+    }
 }
 
 /// Detect dominant COSMIC mutational signatures from 6-channel SBS spectrum.
@@ -275,7 +284,11 @@ pub fn detect_signatures_from_6ch(spec: &SbsSpectrum6) -> MutationalSignatureRes
     }
 
     // Sort by weight descending
-    signatures.sort_by(|a, b| b.weight.partial_cmp(&a.weight).unwrap_or(std::cmp::Ordering::Equal));
+    signatures.sort_by(|a, b| {
+        b.weight
+            .partial_cmp(&a.weight)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     let summary = if summary_parts.is_empty() {
         "No dominant mutational signature detected (low SNV count or mixed pattern)".to_string()
@@ -356,7 +369,12 @@ pub fn sbs96_channel_index(p5: u8, refb: u8, altb: u8, p3: u8) -> Option<usize> 
     let (p5, refb, altb, p3) = if refb == b'C' || refb == b'T' {
         (p5, refb, altb, p3)
     } else {
-        (dna_complement(p3), dna_complement(refb), dna_complement(altb), dna_complement(p5))
+        (
+            dna_complement(p3),
+            dna_complement(refb),
+            dna_complement(altb),
+            dna_complement(p5),
+        )
     };
     let sub_idx = match (refb, altb) {
         (b'C', b'A') => 0,
@@ -419,7 +437,12 @@ pub fn compute_sbs96_spectrum(
         vec![0.0; N_CHANNELS]
     };
 
-    Sbs96Spectrum { counts, fractions, total, skipped_no_context: skipped }
+    Sbs96Spectrum {
+        counts,
+        fractions,
+        total,
+        skipped_no_context: skipped,
+    }
 }
 
 /// Cosine similarity between two equal-length vectors.
@@ -584,7 +607,10 @@ fn signature_processes(name: &str) -> (bool, bool, bool, bool) {
     // (apobec, tobacco, mmr_deficiency, uv)
     let apobec = matches!(name, "SBS2" | "SBS13");
     let tobacco = matches!(name, "SBS4" | "SBS29");
-    let mmr = matches!(name, "SBS6" | "SBS14" | "SBS15" | "SBS20" | "SBS21" | "SBS26" | "SBS44");
+    let mmr = matches!(
+        name,
+        "SBS6" | "SBS14" | "SBS15" | "SBS20" | "SBS21" | "SBS26" | "SBS44"
+    );
     let uv = matches!(name, "SBS7a" | "SBS7b" | "SBS7c" | "SBS7d" | "SBS38");
     (apobec, tobacco, mmr, uv)
 }
@@ -611,7 +637,9 @@ pub fn deconvolve_sbs96(spectrum: &Sbs96Spectrum) -> (Vec<SignatureExposure>, f6
     // Prune to meaningful contributors, then refit for stable exposures.
     let sum0: f64 = x0.iter().sum();
     let survivors: Vec<usize> = if sum0 > 0.0 {
-        (0..x0.len()).filter(|&j| x0[j] / sum0 >= EXPOSURE_THRESHOLD).collect()
+        (0..x0.len())
+            .filter(|&j| x0[j] / sum0 >= EXPOSURE_THRESHOLD)
+            .collect()
     } else {
         Vec::new()
     };
@@ -635,7 +663,11 @@ pub fn deconvolve_sbs96(spectrum: &Sbs96Spectrum) -> (Vec<SignatureExposure>, f6
         .iter()
         .enumerate()
         .filter_map(|(idx, &sig_j)| {
-            let w = if sum_sub > 0.0 { x_sub[idx] / sum_sub } else { 0.0 };
+            let w = if sum_sub > 0.0 {
+                x_sub[idx] / sum_sub
+            } else {
+                0.0
+            };
             if w < EXPOSURE_THRESHOLD {
                 return None;
             }
@@ -646,7 +678,11 @@ pub fn deconvolve_sbs96(spectrum: &Sbs96Spectrum) -> (Vec<SignatureExposure>, f6
             })
         })
         .collect();
-    exposures.sort_by(|a, b| b.weight.partial_cmp(&a.weight).unwrap_or(std::cmp::Ordering::Equal));
+    exposures.sort_by(|a, b| {
+        b.weight
+            .partial_cmp(&a.weight)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     (exposures, cosine)
 }
@@ -737,7 +773,10 @@ pub fn compute_mutational_signatures_with_reference(
     use memmap2::Mmap;
 
     let file = std::fs::File::open(reference_path).map_err(|e| {
-        anyhow::anyhow!("Cannot open reference FASTA '{}': {e}", reference_path.display())
+        anyhow::anyhow!(
+            "Cannot open reference FASTA '{}': {e}",
+            reference_path.display()
+        )
     })?;
     // SAFETY: file is not modified while this process holds the Mmap.
     let mmap = unsafe { Mmap::map(&file) }
@@ -747,7 +786,9 @@ pub fn compute_mutational_signatures_with_reference(
     let needed: HashSet<&str> = variants.iter().map(|v| v.chrom.as_str()).collect();
     let ref_seqs = crate::cancer::parse_fasta_selective_pub(mmap.as_ref(), &needed);
 
-    Ok(compute_mutational_signatures_with_context(variants, &ref_seqs))
+    Ok(compute_mutational_signatures_with_context(
+        variants, &ref_seqs,
+    ))
 }
 
 #[cfg(test)]
@@ -778,8 +819,8 @@ mod tests {
     #[test]
     fn indels_and_mnps_are_excluded_from_spectrum() {
         let variants = vec![
-            snv("chr1", 100, "C", "CA"), // insertion
-            snv("chr1", 200, "AT", "A"), // deletion
+            snv("chr1", 100, "C", "CA"),  // insertion
+            snv("chr1", 200, "AT", "A"),  // deletion
             snv("chr1", 300, "AC", "GT"), // MNP
         ];
         let spec = compute_sbs6_spectrum(&variants);
@@ -828,7 +869,10 @@ mod tests {
         }
         let result = compute_mutational_signatures(&variants);
         assert!(result.uv_signature);
-        assert!(result.dominant_signatures.iter().any(|s| s.signature == "SBS7a/7b"));
+        assert!(result
+            .dominant_signatures
+            .iter()
+            .any(|s| s.signature == "SBS7a/7b"));
     }
 
     #[test]
@@ -842,7 +886,10 @@ mod tests {
         }
         let result = compute_mutational_signatures(&variants);
         assert!(result.tobacco_signature);
-        assert!(result.dominant_signatures.iter().any(|s| s.signature == "SBS4"));
+        assert!(result
+            .dominant_signatures
+            .iter()
+            .any(|s| s.signature == "SBS4"));
     }
 
     #[test]
@@ -940,8 +987,8 @@ mod tests {
         let mut refs = HashMap::new();
         refs.insert("chr1".to_string(), b"TCA".to_vec());
         let variants = vec![
-            snv("chr1", 1, "T", "A"),   // at contig edge (no 5' base) → skipped
-            snv("chr2", 2, "C", "A"),   // chromosome absent → skipped
+            snv("chr1", 1, "T", "A"), // at contig edge (no 5' base) → skipped
+            snv("chr2", 2, "C", "A"), // chromosome absent → skipped
         ];
         let spec = compute_sbs96_spectrum(&variants, &refs);
         assert_eq!(spec.total, 0);
@@ -962,7 +1009,11 @@ mod tests {
         let (exposures, cosine) = deconvolve_sbs96(&spectrum);
         assert!(!exposures.is_empty());
         assert_eq!(exposures[0].signature, "SBS4");
-        assert!(exposures[0].weight > 0.8, "SBS4 weight = {}", exposures[0].weight);
+        assert!(
+            exposures[0].weight > 0.8,
+            "SBS4 weight = {}",
+            exposures[0].weight
+        );
         assert!(cosine > 0.99, "cosine = {}", cosine);
     }
 
@@ -975,7 +1026,12 @@ mod tests {
         for k in 0..96 {
             fractions[k] = 0.5 * COSMIC_SBS[i4].profile[k] + 0.5 * COSMIC_SBS[i7].profile[k];
         }
-        let spectrum = Sbs96Spectrum { counts: vec![0; 96], fractions, total: 2000, skipped_no_context: 0 };
+        let spectrum = Sbs96Spectrum {
+            counts: vec![0; 96],
+            fractions,
+            total: 2000,
+            skipped_no_context: 0,
+        };
         let (exposures, cosine) = deconvolve_sbs96(&spectrum);
         assert!(cosine > 0.99, "cosine = {cosine}");
         let total_w: f64 = exposures.iter().map(|e| e.weight).sum();
@@ -983,7 +1039,10 @@ mod tests {
         let names: Vec<&str> = exposures.iter().map(|e| e.signature.as_str()).collect();
         assert!(names.contains(&"SBS4"), "expected SBS4 in {names:?}");
         // UV is captured by one of the near-collinear SBS7 signatures.
-        assert!(names.iter().any(|n| n.starts_with("SBS7")), "expected an SBS7* in {names:?}");
+        assert!(
+            names.iter().any(|n| n.starts_with("SBS7")),
+            "expected an SBS7* in {names:?}"
+        );
     }
 
     #[test]
@@ -1009,8 +1068,19 @@ mod tests {
         for pos in 2..=11u64 {
             // pull the ref base at this position to make a valid SNV
             let base = b"ACGTACGTACGT"[(pos - 1) as usize];
-            let alt = if base == b'C' { b'A' } else if base == b'G' { b'T' } else { continue };
-            variants.push(snv("chr1", pos, &(base as char).to_string(), &(alt as char).to_string()));
+            let alt = if base == b'C' {
+                b'A'
+            } else if base == b'G' {
+                b'T'
+            } else {
+                continue;
+            };
+            variants.push(snv(
+                "chr1",
+                pos,
+                &(base as char).to_string(),
+                &(alt as char).to_string(),
+            ));
         }
         let result = compute_mutational_signatures_with_context(&variants, &refs);
         assert_eq!(result.method, "96-channel NNLS (COSMIC v3.3)");

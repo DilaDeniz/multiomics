@@ -7,9 +7,13 @@ use serde::Serialize;
 
 use epigenomics_core::clock::MethylationAgeResult;
 use epigenomics_core::EpigenomicsSummary;
-use genomics_core::cancer::{HrdScore, KataegisLocus, LohChromosome, MsiResult, TmbResult, TumorPurityResult};
+use genomics_core::cancer::{
+    HrdScore, KataegisLocus, LohChromosome, MsiResult, TmbResult, TumorPurityResult,
+};
 use genomics_core::GenomicsSummary;
-use integration_layer::{EnrichmentResult, GeneParadox, GeneRegulatoryProfile, Insight, IntegrationSummary};
+use integration_layer::{
+    EnrichmentResult, GeneParadox, GeneRegulatoryProfile, Insight, IntegrationSummary,
+};
 use transcriptomics_core::TranscriptomicsSummary;
 
 /// MultiQC-compatible general stats for the top-level table.

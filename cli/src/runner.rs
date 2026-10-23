@@ -37,7 +37,10 @@ pub fn run_pipeline(
             format!(
                 "[INFO] Auto-detected: {} {} {}",
                 ctx.species.as_str(),
-                ctx.genomics_assay.as_ref().map(|a| a.as_str()).unwrap_or(""),
+                ctx.genomics_assay
+                    .as_ref()
+                    .map(|a| a.as_str())
+                    .unwrap_or(""),
                 ctx.suggested_preset
                     .as_ref()
                     .map(|p| format!("→ preset: {}", p.preset))
@@ -71,9 +74,15 @@ pub fn run_pipeline(
     let run_t = cli.transcriptomics.is_some() && !cli.skip_transcriptomics;
     let run_e = cli.epigenomics.is_some() && !cli.skip_epigenomics;
 
-    if !run_g { log::info!("Skipping genomics analysis"); }
-    if !run_t { log::info!("Skipping transcriptomics analysis"); }
-    if !run_e { log::info!("Skipping epigenomics analysis"); }
+    if !run_g {
+        log::info!("Skipping genomics analysis");
+    }
+    if !run_t {
+        log::info!("Skipping transcriptomics analysis");
+    }
+    if !run_e {
+        log::info!("Skipping epigenomics analysis");
+    }
 
     let (mut genomics, transcriptomics, epigenomics): (
         GenomicsSummary,
@@ -104,9 +113,12 @@ pub fn run_pipeline(
             });
             (gh.join(), th.join(), eh.join())
         });
-        let g: GenomicsSummary = gr.map_err(|e| anyhow::anyhow!("Genomics thread panicked: {:?}", e))??;
-        let t: TranscriptomicsSummary = tr.map_err(|e| anyhow::anyhow!("Transcriptomics thread panicked: {:?}", e))??;
-        let e: EpigenomicsSummary = er.map_err(|e| anyhow::anyhow!("Epigenomics thread panicked: {:?}", e))??;
+        let g: GenomicsSummary =
+            gr.map_err(|e| anyhow::anyhow!("Genomics thread panicked: {:?}", e))??;
+        let t: TranscriptomicsSummary =
+            tr.map_err(|e| anyhow::anyhow!("Transcriptomics thread panicked: {:?}", e))??;
+        let e: EpigenomicsSummary =
+            er.map_err(|e| anyhow::anyhow!("Epigenomics thread panicked: {:?}", e))??;
         (g, t, e)
     };
 

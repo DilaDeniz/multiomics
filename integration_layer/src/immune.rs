@@ -4,6 +4,7 @@ use transcriptomics_core::TranscriptomicsSummary;
 /// Checkpoint gene panel for immune evasion scoring.
 /// Genes, canonical_aliases, weight
 /// Reference: Chen & Mellman 2017 (Nature), Ribas & Wolchok 2018 (Science)
+#[rustfmt::skip]
 const CHECKPOINT_GENES: &[(&str, &[&str], f64)] = &[
     ("CD274",  &["PD-L1", "PDCD1LG1"],        1.0),  // PD-L1
     ("PDCD1",  &["PD-1"],                      0.9),  // PD-1 receptor
@@ -59,9 +60,15 @@ pub fn compute_immune_evasion(transcr: &TranscriptomicsSummary) -> Option<Immune
 
     for (canonical, aliases, weight) in CHECKPOINT_GENES {
         // Try canonical name, then aliases
-        let tpm_opt = transcr.gene_stats.get(*canonical).map(|s| s.mean).or_else(|| {
-            aliases.iter().find_map(|alias| transcr.gene_stats.get(*alias).map(|s| s.mean))
-        });
+        let tpm_opt = transcr
+            .gene_stats
+            .get(*canonical)
+            .map(|s| s.mean)
+            .or_else(|| {
+                aliases
+                    .iter()
+                    .find_map(|alias| transcr.gene_stats.get(*alias).map(|s| s.mean))
+            });
 
         match tpm_opt {
             Some(tpm) => {
@@ -84,14 +91,17 @@ pub fn compute_immune_evasion(transcr: &TranscriptomicsSummary) -> Option<Immune
 
     // B2M (antigen presentation)
     let b2m_tpm = transcr.gene_stats.get(B2M.0).map(|s| s.mean).or_else(|| {
-        B2M.1.iter().find_map(|alias| transcr.gene_stats.get(*alias).map(|s| s.mean))
+        B2M.1
+            .iter()
+            .find_map(|alias| transcr.gene_stats.get(*alias).map(|s| s.mean))
     });
     let antigen_presentation_score = match b2m_tpm {
         Some(tpm) => ((tpm + 1.0).log2() / log2_101).clamp(0.0, 1.0),
         None => 0.5, // unknown: assume average
     };
 
-    let immune_evasion_score = (0.6 * checkpoint_score + 0.4 * (1.0 - antigen_presentation_score)).clamp(0.0, 1.0);
+    let immune_evasion_score =
+        (0.6 * checkpoint_score + 0.4 * (1.0 - antigen_presentation_score)).clamp(0.0, 1.0);
 
     let evasion_class = if immune_evasion_score > 0.40 {
         "HIGH".to_string()
@@ -132,7 +142,14 @@ mod tests {
     fn summary_with(genes: &[(&str, f64)]) -> TranscriptomicsSummary {
         let mut gene_stats = HashMap::new();
         for (name, mean) in genes {
-            gene_stats.insert(name.to_string(), GeneStats { mean: *mean, std: 0.0, max: *mean });
+            gene_stats.insert(
+                name.to_string(),
+                GeneStats {
+                    mean: *mean,
+                    std: 0.0,
+                    max: *mean,
+                },
+            );
         }
         TranscriptomicsSummary {
             total_genes: genes.len() as u64,
@@ -224,7 +241,9 @@ mod tests {
         let summary = summary_with(&[("CD274", 1_000_000.0), ("B2M", 1_000_000.0)]);
         let result = compute_immune_evasion(&summary).unwrap();
         assert!(result.checkpoint_score >= 0.0 && result.checkpoint_score <= 1.0);
-        assert!(result.antigen_presentation_score >= 0.0 && result.antigen_presentation_score <= 1.0);
+        assert!(
+            result.antigen_presentation_score >= 0.0 && result.antigen_presentation_score <= 1.0
+        );
         assert!(result.immune_evasion_score >= 0.0 && result.immune_evasion_score <= 1.0);
     }
 }

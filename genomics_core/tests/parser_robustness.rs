@@ -10,7 +10,11 @@ use genomics_core::parse_vcf;
 fn temp_vcf(tag: &str, content: &[u8]) -> std::path::PathBuf {
     let mut path = std::env::temp_dir();
     // Combine pid + tag for a collision-resistant, deterministic-per-test name.
-    path.push(format!("multiomics_robust_{}_{}.vcf", std::process::id(), tag));
+    path.push(format!(
+        "multiomics_robust_{}_{}.vcf",
+        std::process::id(),
+        tag
+    ));
     let mut f = std::fs::File::create(&path).expect("create temp vcf");
     f.write_all(content).expect("write temp vcf");
     path

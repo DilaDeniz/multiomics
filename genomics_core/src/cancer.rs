@@ -331,7 +331,7 @@ pub fn detect_kataegis(variants: &[VariantRecord]) -> Vec<KataegisLocus> {
 
             // Extend the window greedily
             let mut end_idx = start_idx + 5; // inclusive: variants[start_idx..=end_idx]
-            // imd indices: start_idx .. end_idx (end_idx - start_idx IMDs)
+                                             // imd indices: start_idx .. end_idx (end_idx - start_idx IMDs)
             let mut sum_ln_imd: f64 = (start_idx..end_idx)
                 .map(|i| (imd[i] as f64 + 1.0).ln())
                 .sum();
@@ -359,10 +359,7 @@ pub fn detect_kataegis(variants: &[VariantRecord]) -> Vec<KataegisLocus> {
             for (_, v) in positions.iter().take(end_idx + 1).skip(start_idx) {
                 // Only SNPs (single-base substitutions)
                 if v.ref_allele.len() == 1 && v.alt_allele.len() == 1 {
-                    let change = format!(
-                        ">{}",
-                        v.alt_allele.chars().next().unwrap_or('N')
-                    );
+                    let change = format!(">{}", v.alt_allele.chars().next().unwrap_or('N'));
                     let ref_char = v.ref_allele.chars().next().unwrap_or('N');
                     let key = format!("{ref_char}{change}");
                     *change_counts.entry(key).or_insert(0) += 1;
@@ -465,18 +462,17 @@ pub fn compute_hrd_score(variants: &[VariantRecord]) -> HrdScore {
         }
     }
 
-    let (del_1bp_frac, del_2_5bp_frac, del_6_50bp_frac, ins_gt3bp_frac) =
-        if total_indels == 0 {
-            (0.0, 0.0, 0.0, 0.0)
-        } else {
-            let n = total_indels as f64;
-            (
-                del_1bp as f64 / n,
-                del_2_5bp as f64 / n,
-                del_6_50bp as f64 / n,
-                ins_gt3bp as f64 / n,
-            )
-        };
+    let (del_1bp_frac, del_2_5bp_frac, del_6_50bp_frac, ins_gt3bp_frac) = if total_indels == 0 {
+        (0.0, 0.0, 0.0, 0.0)
+    } else {
+        let n = total_indels as f64;
+        (
+            del_1bp as f64 / n,
+            del_2_5bp as f64 / n,
+            del_6_50bp as f64 / n,
+            ins_gt3bp as f64 / n,
+        )
+    };
 
     let hrd_indel_score = del_6_50bp_frac * 0.6 + ins_gt3bp_frac * 0.4;
 
@@ -517,11 +513,7 @@ pub fn compute_hrd_score(variants: &[VariantRecord]) -> HrdScore {
 /// `right_flank`: reference bases immediately right of the deletion end.
 ///
 /// Returns the maximum of left-flank and right-flank microhomology lengths.
-fn microhomology_length(
-    deleted_seq: &[u8],
-    left_flank: &[u8],
-    right_flank: &[u8],
-) -> usize {
+fn microhomology_length(deleted_seq: &[u8], left_flank: &[u8], right_flank: &[u8]) -> usize {
     let del_len = deleted_seq.len();
     // Left MH: compare end of left_flank with deleted_seq
     let left_mh = (1..=del_len.min(left_flank.len()))
@@ -612,8 +604,12 @@ pub fn compute_hrd_score_with_reference(
 ) -> anyhow::Result<HrdScore> {
     use memmap2::Mmap;
 
-    let file = std::fs::File::open(reference_path)
-        .map_err(|e| anyhow::anyhow!("Cannot open reference FASTA '{}': {e}", reference_path.display()))?;
+    let file = std::fs::File::open(reference_path).map_err(|e| {
+        anyhow::anyhow!(
+            "Cannot open reference FASTA '{}': {e}",
+            reference_path.display()
+        )
+    })?;
 
     // SAFETY: file is not modified while this process holds the Mmap.
     let mmap = unsafe { Mmap::map(&file) }
@@ -622,10 +618,8 @@ pub fn compute_hrd_score_with_reference(
     let _ = mmap.advise(memmap2::Advice::Sequential);
 
     // Collect chromosome names needed
-    let needed_chroms: std::collections::HashSet<&str> = variants
-        .iter()
-        .map(|v| v.chrom.as_str())
-        .collect();
+    let needed_chroms: std::collections::HashSet<&str> =
+        variants.iter().map(|v| v.chrom.as_str()).collect();
 
     let ref_seqs = parse_fasta_selective(mmap.as_ref(), &needed_chroms);
 
@@ -794,7 +788,10 @@ pub fn detect_loh(variants: &[VariantRecord]) -> Vec<LohChromosome> {
             };
 
             // Fraction of variants with AF < 0.35 or AF > 0.65
-            let skewed_count = afs.iter().filter(|&&af| !(0.35..=0.65).contains(&af)).count();
+            let skewed_count = afs
+                .iter()
+                .filter(|&&af| !(0.35..=0.65).contains(&af))
+                .count();
             let skewed_fraction = skewed_count as f64 / n as f64;
 
             let loh_flagged = median_af_deviation > 0.15;
@@ -824,7 +821,13 @@ mod tests {
     use super::*;
     use crate::types::TiTvClass;
 
-    fn make_variant(chrom: &str, pos: u64, ref_a: &str, alt_a: &str, af: Option<f32>) -> VariantRecord {
+    fn make_variant(
+        chrom: &str,
+        pos: u64,
+        ref_a: &str,
+        alt_a: &str,
+        af: Option<f32>,
+    ) -> VariantRecord {
         VariantRecord {
             chrom: chrom.to_string(),
             pos,

@@ -1,7 +1,9 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use crate::cancer::{HrdScore, KataegisLocus, LohChromosome, MsiResult, TmbResult, TumorPurityResult};
+use crate::cancer::{
+    HrdScore, KataegisLocus, LohChromosome, MsiResult, TmbResult, TumorPurityResult,
+};
 use crate::cosmic::MutationalSignatureResult;
 use crate::prs::PrsResult;
 

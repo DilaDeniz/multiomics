@@ -5,13 +5,16 @@ use chrono::{DateTime, Utc};
 
 use epigenomics_core::EpigenomicsSummary;
 use genomics_core::GenomicsSummary;
-use integration_layer::{GeneParadox, GeneRegulatoryProfile, GeneState, Insight, InsightLevel, IntegrationSummary, ParadoxKind};
+use integration_layer::{
+    GeneParadox, GeneRegulatoryProfile, GeneState, Insight, InsightLevel, IntegrationSummary,
+    ParadoxKind,
+};
 use proteomics_core::ProteomicsSummary;
 use transcriptomics_core::TranscriptomicsSummary;
 
-use crate::context_detect::SampleContext;
 use super::circos::generate_circos_svg;
 use super::svg::{bar_chart_svg, heatmap_svg, histogram_svg, scatter_svg, volcano_svg};
+use crate::context_detect::SampleContext;
 
 /// Generate a self-contained HTML report and write it to `{output_dir}/report.html`.
 ///
@@ -54,7 +57,9 @@ fn generate_html(
 ) -> String {
     let head = html_head();
     let summary_cards = html_summary_cards(genomics, transcr, epigen);
-    let context_box = sample_context.map(html_sample_context_box).unwrap_or_default();
+    let context_box = sample_context
+        .map(html_sample_context_box)
+        .unwrap_or_default();
     let circos_svg = generate_circos_svg(genomics, epigen);
     let variant_chart = html_variant_density_chart(genomics);
     let af_histogram = html_af_histogram(genomics);
@@ -519,10 +524,7 @@ fn html_epigenetic_clock(e: &EpigenomicsSummary) -> String {
             r#"<span class="badge badge-yellow">{}</span>"#,
             ma.confidence
         ),
-        _ => format!(
-            r#"<span class="badge badge-red">{}</span>"#,
-            ma.confidence
-        ),
+        _ => format!(r#"<span class="badge badge-red">{}</span>"#, ma.confidence),
     };
 
     let delta_html = match ma.age_delta {
@@ -763,18 +765,9 @@ fn html_paradoxes(paradoxes: &[GeneParadox]) -> String {
                 " style=\"background:#2b2200\"",
                 "Variant in Active Gene".to_string(),
             ),
-            ParadoxKind::VariantInSilentGene => (
-                "",
-                "Variant in Silent Gene".to_string(),
-            ),
-            ParadoxKind::DifferentialWithoutVariant => (
-                "",
-                "DE without Variant".to_string(),
-            ),
-            ParadoxKind::VariantWithoutExpression => (
-                "",
-                "Variant without DE".to_string(),
-            ),
+            ParadoxKind::VariantInSilentGene => ("", "Variant in Silent Gene".to_string()),
+            ParadoxKind::DifferentialWithoutVariant => ("", "DE without Variant".to_string()),
+            ParadoxKind::VariantWithoutExpression => ("", "Variant without DE".to_string()),
         };
 
         // Build evidence string
@@ -822,7 +815,8 @@ fn html_gene_states(integration: &IntegrationSummary) -> String {
         return String::new();
     }
 
-    let mut html = String::from(r#"<section class="section">
+    let mut html = String::from(
+        r#"<section class="section">
 <h2>&#x1F9EC; Gene Regulatory States</h2>
 <p>State assignment based on multi-modal molecular profile (expression &times; methylation &times; genomic variants).
 Thresholds: <span style="color:#27ae60">&#9632; Active</span> = TPM &ge; 10 + methylation &lt; 30%;
@@ -836,7 +830,8 @@ Thresholds: <span style="color:#27ae60">&#9632; Active</span> = TPM &ge; 10 + me
   <th>Gene</th><th>State</th><th>TPM</th><th>Methylation</th><th>Variant QUAL</th><th>log2FC</th><th>Description</th>
 </tr></thead>
 <tbody>
-"#);
+"#,
+    );
 
     for g in &profiles {
         let color = g.state.html_color();
@@ -845,9 +840,18 @@ Thresholds: <span style="color:#27ae60">&#9632; Active</span> = TPM &ge; 10 + me
             g.state.as_str()
         );
         let tpm = g.mean_tpm.map(|v| format!("{v:.1}")).unwrap_or_default();
-        let meth = g.mean_methylation.map(|v| format!("{v:.1}%")).unwrap_or_default();
-        let qual = g.max_variant_qual.map(|v| format!("{v:.0}")).unwrap_or_default();
-        let lfc = g.log2_fold_change.map(|v| format!("{v:+.2}")).unwrap_or_default();
+        let meth = g
+            .mean_methylation
+            .map(|v| format!("{v:.1}%"))
+            .unwrap_or_default();
+        let qual = g
+            .max_variant_qual
+            .map(|v| format!("{v:.0}"))
+            .unwrap_or_default();
+        let lfc = g
+            .log2_fold_change
+            .map(|v| format!("{v:+.2}"))
+            .unwrap_or_default();
 
         html.push_str(&format!(
             "<tr><td><strong>{gene}</strong></td><td>{badge}</td><td>{tpm}</td><td>{meth}</td><td>{qual}</td><td>{lfc}</td><td>{desc}</td></tr>\n",
@@ -881,8 +885,10 @@ fn html_cancer_genomics(g: &GenomicsSummary) -> String {
 
     // ── FDA Biomarkers: TMB + MSI ──
     if has_tmb || has_msi {
-        html.push_str(r#"<h3>FDA-Approved Pembrolizumab Biomarkers</h3>
-<div class="cards">"#);
+        html.push_str(
+            r#"<h3>FDA-Approved Pembrolizumab Biomarkers</h3>
+<div class="cards">"#,
+        );
 
         if let Some(ref tmb) = g.tmb {
             let badge_class = match tmb.tmb_class.as_str() {
@@ -969,10 +975,7 @@ fn html_cancer_genomics(g: &GenomicsSummary) -> String {
             .map(|v| format!("{:.1}%", v * 100.0))
             .unwrap_or_else(|| "N/A".to_string());
         let class_badge = match p.purity_class.as_str() {
-            "HIGH" => format!(
-                r#"<span class="badge badge-red">{}</span>"#,
-                p.purity_class
-            ),
+            "HIGH" => format!(r#"<span class="badge badge-red">{}</span>"#, p.purity_class),
             "MODERATE" => format!(
                 r#"<span class="badge badge-yellow">{}</span>"#,
                 p.purity_class
@@ -1034,10 +1037,7 @@ fn html_cancer_genomics(g: &GenomicsSummary) -> String {
     // ── HRD ──
     if let Some(ref hrd) = g.hrd {
         let hrd_badge = match hrd.hrd_class.as_str() {
-            "HRD-HIGH" => format!(
-                r#"<span class="badge badge-red">{}</span>"#,
-                hrd.hrd_class
-            ),
+            "HRD-HIGH" => format!(r#"<span class="badge badge-red">{}</span>"#, hrd.hrd_class),
             "HRD-INTERMEDIATE" => format!(
                 r#"<span class="badge badge-yellow">{}</span>"#,
                 hrd.hrd_class
@@ -1057,8 +1057,11 @@ fn html_cancer_genomics(g: &GenomicsSummary) -> String {
             (hrd.del_6_50bp_frac, "#e15759", "Del 6-50bp"),
             (hrd.ins_gt3bp_frac, "#76b7b2", "Ins &gt;3bp"),
         ];
-        let mut bar_svg =
-            format!(r#"<svg viewBox="0 0 {bar_w} {bar_h}" xmlns="http://www.w3.org/2000/svg" style="width:400px;display:block;margin:8px 0">"#, bar_w = bar_w + 120.0, bar_h = bar_h + 4.0);
+        let mut bar_svg = format!(
+            r#"<svg viewBox="0 0 {bar_w} {bar_h}" xmlns="http://www.w3.org/2000/svg" style="width:400px;display:block;margin:8px 0">"#,
+            bar_w = bar_w + 120.0,
+            bar_h = bar_h + 4.0
+        );
         let mut x = 0.0_f64;
         for (frac, color, _label) in &segments {
             let w = frac * bar_w;
@@ -1160,7 +1163,9 @@ fn html_cancer_genomics(g: &GenomicsSummary) -> String {
     if let Some(ref sig) = g.cosmic_signatures {
         let spec = &sig.spectrum_6ch;
         // SVG 6-channel bar chart
-        let bar_colors = ["#4e79a7", "#59a14f", "#e15759", "#76b7b2", "#f28e2b", "#b07aa1"];
+        let bar_colors = [
+            "#4e79a7", "#59a14f", "#e15759", "#76b7b2", "#f28e2b", "#b07aa1",
+        ];
         let channel_names = ["C>A", "C>G", "C>T", "T>A", "T>C", "T>G"];
         let fracs = spec.fractions;
         let max_frac = fracs.iter().cloned().fold(0.0_f64, f64::max).max(0.001);
@@ -1181,7 +1186,11 @@ fn html_cancer_genomics(g: &GenomicsSummary) -> String {
             let py = if y > 12 { y - 3 } else { y + 11 };
             bars_svg.push_str(&format!(
                 "<rect x=\"{x}\" y=\"{y}\" width=\"{bar_w}\" height=\"{h}\" fill=\"{color}\"/>",
-                x = x, y = y, bar_w = bar_w, h = h, color = color,
+                x = x,
+                y = y,
+                bar_w = bar_w,
+                h = h,
+                color = color,
             ));
             bars_svg.push_str(&format!(
                 "<text x=\"{tx}\" y=\"{ty}\" text-anchor=\"middle\" font-size=\"10\" fill=\"#8b949e\">{name}</text>",
@@ -1229,9 +1238,11 @@ fn html_cancer_genomics(g: &GenomicsSummary) -> String {
         html.push_str(&bars_svg);
 
         if !sig.dominant_signatures.is_empty() {
-            html.push_str(r#"<table><thead><tr>
+            html.push_str(
+                r#"<table><thead><tr>
   <th>Signature</th><th>Estimated Weight</th><th>Etiology</th>
-</tr></thead><tbody>"#);
+</tr></thead><tbody>"#,
+            );
             for s in &sig.dominant_signatures {
                 html.push_str(&format!(
                     "<tr><td><strong>{}</strong></td><td>{:.3}</td><td>{}</td></tr>\n",
@@ -1248,7 +1259,10 @@ fn html_cancer_genomics(g: &GenomicsSummary) -> String {
             sig.tobacco_signature.then_some("Tobacco signature"),
             sig.uv_signature.then_some("UV signature"),
             sig.mismatch_repair_deficiency.then_some("MMR deficiency"),
-        ].into_iter().flatten().collect();
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
         if !flags.is_empty() {
             html.push_str(&format!(
                 r#"<div class="insight insight-warn" style="margin-top:8px"><span class="insight-tag">[FLAGS]</span>{}</div>"#,
@@ -1387,7 +1401,9 @@ fn render_sbs96_chart(fractions: &[f64]) -> String {
         return String::new();
     }
     // Standard COSMIC substitution-class colors.
-    let sub_colors = ["#03bcee", "#010101", "#e32926", "#cbcacb", "#a1cf63", "#ecc6c5"];
+    let sub_colors = [
+        "#03bcee", "#010101", "#e32926", "#cbcacb", "#a1cf63", "#ecc6c5",
+    ];
     let sub_labels = ["C>A", "C>G", "C>T", "T>A", "T>C", "T>G"];
     let max_frac = fractions.iter().cloned().fold(0.0_f64, f64::max).max(0.001);
 

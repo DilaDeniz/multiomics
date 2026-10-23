@@ -81,10 +81,7 @@ pub fn detect_features(spectra: &[Spectrum]) -> Vec<Feature> {
     let mut xics: Vec<Xic> = build_xics(&ms1, &scan_groups);
 
     // Step 3: detect apex in each XIC → feature.
-    let mut features: Vec<Feature> = xics
-        .iter_mut()
-        .filter_map(apex_to_feature)
-        .collect();
+    let mut features: Vec<Feature> = xics.iter_mut().filter_map(apex_to_feature).collect();
 
     // Step 4: deduplicate overlapping features.
     deduplicate(&mut features, 5.0);

@@ -139,33 +139,27 @@ pub fn detect_sample_context(
 ) -> SampleContext {
     let mut global_warnings: Vec<String> = Vec::new();
 
-    let vcf_scan = vcf_path.and_then(|p| {
-        match scan_vcf(p) {
-            Ok(s) => Some(s),
-            Err(e) => {
-                global_warnings.push(format!("VCF scan failed ({}): {}", p.display(), e));
-                None
-            }
+    let vcf_scan = vcf_path.and_then(|p| match scan_vcf(p) {
+        Ok(s) => Some(s),
+        Err(e) => {
+            global_warnings.push(format!("VCF scan failed ({}): {}", p.display(), e));
+            None
         }
     });
 
-    let bed_scan = bed_path.and_then(|p| {
-        match scan_bed(p) {
-            Ok(s) => Some(s),
-            Err(e) => {
-                global_warnings.push(format!("BED scan failed ({}): {}", p.display(), e));
-                None
-            }
+    let bed_scan = bed_path.and_then(|p| match scan_bed(p) {
+        Ok(s) => Some(s),
+        Err(e) => {
+            global_warnings.push(format!("BED scan failed ({}): {}", p.display(), e));
+            None
         }
     });
 
-    let tsv_scan = tsv_path.and_then(|p| {
-        match scan_tsv(p) {
-            Ok(s) => Some(s),
-            Err(e) => {
-                global_warnings.push(format!("TSV scan failed ({}): {}", p.display(), e));
-                None
-            }
+    let tsv_scan = tsv_path.and_then(|p| match scan_tsv(p) {
+        Ok(s) => Some(s),
+        Err(e) => {
+            global_warnings.push(format!("TSV scan failed ({}): {}", p.display(), e));
+            None
         }
     });
 
@@ -188,8 +182,9 @@ pub fn detect_sample_context(
     let epigenomics_assay = bed_scan.as_ref().map(|b| b.assay.clone());
     let titv_ratio = vcf_scan.as_ref().map(|v| v.titv_ratio);
     let somatic_burden_per_mb = vcf_scan.as_ref().map(|v| v.somatic_burden_per_mb);
-    let mutation_signature_hint =
-        vcf_scan.as_ref().and_then(|v| v.mutation_signature_hint.clone());
+    let mutation_signature_hint = vcf_scan
+        .as_ref()
+        .and_then(|v| v.mutation_signature_hint.clone());
 
     // Concordance check
     let concordance = build_concordance(
@@ -433,7 +428,11 @@ fn scan_bed(path: &Path) -> Result<BedScan, String> {
 
     let mut data_lines = 0usize;
     for line in ByteLines::new(data) {
-        if line.is_empty() || line[0] == b'#' || line.starts_with(b"track") || line.starts_with(b"browser") {
+        if line.is_empty()
+            || line[0] == b'#'
+            || line.starts_with(b"track")
+            || line.starts_with(b"browser")
+        {
             continue;
         }
         if data_lines >= MAX_GENOMIC_LINES {
@@ -532,14 +531,17 @@ fn detect_species_from_chroms(chroms: &ahash::AHashSet<String>) -> DetectedSpeci
     }
 
     // Determine max numeric chromosome number from names like "chr1", "chrX", "1", "22"
-    let max_num = chroms.iter().filter_map(|c| {
-        let stripped = c
-            .trim_start_matches("chr")
-            .trim_start_matches("Chr");
-        stripped.parse::<u32>().ok()
-    }).max();
+    let max_num = chroms
+        .iter()
+        .filter_map(|c| {
+            let stripped = c.trim_start_matches("chr").trim_start_matches("Chr");
+            stripped.parse::<u32>().ok()
+        })
+        .max();
 
-    let has_lowercase_chr_prefix = chroms.iter().any(|c| c.starts_with("chr") && !c.starts_with("Chr"));
+    let has_lowercase_chr_prefix = chroms
+        .iter()
+        .any(|c| c.starts_with("chr") && !c.starts_with("Chr"));
     let has_no_prefix_numeric = chroms.iter().any(|c| c.parse::<u32>().is_ok());
 
     match max_num {
@@ -600,7 +602,9 @@ fn build_concordance(
     // Species concordance
     let species_concordant = match (vcf, bed) {
         (Some(v), Some(b)) => {
-            let ok = v.species == b.species || v.species == DetectedSpecies::Unknown || b.species == DetectedSpecies::Unknown;
+            let ok = v.species == b.species
+                || v.species == DetectedSpecies::Unknown
+                || b.species == DetectedSpecies::Unknown;
             if !ok {
                 let msg = format!(
                     "Species mismatch: VCF suggests {:?} but BED suggests {:?}",
@@ -743,5 +747,9 @@ fn suggest_preset(
     candidates
         .into_iter()
         .filter(|c| c.confidence >= 0.5)
-        .max_by(|a, b| a.confidence.partial_cmp(&b.confidence).unwrap_or(std::cmp::Ordering::Equal))
+        .max_by(|a, b| {
+            a.confidence
+                .partial_cmp(&b.confidence)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
 }

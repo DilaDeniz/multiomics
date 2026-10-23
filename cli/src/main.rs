@@ -176,7 +176,12 @@ fn main() -> Result<()> {
         let ctx_clone = sample_context.clone();
 
         let pipeline_handle = std::thread::spawn(move || {
-            match runner::run_pipeline(&cli_clone, &cfg_clone, Some(state_pipeline.clone()), Some(&ctx_clone)) {
+            match runner::run_pipeline(
+                &cli_clone,
+                &cfg_clone,
+                Some(state_pipeline.clone()),
+                Some(&ctx_clone),
+            ) {
                 Ok(_) => {}
                 Err(e) => {
                     if let Ok(mut lock) = state_pipeline.lock() {

@@ -84,11 +84,7 @@ pub fn detect_paradoxes(
     }
 
     // 2. Compute 90th-percentile TPM threshold from gene_stats
-    let mut all_means: Vec<f64> = transcr
-        .gene_stats
-        .values()
-        .map(|s| s.mean)
-        .collect();
+    let mut all_means: Vec<f64> = transcr.gene_stats.values().map(|s| s.mean).collect();
     all_means.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     let p90_tpm = if all_means.len() < 10 {
         // Use median if fewer than 10 genes
@@ -107,11 +103,7 @@ pub fn detect_paradoxes(
     // Criteria: padj < 0.05 && |log2FC| > 2.0 && !padj.is_nan()
     let de_sig: HashMap<String, (f64, f64)> = if let Some(ref de) = transcr.diff_expr {
         de.iter()
-            .filter(|r| {
-                !r.padj.is_nan()
-                    && r.padj < 0.05
-                    && r.log2_fold_change.abs() > 2.0
-            })
+            .filter(|r| !r.padj.is_nan() && r.padj < 0.05 && r.log2_fold_change.abs() > 2.0)
             .map(|r| (r.gene_id.clone(), (r.log2_fold_change, r.padj)))
             .collect()
     } else {
@@ -203,7 +195,9 @@ pub fn detect_paradoxes(
             if let Some(tpm) = mean_tpm {
                 if tpm >= p90_tpm {
                     let pct_rank = 10u8; // top 10%
-                    let qual_str = max_qual.map(|q| format!("{q:.0}")).unwrap_or_else(|| ">30".to_string());
+                    let qual_str = max_qual
+                        .map(|q| format!("{q:.0}"))
+                        .unwrap_or_else(|| ">30".to_string());
                     let summary = format!(
                         "{gene}: high-impact variant (QUAL={qual_str}) in actively expressed gene \
                          (TPM={tpm:.1}, top {pct_rank}%)",
@@ -218,7 +212,9 @@ pub fn detect_paradoxes(
 
                 // VariantInSilentGene
                 if tpm < 1.0 {
-                    let qual_str = max_qual.map(|q| format!("{q:.0}")).unwrap_or_else(|| ">30".to_string());
+                    let qual_str = max_qual
+                        .map(|q| format!("{q:.0}"))
+                        .unwrap_or_else(|| ">30".to_string());
                     let summary = format!(
                         "{gene}: high-impact variant (QUAL={qual_str}) but gene is silenced \
                          (mean TPM={tpm:.2}) — variant may have caused transcriptional silencing",
@@ -254,7 +250,9 @@ pub fn detect_paradoxes(
         if in_variants && !de_all.is_empty() {
             if let Some(&lfc) = de_all.get(gene) {
                 if lfc.abs() < 0.5 {
-                    let qual_str = max_qual.map(|q| format!("{q:.0}")).unwrap_or_else(|| ">30".to_string());
+                    let qual_str = max_qual
+                        .map(|q| format!("{q:.0}"))
+                        .unwrap_or_else(|| ">30".to_string());
                     let summary = format!(
                         "{gene}: high-impact variant (QUAL={qual_str}) but no differential \
                          expression (|log2FC|={lfc:.2}) — variant may be a passenger or \

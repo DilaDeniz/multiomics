@@ -61,11 +61,9 @@ pub fn parse_mzml(data: &[u8]) -> Result<Vec<Spectrum>> {
                     bda_32bit = true;
                     bda_binary.clear();
                 }
-                b"binary" => {
-                    if in_bda {
-                        in_binary = true;
-                        bda_binary.clear();
-                    }
+                b"binary" if in_bda => {
+                    in_binary = true;
+                    bda_binary.clear();
                 }
                 _ => {}
             },

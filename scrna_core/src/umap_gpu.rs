@@ -219,9 +219,9 @@ async fn gpu_knn_exact(
         .await?;
 
     log::info!(
-        "GPU: {} ({})",
+        "GPU: {} ({:?})",
         adapter.get_info().name,
-        format!("{:?}", adapter.get_info().backend)
+        adapter.get_info().backend
     );
 
     // ── Buffers ───────────────────────────────────────────────────────────────
@@ -325,7 +325,7 @@ async fn gpu_knn_exact(
 
     // ── Dispatch (one thread per cell) ────────────────────────────────────────
 
-    let wg_count = ((n_cells as u32) + 255) / 256;
+    let wg_count = (n_cells as u32).div_ceil(256);
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
     {
         let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());

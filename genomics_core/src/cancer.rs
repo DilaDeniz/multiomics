@@ -111,7 +111,7 @@ pub fn compute_msi(variants: &[VariantRecord]) -> MsiResult {
         }
         total_indels += 1;
         let indel_size = ref_len.abs_diff(alt_len);
-        if indel_size >= 1 && indel_size <= 4 {
+        if (1..=4).contains(&indel_size) {
             short_indels += 1;
         }
         if is_homopolymer_indel(&v.ref_allele, &v.alt_allele) {
@@ -866,13 +866,14 @@ mod tests {
 
     #[test]
     fn test_hrd_score_del_classification() {
-        let mut variants = Vec::new();
-        // 1 bp deletion
-        variants.push(make_variant("chr1", 100, "AG", "A", None));
-        // 3 bp deletion
-        variants.push(make_variant("chr1", 200, "ACGT", "A", None));
-        // 8 bp deletion (HRD marker)
-        variants.push(make_variant("chr1", 300, "ACGTACGTA", "A", None));
+        let variants = vec![
+            // 1 bp deletion
+            make_variant("chr1", 100, "AG", "A", None),
+            // 3 bp deletion
+            make_variant("chr1", 200, "ACGT", "A", None),
+            // 8 bp deletion (HRD marker)
+            make_variant("chr1", 300, "ACGTACGTA", "A", None),
+        ];
         let result = compute_hrd_score(&variants);
         assert_eq!(result.total_indels, 3);
         assert!((result.del_1bp_frac - 1.0 / 3.0).abs() < 1e-9);

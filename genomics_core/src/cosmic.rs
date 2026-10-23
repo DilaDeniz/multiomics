@@ -460,6 +460,8 @@ fn cosine_similarity(a: &[f64], b: &[f64]) -> f64 {
 /// Solve the unconstrained least-squares problem restricted to `cols` of the
 /// design matrix `a` (m×n, column-major slices), i.e. minimize ||A_cols z − b||,
 /// via the normal equations with Gaussian elimination. Returns z for `cols`.
+// Row/column indices into the k×k normal matrix read more clearly than iterators here.
+#[allow(clippy::needless_range_loop)]
 fn least_squares_on_columns(
     a: &[Vec<f64>], // a[col] = column vector of length m
     b: &[f64],
@@ -1022,10 +1024,12 @@ mod tests {
         // SBS4 (tobacco, C>A) and SBS7a (UV, C>T) are near-orthogonal.
         let i4 = COSMIC_SBS.iter().position(|s| s.name == "SBS4").unwrap();
         let i7 = COSMIC_SBS.iter().position(|s| s.name == "SBS7a").unwrap();
-        let mut fractions = vec![0.0; 96];
-        for k in 0..96 {
-            fractions[k] = 0.5 * COSMIC_SBS[i4].profile[k] + 0.5 * COSMIC_SBS[i7].profile[k];
-        }
+        let fractions: Vec<f64> = COSMIC_SBS[i4]
+            .profile
+            .iter()
+            .zip(&COSMIC_SBS[i7].profile)
+            .map(|(a, b)| 0.5 * a + 0.5 * b)
+            .collect();
         let spectrum = Sbs96Spectrum {
             counts: vec![0; 96],
             fractions,

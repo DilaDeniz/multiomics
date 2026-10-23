@@ -89,15 +89,13 @@ fn parse_bed_line(line: &[u8]) -> Option<MethylationRecord> {
         // 6-column ENCODE: score in [0, 1000]
         let score: f64 = parse_f64(trim_bytes(score_b))?;
         score / 10.0
-    } else if let Some(val_b) = col4 {
-        let val: f64 = parse_f64(trim_bytes(val_b))?;
+    } else {
+        let val: f64 = parse_f64(trim_bytes(col4?))?;
         if val > 1.0 {
             val.min(100.0)
         } else {
             val * 100.0
         }
-    } else {
-        return None;
     };
 
     Some(MethylationRecord {

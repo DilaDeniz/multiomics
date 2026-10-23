@@ -42,6 +42,8 @@ static DISEASE_BASELINES: &[DiseaseBaseline] = &[
 
 // Static GWAS catalog — selected from NHGRI-EBI GWAS Catalog (www.ebi.ac.uk/gwas/)
 // Only p < 5e-8 associations included. Positions are GRCh38.
+// ln(OR) values are empirical effect sizes; 0.318 is not an approximation of 1/π.
+#[allow(clippy::approx_constant)]
 #[rustfmt::skip]
 static GWAS_CATALOG: &[GwasVariant] = &[
     // -- Colorectal cancer (CRC) --
@@ -119,8 +121,9 @@ pub fn compute_prs(variants: &[VariantRecord]) -> Vec<PrsResult> {
     }
 
     // Group GWAS catalog by disease
-    let mut disease_scores: HashMap<&str, (f64, usize, Vec<(String, String, f64)>)> =
-        HashMap::new();
+    // disease -> (raw score, matched count, matched variant details)
+    type DiseaseAccum = (f64, usize, Vec<(String, String, f64)>);
+    let mut disease_scores: HashMap<&str, DiseaseAccum> = HashMap::new();
     let mut disease_totals: HashMap<&str, usize> = HashMap::new();
 
     for gv in GWAS_CATALOG {

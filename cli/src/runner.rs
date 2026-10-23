@@ -751,10 +751,9 @@ fn push_integration_insights(i: &IntegrationSummary, state: &Option<SharedState>
 }
 
 fn truncate(s: &str, max: usize) -> &str {
-    if s.len() <= max {
-        s
-    } else {
-        &s[..max]
+    match s.char_indices().nth(max) {
+        Some((idx, _)) => &s[..idx],
+        None => s,
     }
 }
 
@@ -783,4 +782,18 @@ fn collect_mzml_dir(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
         .collect();
     paths.sort(); // deterministic order
     paths
+}
+
+#[cfg(test)]
+mod tests {
+    use super::truncate;
+
+    #[test]
+    fn truncate_respects_char_boundaries() {
+        // "≥" is 3 bytes; a byte-index slice at 2 would panic.
+        assert_eq!(truncate("a≥b", 2), "a≥");
+        assert_eq!(truncate("|log₂FC| ≥ 1", 5), "|log₂");
+        assert_eq!(truncate("short", 80), "short");
+        assert_eq!(truncate("", 3), "");
+    }
 }

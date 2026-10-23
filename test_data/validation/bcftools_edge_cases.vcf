@@ -1,0 +1,35 @@
+##fileformat=VCFv4.2
+##FILTER=<ID=PASS,Description="All filters passed">
+##FILTER=<ID=LowQual,Description="Low quality">
+##INFO=<ID=AF,Number=A,Type=Float,Description="Allele frequency">
+##INFO=<ID=SVTYPE,Number=1,Type=String,Description="SV type">
+##INFO=<ID=END,Number=1,Type=Integer,Description="End">
+##ALT=<ID=DEL,Description="Deletion">
+##ALT=<ID=NON_REF,Description="Any other allele">
+##contig=<ID=chr1,length=248956422>
+##contig=<ID=chr2,length=242193529>
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO
+chr1	100	.	A	G	50	PASS	AF=0.5
+chr1	200	.	C	T	50	PASS	AF=0.5
+chr1	300	.	G	A	50	PASS	AF=0.5
+chr1	400	.	T	C	50	PASS	AF=0.5
+chr1	500	.	A	C	50	PASS	AF=0.5
+chr1	600	.	A	T	50	PASS	AF=0.5
+chr1	700	.	G	C	50	PASS	AF=0.5
+chr1	800	.	g	t	50	PASS	AF=0.5
+chr1	900	.	A	G,T	50	PASS	AF=0.3,0.2
+chr1	1000	.	C	T,G,A	50	PASS	AF=0.2,0.2,0.1
+chr1	1100	.	A	G,AT	50	PASS	AF=0.3,0.1
+chr1	1200	.	AT	A,G	50	PASS	AF=0.3,0.1
+chr1	1300	.	AC	A	50	PASS	AF=0.4
+chr1	1400	.	A	ACGT	50	PASS	AF=0.4
+chr1	1500	.	AC	GT	50	PASS	AF=0.4
+chr1	1600	.	A	<DEL>	50	PASS	SVTYPE=DEL;END=2600
+chr1	1700	.	A	<NON_REF>	.	PASS	.
+chr1	1800	.	T	*	50	PASS	.
+chr1	1900	.	G	G]chr2:5000]	50	PASS	SVTYPE=BND
+chr1	2000	.	C	.	50	PASS	.
+chr2	100	.	C	T	10	LowQual	AF=0.1
+chr2	200	.	A	G	.	PASS	AF=0.5
+chr2	300	.	T	G,<NON_REF>	40	PASS	.
+chr2	400	.	ACGT	A	40	PASS	.

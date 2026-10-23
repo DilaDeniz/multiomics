@@ -3,7 +3,7 @@ use ahash::AHashMap;
 use biomics_core::{BatchAccum, HyperLogLog};
 
 use crate::cancer::{compute_hrd_score, compute_msi, detect_kataegis, detect_loh};
-use crate::types::{ChromDensity, GenomicsSummary, TiTvClass, VariantRecord};
+use crate::types::{site_flags, ChromDensity, GenomicsSummary, TiTvClass, VariantRecord};
 
 /// Compact position key: FNV-1a hash of (chrom, pos).
 ///
@@ -27,9 +27,17 @@ fn position_key(chrom: &str, pos: u64) -> u64 {
 /// Each rayon worker holds an independent instance; `merge` is called once
 /// per worker at finalization. No shared mutable state during `process`.
 pub struct GenomicsAccum {
+    /// VCF records carrying at least one variant allele.
     pub total: u64,
+    /// Records with an SNV / indel / MNP / other allele (bcftools semantics).
     pub snps: u64,
     pub indels: u64,
+    pub mnps: u64,
+    pub others: u64,
+    pub multiallelic: u64,
+    /// SNV + MNP + indel alleles (TMB numerator).
+    pub small_variants: u64,
+    /// Ti / Tv counted per SNV allele.
     pub transitions: u64,
     pub transversions: u64,
     pub per_chrom: AHashMap<String, ChromDensity>,
@@ -50,6 +58,10 @@ impl Default for GenomicsAccum {
             total: 0,
             snps: 0,
             indels: 0,
+            mnps: 0,
+            others: 0,
+            multiallelic: 0,
+            small_variants: 0,
             transitions: 0,
             transversions: 0,
             per_chrom: AHashMap::new(),
@@ -67,27 +79,31 @@ impl BatchAccum for GenomicsAccum {
 
     #[inline(always)]
     fn process(&mut self, r: &VariantRecord) -> anyhow::Result<()> {
-        self.total += 1;
+        // Site-level counts: one per VCF record, carried by its first allele.
+        let flags = r.site_flags;
+        if flags & site_flags::FIRST != 0 {
+            let has = |bit: u8| u64::from(flags & bit != 0);
+            self.total += 1;
+            self.snps += has(site_flags::SNV);
+            self.indels += has(site_flags::INDEL);
+            self.mnps += has(site_flags::MNP);
+            self.others += has(site_flags::OTHER);
+            self.multiallelic += has(site_flags::MULTIALLELIC);
 
-        let entry = self.per_chrom.entry(r.chrom.clone()).or_default();
-        entry.total += 1;
+            let entry = self.per_chrom.entry(r.chrom.clone()).or_default();
+            entry.total += 1;
+            entry.snps += has(site_flags::SNV);
+            entry.indels += has(site_flags::INDEL);
+        }
 
+        // Allele-level counts.
         match r.titv {
-            TiTvClass::Transition => {
-                self.snps += 1;
-                self.transitions += 1;
-                entry.snps += 1;
-            }
-            TiTvClass::Transversion => {
-                self.snps += 1;
-                self.transversions += 1;
-                entry.snps += 1;
-            }
-            TiTvClass::Indel => {
-                self.indels += 1;
-                entry.indels += 1;
-            }
-            TiTvClass::Other => {}
+            TiTvClass::Transition => self.transitions += 1,
+            TiTvClass::Transversion => self.transversions += 1,
+            TiTvClass::Indel | TiTvClass::Other => {}
+        }
+        if r.is_small_variant() {
+            self.small_variants += 1;
         }
 
         if r.qual > 30.0 {
@@ -110,6 +126,10 @@ impl BatchAccum for GenomicsAccum {
         self.total += other.total;
         self.snps += other.snps;
         self.indels += other.indels;
+        self.mnps += other.mnps;
+        self.others += other.others;
+        self.multiallelic += other.multiallelic;
+        self.small_variants += other.small_variants;
         self.transitions += other.transitions;
         self.transversions += other.transversions;
 
@@ -159,6 +179,12 @@ impl BatchAccum for GenomicsAccum {
             total_variants: self.total,
             snp_count: self.snps,
             indel_count: self.indels,
+            mnp_count: self.mnps,
+            other_count: self.others,
+            multiallelic_sites: self.multiallelic,
+            small_variants: self.small_variants,
+            transitions: self.transitions,
+            transversions: self.transversions,
             titv_ratio,
             per_chrom: self.per_chrom.into_iter().collect(),
             high_impact: self.high_impact,

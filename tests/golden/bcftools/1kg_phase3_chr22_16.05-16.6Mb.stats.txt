@@ -1,0 +1,12 @@
+# bcftools 1.24
+# bcftools stats test_data/validation/1kg_phase3_chr22_16.05-16.6Mb.vcf.gz | grep -E '^(SN|TSTV)'
+SN	0	number of samples:	0
+SN	0	number of records:	8655
+SN	0	number of no-ALTs:	0
+SN	0	number of SNPs:	8439
+SN	0	number of MNPs:	0
+SN	0	number of indels:	214
+SN	0	number of others:	4
+SN	0	number of multiallelic sites:	36
+SN	0	number of multiallelic SNP sites:	32
+TSTV	0	5276	3195	1.65	5265	3173	1.66

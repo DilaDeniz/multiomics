@@ -98,17 +98,19 @@ fn is_homopolymer_indel(ref_allele: &str, alt_allele: &str) -> bool {
 /// References: Bonneville et al. 2017 (JCO Precision Oncology),
 /// Cortes-Ciriano et al. 2017 (Nature Communications).
 pub fn compute_msi(variants: &[VariantRecord]) -> MsiResult {
-    let total_variants = variants.len() as u64;
+    // Symbolic SVs, breakends and complex alleles are neither indels nor part
+    // of the small-variant denominator.
+    let total_variants = variants.iter().filter(|v| v.is_small_variant()).count() as u64;
     let mut total_indels: u64 = 0;
     let mut homopolymer_indels: u64 = 0;
     let mut short_indels: u64 = 0; // 1–4 bp indels
 
     for v in variants {
+        if !v.is_indel() {
+            continue;
+        }
         let ref_len = v.ref_allele.len();
         let alt_len = v.alt_allele.len();
-        if ref_len == alt_len {
-            continue; // SNP or MNP — not an indel
-        }
         total_indels += 1;
         let indel_size = ref_len.abs_diff(alt_len);
         if (1..=4).contains(&indel_size) {
@@ -438,11 +440,11 @@ pub fn compute_hrd_score(variants: &[VariantRecord]) -> HrdScore {
     let mut total_indels: u64 = 0;
 
     for v in variants {
+        if !v.is_indel() {
+            continue; // SNV, MNP, symbolic SV, breakend or complex — skip
+        }
         let ref_len = v.ref_allele.len();
         let alt_len = v.alt_allele.len();
-        if ref_len == alt_len {
-            continue; // SNP or MNP — skip
-        }
         total_indels += 1;
         if ref_len > alt_len {
             // Deletion
@@ -631,11 +633,11 @@ pub fn compute_hrd_score_with_reference(
     let mut total_indels: u64 = 0;
 
     for v in variants {
+        if !v.is_indel() {
+            continue; // SNV, MNP, symbolic SV, breakend or complex — skip
+        }
         let ref_len = v.ref_allele.len();
         let alt_len = v.alt_allele.len();
-        if ref_len == alt_len {
-            continue; // SNP or MNP — skip
-        }
         total_indels += 1;
         if ref_len > alt_len {
             // Deletion
@@ -819,7 +821,6 @@ pub fn detect_loh(variants: &[VariantRecord]) -> Vec<LohChromosome> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::TiTvClass;
 
     fn make_variant(
         chrom: &str,
@@ -828,16 +829,7 @@ mod tests {
         alt_a: &str,
         af: Option<f32>,
     ) -> VariantRecord {
-        VariantRecord {
-            chrom: chrom.to_string(),
-            pos,
-            ref_allele: ref_a.to_string(),
-            alt_allele: alt_a.to_string(),
-            qual: 50.0,
-            titv: TiTvClass::Transition,
-            af,
-            gene: None,
-        }
+        VariantRecord::biallelic(chrom, pos, ref_a, alt_a, 50.0, af, None)
     }
 
     #[test]

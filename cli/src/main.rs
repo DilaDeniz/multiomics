@@ -117,6 +117,11 @@ fn validate_inputs(cli: &Cli) -> Result<()> {
     if cli.tumor_bam.is_some() != cli.normal_bam.is_some() {
         anyhow::bail!("--tumor-bam and --normal-bam must be supplied together");
     }
+    if let Some(mb) = cli.tmb_genome_mb {
+        if !(mb.is_finite() && mb > 0.0) {
+            anyhow::bail!("--tmb-genome-mb must be a positive number of megabases (got {mb})");
+        }
+    }
     Ok(())
 }
 

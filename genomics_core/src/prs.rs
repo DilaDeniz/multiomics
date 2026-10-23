@@ -209,19 +209,9 @@ pub fn compute_prs(variants: &[VariantRecord]) -> Vec<PrsResult> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::TiTvClass;
 
     fn variant(chrom: &str, pos: u64, r: &str, a: &str) -> VariantRecord {
-        VariantRecord {
-            chrom: chrom.to_string(),
-            pos,
-            ref_allele: r.to_string(),
-            alt_allele: a.to_string(),
-            qual: 50.0,
-            titv: TiTvClass::Transition,
-            af: None,
-            gene: None,
-        }
+        VariantRecord::biallelic(chrom, pos, r, a, 50.0, None, None)
     }
 
     #[test]

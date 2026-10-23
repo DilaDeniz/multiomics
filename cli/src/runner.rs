@@ -135,8 +135,9 @@ pub fn run_pipeline(
         } else {
             (2800.0, "WGS (default)")
         };
+        // TMB counts SNV/MNP/indel alleles only; symbolic SVs and breakends excluded.
         genomics.tmb = Some(genomics_core::cancer::compute_tmb(
-            genomics.total_variants,
+            genomics.small_variants,
             genome_mb,
             genome_mb_source,
         ));

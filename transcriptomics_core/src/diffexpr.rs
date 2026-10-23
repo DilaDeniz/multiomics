@@ -106,22 +106,25 @@ pub fn differential_expression(records: &[GeneRecord]) -> Vec<DiffExprResult> {
 
 /// Return gene IDs that pass significance thresholds.
 ///
-/// When `padj` is available, the filter is `padj < 0.05 AND |log2FC| ≥ 1`.
-/// When `padj` is `NaN` (n < 4 samples), falls back to `|log2FC| ≥ threshold`
-/// with the caller-supplied `min_tpm` guard.
+/// When the results carry adjusted p-values, the filter is
+/// `padj < 0.05 AND |log2FC| ≥ 1`; genes whose `padj` is NaN (e.g. removed by
+/// DESeq2's independent filtering) are not significant. Only when no gene has
+/// a `padj` (n < 4 samples, no test possible) does it fall back to
+/// `|log2FC| ≥ threshold`, with the caller-supplied `min_tpm` guard.
 pub fn significant_de_genes(
     results: &[DiffExprResult],
     threshold: f64,
     min_tpm: f64,
 ) -> Vec<String> {
+    let tested = results.iter().any(|r| !r.padj.is_nan());
     results
         .iter()
         .filter(|r| {
             let expressed = r.mean_s1 >= min_tpm || r.mean_s2 >= min_tpm;
-            let sig = if r.padj.is_nan() {
-                r.log2_fold_change.abs() >= threshold
-            } else {
+            let sig = if tested {
                 r.padj < 0.05 && r.log2_fold_change.abs() >= 1.0
+            } else {
+                r.log2_fold_change.abs() >= threshold
             };
             expressed && sig
         })

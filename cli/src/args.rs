@@ -120,7 +120,8 @@ pub struct Cli {
     pub gmt: Option<PathBuf>,
 
     // ── Normalization ─────────────────────────────────────────────────────────
-    /// Treat --transcriptomics as raw counts; apply DESeq2 size-factor normalization
+    /// Treat --transcriptomics as raw integer counts and test differential
+    /// expression with DESeq2 (first ⌈n/2⌉ samples vs the rest)
     #[arg(long, default_value_t = false)]
     pub raw_counts: bool,
 

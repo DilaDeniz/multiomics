@@ -9,7 +9,7 @@ use biomics_core::ProgressEvent;
 use epigenomics_core::{analyze_bed, EpigenomicsSummary};
 use genomics_core::{analyze_vcf, GenomicsSummary};
 use integration_layer::{run_integration, IntegrationSummary};
-use transcriptomics_core::{analyze_tsv, TranscriptomicsSummary};
+use transcriptomics_core::{analyze_count_tsv, analyze_tsv, TranscriptomicsSummary};
 
 use crate::args::Cli;
 use crate::compare::run_comparison;
@@ -99,7 +99,12 @@ pub fn run_pipeline(
             });
             let th = s.spawn(|| {
                 if run_t {
-                    analyze_tsv(cli.transcriptomics.as_deref().unwrap(), Some(&ttx))
+                    let path = cli.transcriptomics.as_deref().unwrap();
+                    if cli.raw_counts {
+                        analyze_count_tsv(path, Some(&ttx))
+                    } else {
+                        analyze_tsv(path, Some(&ttx))
+                    }
                 } else {
                     Ok(TranscriptomicsSummary::default())
                 }
@@ -217,12 +222,14 @@ pub fn run_pipeline(
         s.epigen_pct = 100.0;
     });
 
-    // Optional: DESeq2 normalization on raw count input
-    if cli.raw_counts {
-        log::info!("DESeq2 size-factor normalization requested (--raw-counts)");
+    if cli.raw_counts && run_t {
+        let n_sig = transcriptomics
+            .diff_expr
+            .as_ref()
+            .map_or(0, |de| de.iter().filter(|r| r.padj < 0.05).count());
         push_insight(
             &state,
-            "[INFO] DESeq2 normalization applied to raw count matrix".to_string(),
+            format!("[INFO] DESeq2 (negative-binomial Wald test): {n_sig} genes with padj < 0.05"),
         );
     }
 

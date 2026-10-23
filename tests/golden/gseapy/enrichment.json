@@ -1,0 +1,63 @@
+{
+ "gseapy_version": "1.3.1",
+ "background_size": 140,
+ "query_in_background": 22,
+ "terms": [
+  {
+   "term": "APOPTOSIS_SUBSET",
+   "overlap": 4,
+   "set_size": 15,
+   "p_value": 0.1897573188884506,
+   "padj": 0.30361171022152095
+  },
+  {
+   "term": "CELL_CYCLE_SUBSET",
+   "overlap": 7,
+   "set_size": 16,
+   "p_value": 0.004183602697725097,
+   "padj": 0.011156273860600259
+  },
+  {
+   "term": "DNA_REPAIR_SUBSET",
+   "overlap": 3,
+   "set_size": 16,
+   "p_value": 0.47706245075733733,
+   "padj": 0.6360832676764497
+  },
+  {
+   "term": "DUPLICATED_GENES_SET",
+   "overlap": 6,
+   "set_size": 6,
+   "p_value": 7.953015562795717e-06,
+   "padj": 6.362412450236573e-05
+  },
+  {
+   "term": "HALLMARK_E2F_TARGETS_SUBSET",
+   "overlap": 7,
+   "set_size": 18,
+   "p_value": 0.009360256447966567,
+   "padj": 0.018720512895933135
+  },
+  {
+   "term": "HALLMARK_P53_PATHWAY_SUBSET",
+   "overlap": 7,
+   "set_size": 15,
+   "p_value": 0.0026220106119257307,
+   "padj": 0.010488042447702923
+  },
+  {
+   "term": "MAPK_SIGNALING_SUBSET",
+   "overlap": 2,
+   "set_size": 15,
+   "p_value": 0.7239260213466869,
+   "padj": 0.7239260213466869
+  },
+  {
+   "term": "WNT_SIGNALING_SUBSET",
+   "overlap": 2,
+   "set_size": 15,
+   "p_value": 0.7239260213466869,
+   "padj": 0.7239260213466869
+  }
+ ]
+}

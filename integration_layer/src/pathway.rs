@@ -1,6 +1,5 @@
-use ahash::{AHashMap, AHashSet};
+use ahash::AHashSet;
 use serde::{Deserialize, Serialize};
-use std::sync::OnceLock;
 
 use biomics_core::statistics::{benjamini_hochberg, hypergeometric_pvalue};
 
@@ -640,92 +639,95 @@ pub struct EnrichmentResult {
     pub padj: f64,
 }
 
-// ── Static inverted gene → pathway index (built once from KEGG_PATHWAYS) ─────
-// gene (uppercase) → list of KEGG_PATHWAYS indices.
-// Eliminates O(P × G) AHashSet rebuilds per enrichment call; lookup is O(1).
-
-type GeneIndex = AHashMap<&'static str, Vec<u8>>; // u8 sufficient for ≤255 pathways
-
-fn kegg_gene_index() -> &'static (GeneIndex, usize) {
-    static IDX: OnceLock<(GeneIndex, usize)> = OnceLock::new();
-    IDX.get_or_init(|| {
-        let mut map: GeneIndex = AHashMap::new();
-        let mut bg: AHashSet<&str> = AHashSet::new();
-        for (i, pw) in KEGG_PATHWAYS.iter().enumerate() {
-            for &gene in pw.genes {
-                map.entry(gene).or_default().push(i as u8);
-                bg.insert(gene);
-            }
-        }
-        (map, bg.len())
-    })
-}
-
-/// Fisher's exact test (one-sided hypergeometric) with Benjamini-Hochberg FDR
-/// correction. Background gene universe = union of all genes in KEGG_PATHWAYS.
-/// Only pathways with `overlap >= min_overlap` are returned.
-/// Results are sorted by `padj` ascending.
-pub fn enrichment_analysis(query_genes: &[String], min_overlap: usize) -> Vec<EnrichmentResult> {
-    let query_set: AHashSet<String> = query_genes.iter().map(|g| g.to_uppercase()).collect();
-
-    if query_set.is_empty() {
+/// Over-representation analysis: one-sided hypergeometric (Fisher's exact)
+/// test per gene set with Benjamini-Hochberg correction.
+///
+/// Follows the conventions of gseapy `enrich` / clusterProfiler `enricher`:
+/// gene sets are de-duplicated and upper-cased, the universe is the union of
+/// all gene sets, query genes outside the universe are dropped before the
+/// query size is counted, and only sets with `overlap >= min_overlap` are
+/// reported and adjusted. Results are sorted by `padj`, then `p_value`.
+pub fn over_representation<'a, I>(
+    query_genes: &[String],
+    gene_sets: I,
+    min_overlap: usize,
+) -> Vec<EnrichmentResult>
+where
+    I: IntoIterator<Item = (&'a str, &'a str, Vec<String>)>,
+{
+    let sets: Vec<(&str, &str, AHashSet<String>)> = gene_sets
+        .into_iter()
+        .map(|(id, name, genes)| {
+            let unique: AHashSet<String> = genes.iter().map(|g| g.to_uppercase()).collect();
+            (id, name, unique)
+        })
+        .filter(|(_, _, genes)| !genes.is_empty())
+        .collect();
+    let universe: AHashSet<&str> = sets
+        .iter()
+        .flat_map(|(_, _, genes)| genes.iter().map(String::as_str))
+        .collect();
+    let query: AHashSet<String> = query_genes
+        .iter()
+        .map(|g| g.to_uppercase())
+        .filter(|g| universe.contains(g.as_str()))
+        .collect();
+    if query.is_empty() {
         return Vec::new();
     }
+    let n_universe = universe.len();
+    let query_size = query.len();
 
-    let (gene_idx, bg_size) = kegg_gene_index();
-    let query_size = query_set.len();
-
-    // Count overlaps via inverted index: O(Q) instead of O(P × G)
-    let mut overlap_counts = vec![0usize; KEGG_PATHWAYS.len()];
-    for gene in &query_set {
-        if let Some(idxs) = gene_idx.get(gene.as_str()) {
-            for &i in idxs {
-                overlap_counts[i as usize] += 1;
-            }
-        }
-    }
-
-    let mut results: Vec<EnrichmentResult> = KEGG_PATHWAYS
+    let mut results: Vec<EnrichmentResult> = sets
         .iter()
-        .enumerate()
-        .filter_map(|(i, pathway)| {
-            let overlap = overlap_counts[i];
-            if overlap < min_overlap {
+        .filter_map(|(id, name, genes)| {
+            let overlap = query.iter().filter(|g| genes.contains(*g)).count();
+            if overlap < min_overlap.max(1) {
                 return None;
             }
-            let score =
-                overlap as f64 / ((pathway.genes.len() as f64) * (query_size as f64)).sqrt();
-            let p_value = hypergeometric_pvalue(overlap, query_size, pathway.genes.len(), *bg_size);
+            let pathway_size = genes.len();
             Some(EnrichmentResult {
-                pathway_id: pathway.id.to_string(),
-                pathway_name: pathway.name.to_string(),
+                pathway_id: id.to_string(),
+                pathway_name: name.to_string(),
                 overlap,
-                pathway_size: pathway.genes.len(),
+                pathway_size,
                 query_size,
-                score,
-                p_value,
+                score: overlap as f64 / ((pathway_size * query_size) as f64).sqrt(),
+                p_value: hypergeometric_pvalue(overlap, query_size, pathway_size, n_universe),
                 padj: f64::NAN,
             })
         })
         .collect();
 
-    if results.is_empty() {
-        return Vec::new();
-    }
-
-    // Apply Benjamini-Hochberg FDR correction across all results
     let pvals: Vec<f64> = results.iter().map(|r| r.p_value).collect();
-    let padj_vals = benjamini_hochberg(&pvals);
-    for (r, padj) in results.iter_mut().zip(padj_vals) {
+    for (r, padj) in results.iter_mut().zip(benjamini_hochberg(&pvals)) {
         r.padj = padj;
     }
-
-    // Sort by padj ascending (most significant first)
-    results.sort_unstable_by(|a, b| {
+    results.sort_by(|a, b| {
         a.padj
             .partial_cmp(&b.padj)
             .unwrap_or(std::cmp::Ordering::Equal)
+            .then(
+                a.p_value
+                    .partial_cmp(&b.p_value)
+                    .unwrap_or(std::cmp::Ordering::Equal),
+            )
     });
-
     results
+}
+
+/// Over-representation analysis against the built-in [`KEGG_PATHWAYS`]
+/// (universe = union of their genes). See [`over_representation`].
+pub fn enrichment_analysis(query_genes: &[String], min_overlap: usize) -> Vec<EnrichmentResult> {
+    over_representation(
+        query_genes,
+        KEGG_PATHWAYS.iter().map(|p| {
+            (
+                p.id,
+                p.name,
+                p.genes.iter().map(|g| g.to_string()).collect(),
+            )
+        }),
+        min_overlap,
+    )
 }

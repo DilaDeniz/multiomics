@@ -168,8 +168,10 @@ fn regularised_incomplete_beta(x: f64, a: f64, b: f64) -> f64 {
 
 /// Lentz's continued fraction for the incomplete beta function.
 fn betacf(x: f64, a: f64, b: f64) -> f64 {
-    const MAX_ITER: usize = 200;
-    const EPS: f64 = 3.0e-7;
+    // Converges in O(sqrt(max(a, b))) iterations; a generous cap keeps very
+    // large Welch degrees of freedom (scRNA DE with 10^5 cells) converged.
+    const MAX_ITER: usize = 10_000;
+    const EPS: f64 = 1.0e-15;
     const FPMIN: f64 = 1.0e-300;
 
     let qab = a + b;

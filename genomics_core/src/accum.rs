@@ -37,6 +37,11 @@ pub struct GenomicsAccum {
     pub multiallelic: u64,
     /// SNV + MNP + indel alleles (TMB numerator).
     pub small_variants: u64,
+    /// Alleles with a SnpEff/VEP impact annotation, and those with IMPACT=HIGH.
+    pub annotated: u64,
+    pub impact_high: u64,
+    /// Genes carrying an IMPACT=HIGH allele.
+    pub impact_high_genes: ahash::AHashSet<String>,
     /// Ti / Tv counted per SNV allele.
     pub transitions: u64,
     pub transversions: u64,
@@ -62,6 +67,9 @@ impl Default for GenomicsAccum {
             others: 0,
             multiallelic: 0,
             small_variants: 0,
+            annotated: 0,
+            impact_high: 0,
+            impact_high_genes: ahash::AHashSet::new(),
             transitions: 0,
             transversions: 0,
             per_chrom: AHashMap::new(),
@@ -105,6 +113,15 @@ impl BatchAccum for GenomicsAccum {
         if r.is_small_variant() {
             self.small_variants += 1;
         }
+        if let Some(impact) = r.impact {
+            self.annotated += 1;
+            if impact == crate::types::Impact::High {
+                self.impact_high += 1;
+                if let Some(gene) = &r.gene {
+                    self.impact_high_genes.insert(gene.clone());
+                }
+            }
+        }
 
         if r.qual > 30.0 {
             self.high_impact.push(r.clone());
@@ -130,6 +147,9 @@ impl BatchAccum for GenomicsAccum {
         self.others += other.others;
         self.multiallelic += other.multiallelic;
         self.small_variants += other.small_variants;
+        self.annotated += other.annotated;
+        self.impact_high += other.impact_high;
+        self.impact_high_genes.extend(other.impact_high_genes);
         self.transitions += other.transitions;
         self.transversions += other.transversions;
 
@@ -157,11 +177,22 @@ impl BatchAccum for GenomicsAccum {
             self.transitions as f64 / self.transversions as f64
         };
 
-        let mut high_impact_genes: Vec<String> = self
-            .high_impact
-            .iter()
-            .filter_map(|v| v.gene.clone())
-            .collect();
+        // With functional annotation, "high impact" means SnpEff/VEP IMPACT=HIGH;
+        // without it, fall back to the genes of quality-filtered variants.
+        let (mut high_impact_genes, impact_source): (Vec<String>, &str) = if self.annotated > 0 {
+            (
+                self.impact_high_genes.into_iter().collect(),
+                "IMPACT=HIGH (SnpEff/VEP)",
+            )
+        } else {
+            (
+                self.high_impact
+                    .iter()
+                    .filter_map(|v| v.gene.clone())
+                    .collect(),
+                "QUAL>30 (no functional annotation)",
+            )
+        };
         high_impact_genes.sort_unstable();
         high_impact_genes.dedup();
 
@@ -188,6 +219,9 @@ impl BatchAccum for GenomicsAccum {
             titv_ratio,
             per_chrom: self.per_chrom.into_iter().collect(),
             high_impact: self.high_impact,
+            annotated_variants: self.annotated,
+            impact_high_variants: self.impact_high,
+            impact_source: impact_source.to_string(),
             af_histogram: self.af_histogram.to_vec(),
             unique_positions: self.positions.cardinality(),
             high_impact_genes,

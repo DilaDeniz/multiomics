@@ -39,6 +39,28 @@ pub enum VariantKind {
     Breakend,
 }
 
+/// Putative functional impact from SnpEff (`ANN`, field 3) or Ensembl VEP
+/// (`CSQ`, `IMPACT` field). Ordered from least to most severe.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum Impact {
+    Modifier,
+    Low,
+    Moderate,
+    High,
+}
+
+impl Impact {
+    pub fn parse(s: &[u8]) -> Option<Self> {
+        match s {
+            b"HIGH" => Some(Impact::High),
+            b"MODERATE" => Some(Impact::Moderate),
+            b"LOW" => Some(Impact::Low),
+            b"MODIFIER" => Some(Impact::Modifier),
+            _ => None,
+        }
+    }
+}
+
 /// Bit flags describing a whole VCF record (site), stored on the first ALT
 /// allele emitted for that record and zero on the others.
 pub mod site_flags {
@@ -69,8 +91,15 @@ pub struct VariantRecord {
     pub titv: TiTvClass,
     /// Allele frequency from INFO/AF field, if present.
     pub af: Option<f32>,
-    /// Gene name from INFO/GENE or ANN field, if present.
+    /// Gene name from INFO/GENE, SnpEff ANN or VEP CSQ, if present.
     pub gene: Option<String>,
+    /// Most severe SnpEff/VEP impact annotated for this ALT allele.
+    #[serde(default)]
+    pub impact: Option<Impact>,
+    /// Copies of this ALT allele in the first sample's GT (0–2 for diploid
+    /// calls); `None` for sites-only VCFs or missing genotypes.
+    #[serde(default)]
+    pub dosage: Option<u8>,
     /// Variant class of this ALT allele.
     #[serde(default)]
     pub kind: VariantKind,
@@ -111,6 +140,8 @@ impl VariantRecord {
             titv,
             af,
             gene: gene.map(str::to_string),
+            impact: None,
+            dosage: None,
             kind,
             site_flags: site_flags::FIRST | flag,
         }
@@ -176,13 +207,25 @@ pub struct GenomicsSummary {
     /// Transitions / transversions over all SNV ALT alleles (expected ~2.0–2.1 for WGS).
     pub titv_ratio: f64,
     pub per_chrom: HashMap<String, ChromDensity>,
-    /// Variants with QUAL > 30.
+    /// Quality-filtered variants (QUAL > 30), used for VAF-based purity and
+    /// per-gene variant evidence.
     pub high_impact: Vec<VariantRecord>,
+    /// Number of ALT alleles carrying a SnpEff/VEP impact annotation.
+    #[serde(default)]
+    pub annotated_variants: u64,
+    /// Number of ALT alleles annotated IMPACT=HIGH.
+    #[serde(default)]
+    pub impact_high_variants: u64,
+    /// How `high_impact_genes` was derived: "IMPACT=HIGH (SnpEff/VEP)" when the
+    /// VCF is functionally annotated, otherwise "QUAL>30 (no functional annotation)".
+    #[serde(default)]
+    pub impact_source: String,
     /// Allele frequency histogram: 20 bins over [0.0, 1.0).
     pub af_histogram: Vec<u64>,
     /// Approximate count of unique (chrom, pos) positions.
     pub unique_positions: u64,
-    /// All gene names appearing in high-impact variants.
+    /// Genes with an IMPACT=HIGH variant when the VCF carries SnpEff/VEP
+    /// annotation; otherwise genes of QUAL > 30 variants (see `impact_source`).
     pub high_impact_genes: Vec<String>,
     /// Tumor purity estimate (None until set by integration layer).
     #[serde(default)]

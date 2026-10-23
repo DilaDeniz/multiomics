@@ -1,0 +1,3 @@
+# PLINK v2.0.0-a.7.8 64-bit (19 Sep 2026)
+#IID	Breast_cancer_SUM	Colorectal_cancer_SUM	Lung_cancer_SUM	Melanoma_SUM	Ovarian_cancer_SUM	Prostate_cancer_SUM
+HG00096	0.113329	0.953145	1.06285	0.512824	0.745608	0.693552

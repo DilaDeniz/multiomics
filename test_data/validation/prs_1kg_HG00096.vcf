@@ -1,0 +1,62 @@
+##fileformat=VCFv4.3
+##FILTER=<ID=PASS,Description="All filters passed">
+##fileDate=27022019_15h52m43s
+##source=IGSRpipeline
+##reference=ftp://ftp.1000genomes.ebi.ac.uk/vol1/ftp/technical/reference/GRCh38_reference_genome/GRCh38_full_analysis_set_plus_decoy_hla.fa
+##FORMAT=<ID=GT,Number=1,Type=String,Description="Phased Genotype">
+##contig=<ID=2>
+##INFO=<ID=AF,Number=A,Type=Float,Description="Estimated allele frequency in the range (0,1)">
+##INFO=<ID=AC,Number=A,Type=Integer,Description="Total number of alternate alleles in called genotypes">
+##INFO=<ID=NS,Number=1,Type=Integer,Description="Number of samples with data">
+##INFO=<ID=AN,Number=1,Type=Integer,Description="Total number of alleles in called genotypes">
+##INFO=<ID=EAS_AF,Number=A,Type=Float,Description="Allele frequency in the EAS populations calculated from AC and AN, in the range (0,1)">
+##INFO=<ID=EUR_AF,Number=A,Type=Float,Description="Allele frequency in the EUR populations calculated from AC and AN, in the range (0,1)">
+##INFO=<ID=AFR_AF,Number=A,Type=Float,Description="Allele frequency in the AFR populations calculated from AC and AN, in the range (0,1)">
+##INFO=<ID=AMR_AF,Number=A,Type=Float,Description="Allele frequency in the AMR populations calculated from AC and AN, in the range (0,1)">
+##INFO=<ID=SAS_AF,Number=A,Type=Float,Description="Allele frequency in the SAS populations calculated from AC and AN, in the range (0,1)">
+##INFO=<ID=VT,Number=.,Type=String,Description="indicates what type of variant the line represents">
+##INFO=<ID=EX_TARGET,Number=0,Type=Flag,Description="indicates whether a variant is within the exon pull down target boundaries">
+##INFO=<ID=DP,Number=1,Type=Integer,Description="Approximate read depth; some reads may have been filtered">
+##bcftools_viewVersion=1.24+htslib-1.24
+##bcftools_viewCommand=view -R reg_2.txt -s HG00096,NA12878 -Oz -o kg38_2.vcf.gz https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000_genomes_project/release/20190312_biallelic_SNV_and_INDEL/ALL.chr2.shapeit2_integrated_snvindels_v2a_27022019.GRCh38.phased.vcf.gz; Date=Fri Oct 23 23:09:19 2026
+##contig=<ID=5>
+##contig=<ID=6>
+##contig=<ID=7>
+##contig=<ID=8>
+##contig=<ID=9>
+##contig=<ID=10>
+##contig=<ID=11>
+##contig=<ID=13>
+##contig=<ID=14>
+##contig=<ID=15>
+##contig=<ID=16>
+##contig=<ID=17>
+##contig=<ID=18>
+##bcftools_concatVersion=1.24+htslib-1.24
+##bcftools_concatCommand=concat -a -Oz -o kg38_prs.vcf.gz kg38_2.vcf.gz kg38_5.vcf.gz kg38_6.vcf.gz kg38_7.vcf.gz kg38_8.vcf.gz kg38_9.vcf.gz kg38_10.vcf.gz kg38_11.vcf.gz kg38_13.vcf.gz kg38_14.vcf.gz kg38_15.vcf.gz kg38_16.vcf.gz kg38_17.vcf.gz kg38_18.vcf.gz; Date=Fri Oct 23 23:10:31 2026
+##bcftools_viewCommand=view -s HG00096 -Ov -o prs_HG00096.vcf kg38_prs.vcf.gz; Date=Fri Oct 23 23:10:31 2026
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	HG00096
+2	43326810	.	T	C	.	PASS	AC=2;AN=2;DP=18918;AF=0.7;EAS_AF=0.28;EUR_AF=0.8;AFR_AF=0.94;AMR_AF=0.58;SAS_AF=0.81;VT=SNP;NS=2548	GT	1|1
+5	1286401	.	C	A	.	PASS	AC=1;AN=2;DP=23237;AF=0.52;EAS_AF=0.59;EUR_AF=0.51;AFR_AF=0.53;AMR_AF=0.57;SAS_AF=0.4;VT=SNP;NS=2548	GT	0|1
+5	56736057	.	C	A	.	PASS	AC=1;AN=2;DP=21209;AF=0.61;EAS_AF=0.47;EUR_AF=0.72;AFR_AF=0.66;AMR_AF=0.59;SAS_AF=0.61;VT=SNP;NS=2548	GT	1|0
+6	31652743	.	T	G	.	PASS	AC=1;AN=2;DP=19492;AF=0.03;EAS_AF=0;EUR_AF=0.07;AFR_AF=0.03;AMR_AF=0.02;SAS_AF=0;VT=SNP;NS=2548	GT	1|0
+7	27936944	.	G	A	.	PASS	AC=0;AN=2;DP=23688;AF=0.43;EAS_AF=0.87;EUR_AF=0.23;AFR_AF=0.28;AMR_AF=0.46;SAS_AF=0.33;VT=SNP;NS=2548	GT	0|0
+8	116618444	.	A	C	.	PASS	AC=0;AN=2;DP=22061;AF=0.08;EAS_AF=0;EUR_AF=0.09;AFR_AF=0.15;AMR_AF=0.06;SAS_AF=0.08;VT=SNP;NS=2548	GT	0|0
+8	127343372	.	A	G	.	PASS	AC=0;AN=2;DP=21676;AF=0.49;EAS_AF=0.51;EUR_AF=0.44;AFR_AF=0.46;AMR_AF=0.56;SAS_AF=0.51;VT=SNP;NS=2548	GT	0|0
+8	127401060	.	G	T	.	PASS	AC=0;AN=2;DP=22707;AF=0.39;EAS_AF=0.61;EUR_AF=0.5;AFR_AF=0.05;AMR_AF=0.45;SAS_AF=0.47;VT=SNP;NS=2548	GT	0|0
+8	128531703	.	G	A	.	PASS	AC=0;AN=2;DP=21264;AF=0.09;EAS_AF=0.01;EUR_AF=0.11;AFR_AF=0.12;AMR_AF=0.09;SAS_AF=0.1;VT=SNP;NS=2548	GT	0|0
+9	16915023	.	T	C	.	PASS	AC=0;AN=2;DP=23059;AF=0.44;EAS_AF=0.27;EUR_AF=0.31;AFR_AF=0.61;AMR_AF=0.57;SAS_AF=0.45;VT=SNP;NS=2548	GT	0|0
+10	8659256	.	G	A	.	PASS	AC=0;AN=2;DP=21395;AF=0.23;EAS_AF=0.37;EUR_AF=0.32;AFR_AF=0.02;AMR_AF=0.31;SAS_AF=0.21;VT=SNP;NS=2548	GT	0|0
+10	121592803	.	A	G	.	PASS	AC=2;AN=2;DP=23427;AF=0.6;EAS_AF=0.68;EUR_AF=0.58;AFR_AF=0.51;AMR_AF=0.58;SAS_AF=0.66;VT=SNP;NS=2548	GT	1|1
+11	69227030	.	T	G	.	PASS	AC=0;AN=2;DP=22112;AF=0.51;EAS_AF=0.23;EUR_AF=0.52;AFR_AF=0.84;AMR_AF=0.38;SAS_AF=0.45;VT=SNP;NS=2548	GT	0|0
+11	74634505	.	T	G	.	PASS	AC=1;AN=2;DP=194107;AF=0.33;EAS_AF=0.42;EUR_AF=0.53;AFR_AF=0.11;AMR_AF=0.34;SAS_AF=0.32;VT=SNP;NS=2548	GT	0|1
+13	32398489	.	A	T	.	PASS	AC=0;AN=2;DP=269127;AF=0;EAS_AF=0;EUR_AF=0.01;AFR_AF=0;AMR_AF=0;SAS_AF=0.01;EX_TARGET;VT=SNP;NS=2548	GT	0|0
+14	53944201	.	T	C	.	PASS	AC=0;AN=2;DP=22464;AF=0.43;EAS_AF=0.47;EUR_AF=0.49;AFR_AF=0.29;AMR_AF=0.45;SAS_AF=0.51;VT=SNP;NS=2548	GT	0|0
+15	32702555	.	T	C	.	PASS	AC=2;AN=2;DP=22300;AF=0.51;EAS_AF=0.19;EUR_AF=0.8;AFR_AF=0.38;AMR_AF=0.74;SAS_AF=0.56;VT=SNP;NS=2548	GT	1|1
+15	78513681	.	T	C	.	PASS	AC=1;AN=2;DP=27584;AF=0.19;EAS_AF=0.03;EUR_AF=0.37;AFR_AF=0.15;AMR_AF=0.22;SAS_AF=0.19;VT=SNP;NS=2548	GT	1|0
+15	78601997	.	G	A	.	PASS	AC=1;AN=2;DP=396550;AF=0.17;EAS_AF=0.03;EUR_AF=0.37;AFR_AF=0.09;AMR_AF=0.22;SAS_AF=0.18;EX_TARGET;VT=SNP;NS=2548	GT	1|0
+16	52552429	.	A	G	.	PASS	AC=2;AN=2;DP=19298;AF=0.56;EAS_AF=0.38;EUR_AF=0.71;AFR_AF=0.43;AMR_AF=0.61;SAS_AF=0.73;VT=SNP;NS=2548	GT	1|1
+16	68787043	.	G	A	.	PASS	AC=0;AN=2;DP=23534;AF=0.26;EAS_AF=0.23;EUR_AF=0.29;AFR_AF=0.27;AMR_AF=0.22;SAS_AF=0.26;VT=SNP;NS=2548	GT	0|0
+16	89689495	.	A	G	.	PASS	AC=1;AN=2;DP=104539;AF=0.76;EAS_AF=0.38;EUR_AF=0.9;AFR_AF=0.81;AMR_AF=0.83;SAS_AF=0.91;VT=SNP;NS=2548	GT	0|1
+17	37738049	.	A	G	.	PASS	AC=2;AN=2;DP=17578;AF=0.45;EAS_AF=0.28;EUR_AF=0.47;AFR_AF=0.69;AMR_AF=0.4;SAS_AF=0.3;VT=SNP;NS=2548	GT	1|1
+18	48927093	.	T	C	.	PASS	AC=1;AN=2;DP=22878;AF=0.65;EAS_AF=0.69;EUR_AF=0.47;AFR_AF=0.7;AMR_AF=0.65;SAS_AF=0.72;VT=SNP;NS=2548	GT	0|1

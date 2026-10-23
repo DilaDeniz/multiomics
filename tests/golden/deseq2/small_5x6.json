@@ -1,0 +1,81 @@
+{
+  "deseq2_version": "1.38.0",
+  "r_version": "R version 4.2.3 (2023-03-15)",
+  "design": "~condition Wald, condition B vs A",
+  "samples": ["S1", "S2", "S3", "S4", "S5", "S6"],
+  "condition": ["A", "A", "A", "B", "B", "B"],
+  "batch": {},
+  "size_factors": [0.709600108623823, 0.806811814314518, 0.7237921107963, 1.37826227846182, 1.34631676320156, 1.34380572150027],
+  "disp_fit_coefficients": {
+    "asympt_disp": {},
+    "extra_pois": {}
+  },
+  "disp_prior_var": 0.25,
+  "genes": [
+    {
+      "gene": "GENE_A",
+      "base_mean": 144.518802460698,
+      "disp_gene_est": 1e-08,
+      "disp_fit": 0.00251249654526053,
+      "dispersion": 0.00229250374461244,
+      "log2_fold_change": 0.0814760248172711,
+      "lfc_se": 0.115047390300221,
+      "stat": 0.708195332416113,
+      "pvalue": 0.47882396433503,
+      "padj": 0.47882396433503,
+      "beta_iter": 2
+    },
+    {
+      "gene": "GENE_B",
+      "base_mean": 702.777721452098,
+      "disp_gene_est": 0.00251249654526053,
+      "disp_fit": 0.00251249654526053,
+      "dispersion": 0.00249385898814724,
+      "log2_fold_change": 0.145381999798246,
+      "lfc_se": 0.0744992329051681,
+      "stat": 1.95145633221897,
+      "pvalue": 0.0510027859598156,
+      "padj": 0.0850046432663594,
+      "beta_iter": 2
+    },
+    {
+      "gene": "GENE_C",
+      "base_mean": 10.452247856994,
+      "disp_gene_est": 1e-08,
+      "disp_fit": 0.00251249654526053,
+      "dispersion": 0.00249373129039522,
+      "log2_fold_change": -0.861194278481184,
+      "lfc_se": 0.377101501778905,
+      "stat": -2.28372009768899,
+      "pvalue": 0.0223879861351075,
+      "padj": 0.0559699653377687,
+      "beta_iter": 2
+    },
+    {
+      "gene": "GENE_D",
+      "base_mean": 256.350795316768,
+      "disp_gene_est": 1e-08,
+      "disp_fit": 0.00251249654526053,
+      "dispersion": 0.00228225178530669,
+      "log2_fold_change": -1.86127707816644,
+      "lfc_se": 0.100533720598437,
+      "stat": -18.5139579743693,
+      "pvalue": 1.59350243926318e-76,
+      "padj": 7.9675121963159e-76,
+      "beta_iter": 2
+    },
+    {
+      "gene": "GENE_E",
+      "base_mean": 70.3431060538639,
+      "disp_gene_est": 1e-08,
+      "disp_fit": 0.00251249654526053,
+      "dispersion": 0.00236829119599736,
+      "log2_fold_change": 0.139281105739981,
+      "lfc_se": 0.155258679655394,
+      "stat": 0.897090623526645,
+      "pvalue": 0.369670561651211,
+      "padj": 0.462088202064013,
+      "beta_iter": 2
+    }
+  ]
+}

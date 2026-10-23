@@ -77,7 +77,9 @@ fn bcftools_style<'a>(info: &'a [u8], target_keys: &[&[u8]]) -> Vec<Option<&'a [
 // ── Competitor C: repeated info_value_bytes ───────────────────────────────────
 // What naive Rust code (and most Rust VCF libs) does — call per-key scan N times.
 
-fn repeated_memchr_9x(info: &[u8]) -> (Option<&[u8]>, Option<&[u8]>, Option<&[u8]>) {
+type InfoTriple<'a> = (Option<&'a [u8]>, Option<&'a [u8]>, Option<&'a [u8]>);
+
+fn repeated_memchr_9x(info: &[u8]) -> InfoTriple<'_> {
     let svtype = info_value_bytes(info, b"SVTYPE");
     let cn = info_value_bytes(info, b"CN");
     let cna = info_value_bytes(info, b"CNA");

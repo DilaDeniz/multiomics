@@ -1,7 +1,6 @@
 use std::path::Path;
 
 use anyhow::{bail, Context, Result};
-use memmap2::Mmap;
 
 use crate::types::GeneRecord;
 use biomics_core::parse::{parse_f64, trim_bytes, ByteLines, TabFields};
@@ -17,16 +16,9 @@ use biomics_core::parse::{parse_f64, trim_bytes, ByteLines, TabFields};
 ///
 /// Returns both the parsed records and the ordered sample names from the header.
 pub fn parse_tsv(path: &Path) -> Result<(Vec<GeneRecord>, Vec<String>)> {
-    let file = std::fs::File::open(path)
-        .with_context(|| format!("Cannot open expression matrix TSV '{}'", path.display()))?;
-
-    // SAFETY: the file is not modified while this process holds the Mmap.
-    let mmap = unsafe { Mmap::map(&file) }
-        .with_context(|| format!("Cannot mmap TSV file '{}'", path.display()))?;
-
-    let _ = mmap.advise(memmap2::Advice::Sequential);
-
-    let data = mmap.as_ref();
+    let input = biomics_core::io::open_input(path)
+        .with_context(|| format!("Cannot read expression matrix TSV '{}'", path.display()))?;
+    let data: &[u8] = &input;
     let mut lines = ByteLines::new(data);
 
     // ── Header ────────────────────────────────────────────────────────────────

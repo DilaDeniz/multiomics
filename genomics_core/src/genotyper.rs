@@ -440,7 +440,7 @@ pub fn call_variants_from_bam(
 // ── Private helpers ───────────────────────────────────────────────────────────
 
 /// Mapping from base ASCII to array index 0..4 (A, C, G, T).
-const INDEX_BASES: [u8; 4] = [b'A', b'C', b'G', b'T'];
+const INDEX_BASES: [u8; 4] = *b"ACGT";
 
 /// Return the index (0=A,1=C,2=G,3=T) for an ASCII base, or `None` for N/other.
 fn base_index(b: u8) -> Option<usize> {

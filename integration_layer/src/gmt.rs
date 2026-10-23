@@ -11,13 +11,11 @@
 //! identical to [`crate::pathway::enrichment_analysis`], enabling direct
 //! comparison of results across KEGG built-in pathways and custom GMT files.
 
-use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 
-use ahash::{AHashMap, AHashSet};
 use anyhow::Context;
-use biomics_core::statistics::{benjamini_hochberg, hypergeometric_pvalue};
+
 use serde::{Deserialize, Serialize};
 
 use crate::pathway::EnrichmentResult;
@@ -53,10 +51,9 @@ pub struct GmtPathway {
 /// Returns an error if the file cannot be opened or if a non-comment, non-blank
 /// line has fewer than 2 tab-separated columns.
 pub fn parse_gmt(path: &Path) -> anyhow::Result<Vec<GmtPathway>> {
-    let file =
-        File::open(path).with_context(|| format!("parse_gmt: cannot open {}", path.display()))?;
-    let reader = BufReader::new(file);
-    parse_gmt_reader(reader)
+    let input = biomics_core::io::open_input(path)
+        .with_context(|| format!("parse_gmt: cannot read {}", path.display()))?;
+    parse_gmt_reader(BufReader::new(&input[..]))
 }
 
 /// Internal parser that works on any `BufRead` (enables in-memory testing).
@@ -92,7 +89,13 @@ pub(crate) fn parse_gmt_reader<R: BufRead>(reader: R) -> anyhow::Result<Vec<GmtP
                 .map(|g| g.trim())
                 .filter(|g| !g.is_empty())
                 .map(|g| g.to_uppercase())
-                .collect(),
+                .fold(Vec::new(), |mut acc, g| {
+                    // GMT files sometimes repeat a gene; keep the first occurrence.
+                    if !acc.contains(&g) {
+                        acc.push(g);
+                    }
+                    acc
+                }),
         };
 
         pathways.push(GmtPathway {
@@ -121,20 +124,12 @@ pub fn gmt_to_query_format(pathways: &[GmtPathway]) -> Vec<(String, String, Vec<
 
 // ── Enrichment analysis ───────────────────────────────────────────────────────
 
-/// Run Fisher's exact test enrichment for custom GMT pathways.
+/// Run over-representation analysis for custom GMT pathways.
 ///
-/// Mirrors [`crate::pathway::enrichment_analysis`] but works with
-/// [`GmtPathway`] entries instead of the built-in KEGG table.
-///
-/// ## Method
-/// - Background universe: union of all genes appearing in *any* pathway in
-///   `gmt_pathways`.
-/// - Test: one-sided (upper tail) hypergeometric p-value.
-/// - FDR correction: Benjamini-Hochberg across all results with
-///   `overlap >= min_overlap`.
-/// - Jaccard-like score: `overlap / sqrt(pathway_size × query_size)`.
-///
-/// Results are sorted by `padj` ascending.
+/// Same method as [`crate::pathway::enrichment_analysis`] (see
+/// [`crate::pathway::over_representation`]): the universe is the union of all
+/// genes in `gmt_pathways`, query genes outside it are dropped, and
+/// `overlap >= min_overlap` sets are BH-adjusted. Validated against gseapy.
 ///
 /// # Arguments
 /// - `query_genes`: the foreground gene set (e.g. DE genes). Case-insensitive.
@@ -145,86 +140,13 @@ pub fn gmt_enrichment_analysis(
     gmt_pathways: &[GmtPathway],
     min_overlap: usize,
 ) -> Vec<EnrichmentResult> {
-    if query_genes.is_empty() || gmt_pathways.is_empty() {
-        return Vec::new();
-    }
-
-    let query_set: AHashSet<String> = query_genes.iter().map(|g| g.to_uppercase()).collect();
-    let query_size = query_set.len();
-
-    // ── Inverted gene index ───────────────────────────────────────────────────
-    // gene (uppercase) → list of pathway indices that contain it.
-    // Build once: O(Σ pathway_genes). Lookup per query gene: O(1).
-    // Replaces per-pathway AHashSet rebuild + O(Q×P×G) intersection loop.
-    let mut gene_to_pathways: AHashMap<&str, Vec<usize>> =
-        AHashMap::with_capacity(gmt_pathways.iter().map(|p| p.genes.len()).sum());
-    let mut bg_set: AHashSet<&str> = AHashSet::new();
-
-    for (i, pw) in gmt_pathways.iter().enumerate() {
-        for gene in &pw.genes {
-            gene_to_pathways.entry(gene.as_str()).or_default().push(i);
-            bg_set.insert(gene.as_str());
-        }
-    }
-
-    let bg_size = bg_set.len();
-    if bg_size == 0 {
-        return Vec::new();
-    }
-
-    // Count overlaps in O(Q) using the inverted index
-    let mut overlap_counts = vec![0usize; gmt_pathways.len()];
-    for gene in &query_set {
-        if let Some(idxs) = gene_to_pathways.get(gene.as_str()) {
-            for &idx in idxs {
-                overlap_counts[idx] += 1;
-            }
-        }
-    }
-
-    let mut results: Vec<EnrichmentResult> = gmt_pathways
-        .iter()
-        .enumerate()
-        .filter_map(|(i, pathway)| {
-            let overlap = overlap_counts[i];
-            if overlap < min_overlap {
-                return None;
-            }
-            let pathway_size = pathway.genes.len();
-            let score = overlap as f64 / ((pathway_size as f64) * (query_size as f64)).sqrt();
-            let p_value = hypergeometric_pvalue(overlap, query_size, pathway_size, bg_size);
-            Some(EnrichmentResult {
-                pathway_id: pathway.name.clone(),
-                pathway_name: pathway.name.clone(),
-                overlap,
-                pathway_size,
-                query_size,
-                score,
-                p_value,
-                padj: f64::NAN,
-            })
-        })
-        .collect();
-
-    if results.is_empty() {
-        return Vec::new();
-    }
-
-    // BH FDR correction
-    let pvals: Vec<f64> = results.iter().map(|r| r.p_value).collect();
-    let padj_vals = benjamini_hochberg(&pvals);
-    for (r, padj) in results.iter_mut().zip(padj_vals) {
-        r.padj = padj;
-    }
-
-    // Sort by padj ascending
-    results.sort_unstable_by(|a, b| {
-        a.padj
-            .partial_cmp(&b.padj)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-
-    results
+    crate::pathway::over_representation(
+        query_genes,
+        gmt_pathways
+            .iter()
+            .map(|p| (p.name.as_str(), p.name.as_str(), p.genes.clone())),
+        min_overlap,
+    )
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────

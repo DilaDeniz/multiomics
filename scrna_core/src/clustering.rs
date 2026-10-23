@@ -27,7 +27,7 @@ pub fn leiden_cluster(graph: &KnnGraph, resolution: f64) -> Vec<u32> {
     }
     // Deduplicate edges
     for nbrs in &mut adj {
-        nbrs.sort_by(|a, b| a.0.cmp(&b.0));
+        nbrs.sort_by_key(|a| a.0);
         nbrs.dedup_by(|a, b| {
             if a.0 == b.0 {
                 b.1 += a.1;

@@ -152,7 +152,7 @@ impl PeptideIndex {
         // Collect candidates above vote threshold, sorted best-first.
         let mut result: Vec<(u32, u32)> =
             votes.into_iter().filter(|&(_, v)| v >= min_votes).collect();
-        result.sort_unstable_by(|a, b| b.1.cmp(&a.1));
+        result.sort_unstable_by_key(|&(_, votes)| std::cmp::Reverse(votes));
         result
     }
 

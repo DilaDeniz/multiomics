@@ -89,35 +89,41 @@ impl Insight {
 /// Derive plain-English biological insights from the combined analysis results.
 ///
 /// Rules are evaluated in priority order; each rule produces at most one insight.
+/// Rules for a modality run only when that modality was provided.
 pub fn derive_insights(
     genomics: &GenomicsSummary,
     transcr: &TranscriptomicsSummary,
     epigen: &EpigenomicsSummary,
     corr: &[[f64; 3]; 3],
     enrichment: &[EnrichmentResult],
+    provided: crate::Modalities,
 ) -> Vec<Insight> {
     let mut insights = Vec::new();
 
-    // --- Genomics rules ---
-    check_titv_ratio(genomics, &mut insights);
-    check_variant_load(genomics, &mut insights);
-    check_high_impact_genes(genomics, &mut insights);
-    check_indel_burden(genomics, &mut insights);
+    if provided.genomics {
+        check_titv_ratio(genomics, &mut insights);
+        check_variant_load(genomics, &mut insights);
+        check_high_impact_genes(genomics, &mut insights);
+        check_indel_burden(genomics, &mut insights);
+    }
 
-    // --- Transcriptomics rules ---
-    check_expression_breadth(transcr, &mut insights);
-    check_differential_expression(transcr, &mut insights);
-    check_low_expression(transcr, &mut insights);
+    if provided.transcriptomics {
+        check_expression_breadth(transcr, &mut insights);
+        check_differential_expression(transcr, &mut insights);
+        check_low_expression(transcr, &mut insights);
+    }
 
-    // --- Epigenomics rules ---
-    check_global_methylation(epigen, &mut insights);
-    check_cpg_islands(epigen, &mut insights);
-    check_extreme_methylation(epigen, &mut insights);
+    if provided.epigenomics {
+        check_global_methylation(epigen, &mut insights);
+        check_cpg_islands(epigen, &mut insights);
+        check_extreme_methylation(epigen, &mut insights);
+    }
 
-    // --- Integration rules ---
     check_cross_modality_correlation(corr, &mut insights);
     check_pathway_enrichment(enrichment, &mut insights);
-    check_silencing_signature(genomics, transcr, epigen, &mut insights);
+    if provided.genomics && provided.transcriptomics {
+        check_silencing_signature(genomics, transcr, epigen, &mut insights);
+    }
 
     insights
 }
@@ -179,7 +185,12 @@ fn check_variant_load(g: &GenomicsSummary, out: &mut Vec<Insight>) {
 }
 
 fn check_high_impact_genes(g: &GenomicsSummary, out: &mut Vec<Insight>) {
-    let n = g.high_impact.len();
+    let annotated = g.annotated_variants > 0;
+    let n = if annotated {
+        g.impact_high_variants as usize
+    } else {
+        g.high_impact.len()
+    };
     if n == 0 {
         return;
     }
@@ -193,19 +204,33 @@ fn check_high_impact_genes(g: &GenomicsSummary, out: &mut Vec<Insight>) {
     .copied()
     .collect();
 
-    if !flagged.is_empty() {
+    if !flagged.is_empty() && annotated {
         out.push(Insight::crit(
             InsightModality::Genomics,
             format!(
-                "High-impact variants detected in cancer driver genes: {}. \
-                 These may be pathogenic. Manual review recommended.",
+                "Predicted high-impact variants (SnpEff/VEP IMPACT=HIGH) in cancer driver \
+                 genes: {}. Manual review recommended.",
                 flagged.join(", ")
             ),
+        ));
+    } else if !flagged.is_empty() {
+        out.push(Insight::warn(
+            InsightModality::Genomics,
+            format!(
+                "Variants with QUAL > 30 lie in cancer driver genes: {}. The VCF has no \
+                 functional annotation (SnpEff ANN / VEP CSQ), so their impact is unknown.",
+                flagged.join(", ")
+            ),
+        ));
+    } else if annotated {
+        out.push(Insight::info(
+            InsightModality::Genomics,
+            format!("{n} variants annotated IMPACT=HIGH by SnpEff/VEP."),
         ));
     } else {
         out.push(Insight::info(
             InsightModality::Genomics,
-            format!("{} high-quality variants (QUAL > 30) identified.", n),
+            format!("{n} high-quality variants (QUAL > 30) identified."),
         ));
     }
 }
@@ -384,40 +409,14 @@ fn check_extreme_methylation(e: &EpigenomicsSummary, out: &mut Vec<Insight>) {
 }
 
 fn check_cross_modality_correlation(corr: &[[f64; 3]; 3], out: &mut Vec<Insight>) {
-    let geno_epi = corr[0][2].abs();
-    let geno_trans = corr[0][1].abs();
-    let trans_epi = corr[1][2].abs();
-
-    if geno_epi > 0.7 {
+    // Only genomics–epigenomics is defined (both summarised per chromosome).
+    let r = corr[0][2];
+    if r.is_finite() && r.abs() > 0.7 {
         out.push(Insight::info(
             InsightModality::Integration,
             format!(
-                "Strong genomics–epigenomics correlation (r = {:.2}) suggests that variant \
-                 burden is co-localised with methylation changes — possible variant-driven \
-                 epigenetic remodelling.",
-                corr[0][2]
-            ),
-        ));
-    }
-
-    if geno_trans > 0.7 {
-        out.push(Insight::info(
-            InsightModality::Integration,
-            format!(
-                "Strong genomics–transcriptomics correlation (r = {:.2}) indicates that \
-                 chromosomal variant density is associated with altered gene expression.",
-                corr[0][1]
-            ),
-        ));
-    }
-
-    if trans_epi > 0.7 {
-        out.push(Insight::warn(
-            InsightModality::Integration,
-            format!(
-                "Strong transcriptomics–epigenomics correlation (r = {:.2}) is consistent \
-                 with epigenetic silencing of transcription.",
-                corr[1][2]
+                "Per-chromosome variant counts and mean methylation are correlated \
+                 (Pearson r = {r:.2}); a descriptive association, not evidence of causation."
             ),
         ));
     }

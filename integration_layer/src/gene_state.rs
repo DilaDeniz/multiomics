@@ -1,5 +1,5 @@
-use std::collections::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 
 use epigenomics_core::EpigenomicsSummary;
 use genomics_core::GenomicsSummary;
@@ -131,12 +131,11 @@ pub fn classify_gene_states(
         .collect();
 
     // 3. Build HashMap<gene, &DiffExprResult> from transcr.diff_expr
-    let de_map: HashMap<&str, &DiffExprResult> =
-        if let Some(ref de) = transcr.diff_expr {
-            de.iter().map(|r| (r.gene_id.as_str(), r)).collect()
-        } else {
-            HashMap::new()
-        };
+    let de_map: HashMap<&str, &DiffExprResult> = if let Some(ref de) = transcr.diff_expr {
+        de.iter().map(|r| (r.gene_id.as_str(), r)).collect()
+    } else {
+        HashMap::new()
+    };
 
     // 4. Collect all genes seen in any modality
     let mut all_genes: HashSet<String> = HashSet::new();
@@ -171,7 +170,14 @@ pub fn classify_gene_states(
                 &paradox_genes,
             );
 
-            let description = build_description(&state, mean_tpm, mean_meth, max_variant_qual, log2_fold_change, padj);
+            let description = build_description(
+                &state,
+                mean_tpm,
+                mean_meth,
+                max_variant_qual,
+                log2_fold_change,
+                padj,
+            );
 
             GeneRegulatoryProfile {
                 gene,
@@ -194,8 +200,7 @@ pub fn classify_gene_states(
         pa.cmp(&pb).then_with(|| {
             let ta = a.mean_tpm.unwrap_or(0.0);
             let tb = b.mean_tpm.unwrap_or(0.0);
-            tb.partial_cmp(&ta)
-                .unwrap_or(std::cmp::Ordering::Equal)
+            tb.partial_cmp(&ta).unwrap_or(std::cmp::Ordering::Equal)
         })
     });
 
@@ -217,11 +222,7 @@ fn classify_single_gene(
     // VARIANT_DRIVEN: variant + significant DE (|log2FC| > 1, padj < 0.05)
     if has_variant
         && de
-            .map(|d| {
-                !d.padj.is_nan()
-                    && d.padj < 0.05
-                    && d.log2_fold_change.abs() > 1.0
-            })
+            .map(|d| !d.padj.is_nan() && d.padj < 0.05 && d.log2_fold_change.abs() > 1.0)
             .unwrap_or(false)
     {
         return GeneState::VariantDriven;
@@ -240,9 +241,7 @@ fn classify_single_gene(
     }
 
     // ACTIVE: TPM >= 10 AND low or absent methylation (absent = assume active)
-    if mean_tpm.map(|t| t >= 10.0).unwrap_or(false)
-        && mean_meth.map(|m| m < 30.0).unwrap_or(true)
-    {
+    if mean_tpm.map(|t| t >= 10.0).unwrap_or(false) && mean_meth.map(|m| m < 30.0).unwrap_or(true) {
         return GeneState::Active;
     }
 
@@ -279,27 +278,39 @@ fn build_description(
 ) -> String {
     match state {
         GeneState::Active => {
-            let tpm_str = mean_tpm.map(|t| format!("TPM={t:.1}")).unwrap_or_else(|| "TPM=N/A".to_string());
+            let tpm_str = mean_tpm
+                .map(|t| format!("TPM={t:.1}"))
+                .unwrap_or_else(|| "TPM=N/A".to_string());
             let meth_str = mean_meth
                 .map(|m| format!(" with low methylation ({m:.1}%)"))
                 .unwrap_or_else(|| " (no methylation data)".to_string());
             format!("Expressed ({tpm_str}){meth_str}")
         }
         GeneState::Silenced => {
-            let tpm_str = mean_tpm.map(|t| format!("TPM={t:.2}")).unwrap_or_else(|| "TPM=N/A".to_string());
+            let tpm_str = mean_tpm
+                .map(|t| format!("TPM={t:.2}"))
+                .unwrap_or_else(|| "TPM=N/A".to_string());
             let meth_str = mean_meth
                 .map(|m| format!(" with hypermethylated promoter ({m:.1}%)"))
                 .unwrap_or_default();
             format!("Silent ({tpm_str}){meth_str}")
         }
         GeneState::Poised => {
-            let tpm_str = mean_tpm.map(|t| format!("{t:.1}")).unwrap_or_else(|| "N/A".to_string());
-            let meth_str = mean_meth.map(|m| format!("{m:.1}%")).unwrap_or_else(|| "N/A".to_string());
+            let tpm_str = mean_tpm
+                .map(|t| format!("{t:.1}"))
+                .unwrap_or_else(|| "N/A".to_string());
+            let meth_str = mean_meth
+                .map(|m| format!("{m:.1}%"))
+                .unwrap_or_else(|| "N/A".to_string());
             format!("Low expression (TPM={tpm_str}) with low methylation ({meth_str}) — gene accessible but not actively transcribed")
         }
         GeneState::Bivalent => {
-            let tpm_str = mean_tpm.map(|t| format!("{t:.1}")).unwrap_or_else(|| "N/A".to_string());
-            let meth_str = mean_meth.map(|m| format!("{m:.1}%")).unwrap_or_else(|| "N/A".to_string());
+            let tpm_str = mean_tpm
+                .map(|t| format!("{t:.1}"))
+                .unwrap_or_else(|| "N/A".to_string());
+            let meth_str = mean_meth
+                .map(|m| format!("{m:.1}%"))
+                .unwrap_or_else(|| "N/A".to_string());
             format!("Low expression (TPM={tpm_str}) with high methylation ({meth_str}) — conflicting bivalent marks")
         }
         GeneState::VariantDriven => {
@@ -315,8 +326,12 @@ fn build_description(
             format!("Variant (QUAL={qual_str}) co-occurs with log2FC={lfc_str} (padj={padj_str})")
         }
         GeneState::Paradoxical => {
-            let meth_str = mean_meth.map(|m| format!("{m:.1}%")).unwrap_or_else(|| "N/A".to_string());
-            let tpm_str = mean_tpm.map(|t| format!("{t:.1}")).unwrap_or_else(|| "N/A".to_string());
+            let meth_str = mean_meth
+                .map(|m| format!("{m:.1}%"))
+                .unwrap_or_else(|| "N/A".to_string());
+            let tpm_str = mean_tpm
+                .map(|t| format!("{t:.1}"))
+                .unwrap_or_else(|| "N/A".to_string());
             format!("Methylated ({meth_str}) but actively expressed (TPM={tpm_str}) — see paradox report")
         }
         GeneState::Unknown => {

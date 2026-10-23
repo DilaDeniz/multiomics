@@ -39,6 +39,7 @@ pub struct RefSignature {
 }
 
 /// The full embedded COSMIC v3.3 SBS reference catalogue.
+#[rustfmt::skip]
 pub static COSMIC_SBS: [RefSignature; 79] = [
     RefSignature { name: "SBS1", etiology: "Spontaneous 5-methylcytosine deamination (clock-like, aging)", profile: [
         8.7602286036e-04, 2.2201195808e-03, 1.7972720568e-04, 1.2650526378e-03, 1.8390547633e-03, 1.1879587231e-03, 1.1677191329e-04, 1.1266875056e-03,

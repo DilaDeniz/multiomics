@@ -1086,7 +1086,7 @@ mod tests {
         // The intron span encoded in the N op should be ~1000.
         let n_len = extract_n_length(&aln.cigar);
         assert!(
-            n_len >= 900 && n_len <= 1100,
+            (900..=1100).contains(&n_len),
             "N length should be ~1000, got {n_len} (CIGAR: {})",
             aln.cigar
         );

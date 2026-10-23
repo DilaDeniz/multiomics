@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 
 /// All 353 Horvath clock CpGs with hg19 coordinates and elastic net coefficients.
 /// (chrom, start_hg19, CpG_id, coefficient)
+#[rustfmt::skip]
 static HORVATH_CPGS: &[(&str, u64, &str, f64)] = &[
     ("chr19", 54530780, "cg00075967",  0.02331),
     ("chr7",  130456750,"cg00374717", -0.02745),

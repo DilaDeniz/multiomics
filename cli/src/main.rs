@@ -54,6 +54,77 @@ fn warn_disabled_features(_cli: &Cli) {
     }
 }
 
+/// Check that at least one analysis input was supplied and that every supplied
+/// path exists. Each modality is optional; the runner skips absent ones.
+fn validate_inputs(cli: &Cli) -> Result<()> {
+    let mut paths: Vec<(&str, &std::path::Path)> = [
+        ("--genomics", cli.genomics.as_deref()),
+        ("--transcriptomics", cli.transcriptomics.as_deref()),
+        ("--epigenomics", cli.epigenomics.as_deref()),
+        ("--atac", cli.atac.as_deref()),
+        ("--cnv", cli.cnv.as_deref()),
+        ("--fastq", cli.fastq.as_deref()),
+        ("--scrna", cli.scrna.as_deref()),
+        ("--bam", cli.bam.as_deref()),
+        ("--tumor-bam", cli.tumor_bam.as_deref()),
+        ("--proteomics-dir", cli.proteomics_dir.as_deref()),
+    ]
+    .into_iter()
+    .filter_map(|(label, p)| p.map(|p| (label, p)))
+    .collect();
+    paths.extend(cli.proteomics.iter().map(|p| ("--proteomics", p.as_path())));
+
+    if paths.is_empty() {
+        anyhow::bail!(
+            "no input supplied: pass at least one of --genomics, --transcriptomics, \
+             --epigenomics, --atac, --cnv, --fastq, --scrna, --proteomics/--proteomics-dir, \
+             --bam (with --gtf) or --tumor-bam (with --normal-bam)"
+        );
+    }
+
+    let companions = [
+        ("--gtf", cli.gtf.as_deref()),
+        ("--normal-bam", cli.normal_bam.as_deref()),
+        ("--fasta", cli.fasta.as_deref()),
+        ("--reference", cli.reference.as_deref()),
+        ("--gmt", cli.gmt.as_deref()),
+        ("--config", cli.config.as_deref()),
+        ("--compare-genomics", cli.compare_genomics.as_deref()),
+        (
+            "--compare-transcriptomics",
+            cli.compare_transcriptomics.as_deref(),
+        ),
+        ("--compare-epigenomics", cli.compare_epigenomics.as_deref()),
+        ("--compare-atac", cli.compare_atac.as_deref()),
+    ];
+    for (label, p) in paths.into_iter().chain(
+        companions
+            .into_iter()
+            .filter_map(|(l, p)| p.map(|p| (l, p))),
+    ) {
+        if !p.exists() {
+            anyhow::bail!("Input for {} not found: '{}'", label, p.display());
+        }
+    }
+
+    let has_proteomics = !cli.proteomics.is_empty() || cli.proteomics_dir.is_some();
+    if has_proteomics && cli.fasta.is_none() {
+        anyhow::bail!("--proteomics/--proteomics-dir requires --fasta");
+    }
+    if cli.bam.is_some() != cli.gtf.is_some() {
+        anyhow::bail!("--bam and --gtf must be supplied together");
+    }
+    if cli.tumor_bam.is_some() != cli.normal_bam.is_some() {
+        anyhow::bail!("--tumor-bam and --normal-bam must be supplied together");
+    }
+    if let Some(mb) = cli.tmb_genome_mb {
+        if !(mb.is_finite() && mb > 0.0) {
+            anyhow::bail!("--tmb-genome-mb must be a positive number of megabases (got {mb})");
+        }
+    }
+    Ok(())
+}
+
 fn main() -> Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
         .format_timestamp_millis()
@@ -80,7 +151,7 @@ fn main() -> Result<()> {
         );
         println!(
             "  {:<10} Bulk RNA-seq DE focus (strict padj, high gene count)",
-            "rnaseq"
+            "rna-seq"
         );
         println!(
             "  {:<10} Whole-genome bisulfite sequencing (tight CpG island criteria)",
@@ -118,20 +189,7 @@ fn main() -> Result<()> {
         }
     };
 
-    // Validate required inputs (they are Option only so --dump-config can skip them)
-    for (label, path) in [
-        ("--genomics", cli.genomics.as_deref()),
-        ("--transcriptomics", cli.transcriptomics.as_deref()),
-        ("--epigenomics", cli.epigenomics.as_deref()),
-    ] {
-        match path {
-            None => anyhow::bail!("{} is required", label),
-            Some(p) if !p.exists() => {
-                anyhow::bail!("Input file for {} not found: '{}'", label, p.display());
-            }
-            _ => {}
-        }
-    }
+    validate_inputs(&cli)?;
 
     // Warn at startup about any disabled-feature flags that were passed
     warn_disabled_features(&cli);
@@ -176,7 +234,12 @@ fn main() -> Result<()> {
         let ctx_clone = sample_context.clone();
 
         let pipeline_handle = std::thread::spawn(move || {
-            match runner::run_pipeline(&cli_clone, &cfg_clone, Some(state_pipeline.clone()), Some(&ctx_clone)) {
+            match runner::run_pipeline(
+                &cli_clone,
+                &cfg_clone,
+                Some(state_pipeline.clone()),
+                Some(&ctx_clone),
+            ) {
                 Ok(_) => {}
                 Err(e) => {
                     if let Ok(mut lock) = state_pipeline.lock() {

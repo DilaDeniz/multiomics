@@ -1,7 +1,6 @@
 use std::path::Path;
 
 use anyhow::{Context, Result};
-use memmap2::{Advice, Mmap, MmapOptions};
 
 use biomics_core::parse::{parse_f64, parse_u64, ByteLines, TabFields};
 
@@ -17,22 +16,10 @@ use crate::types::AtacPeak;
 /// Returns an error if the file cannot be opened or memory-mapped. Individual
 /// malformed lines are logged as warnings and skipped rather than aborting.
 pub fn parse_narrowpeak(path: &Path) -> Result<Vec<AtacPeak>> {
-    let file = std::fs::File::open(path)
-        .with_context(|| format!("cannot open narrowPeak file: {}", path.display()))?;
-
-    // Safety: the file is opened read-only; we do not mutate the mapping.
-    let mmap: Mmap = unsafe {
-        MmapOptions::new()
-            .map(&file)
-            .with_context(|| format!("cannot mmap narrowPeak file: {}", path.display()))?
-    };
-
-    // Advise the kernel that we will read sequentially so it can pre-fetch.
-    if let Err(e) = mmap.advise(Advice::Sequential) {
-        log::debug!("madvise(SEQUENTIAL) failed (non-fatal): {}", e);
-    }
-
-    let data: &[u8] = &mmap;
+    // Plain files are memory-mapped; gzip/BGZF input is decompressed in memory.
+    let input = biomics_core::io::open_input(path)
+        .with_context(|| format!("cannot read narrowPeak file: {}", path.display()))?;
+    let data: &[u8] = &input;
 
     if data.is_empty() {
         return Ok(Vec::new());

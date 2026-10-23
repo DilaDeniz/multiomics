@@ -8,8 +8,8 @@ use rayon::ThreadPoolBuilder;
 use biomics_core::ProgressEvent;
 use epigenomics_core::{analyze_bed, EpigenomicsSummary};
 use genomics_core::{analyze_vcf, GenomicsSummary};
-use integration_layer::{run_integration, IntegrationSummary};
-use transcriptomics_core::{analyze_tsv, TranscriptomicsSummary};
+use integration_layer::{run_integration_with, IntegrationSummary, Modalities};
+use transcriptomics_core::{analyze_count_tsv, analyze_tsv, TranscriptomicsSummary};
 
 use crate::args::Cli;
 use crate::compare::run_comparison;
@@ -37,7 +37,10 @@ pub fn run_pipeline(
             format!(
                 "[INFO] Auto-detected: {} {} {}",
                 ctx.species.as_str(),
-                ctx.genomics_assay.as_ref().map(|a| a.as_str()).unwrap_or(""),
+                ctx.genomics_assay
+                    .as_ref()
+                    .map(|a| a.as_str())
+                    .unwrap_or(""),
                 ctx.suggested_preset
                     .as_ref()
                     .map(|p| format!("→ preset: {}", p.preset))
@@ -71,9 +74,15 @@ pub fn run_pipeline(
     let run_t = cli.transcriptomics.is_some() && !cli.skip_transcriptomics;
     let run_e = cli.epigenomics.is_some() && !cli.skip_epigenomics;
 
-    if !run_g { log::info!("Skipping genomics analysis"); }
-    if !run_t { log::info!("Skipping transcriptomics analysis"); }
-    if !run_e { log::info!("Skipping epigenomics analysis"); }
+    if !run_g {
+        log::info!("Skipping genomics analysis");
+    }
+    if !run_t {
+        log::info!("Skipping transcriptomics analysis");
+    }
+    if !run_e {
+        log::info!("Skipping epigenomics analysis");
+    }
 
     let (mut genomics, transcriptomics, epigenomics): (
         GenomicsSummary,
@@ -90,7 +99,12 @@ pub fn run_pipeline(
             });
             let th = s.spawn(|| {
                 if run_t {
-                    analyze_tsv(cli.transcriptomics.as_deref().unwrap(), Some(&ttx))
+                    let path = cli.transcriptomics.as_deref().unwrap();
+                    if cli.raw_counts {
+                        analyze_count_tsv(path, Some(&ttx))
+                    } else {
+                        analyze_tsv(path, Some(&ttx))
+                    }
                 } else {
                     Ok(TranscriptomicsSummary::default())
                 }
@@ -104,9 +118,12 @@ pub fn run_pipeline(
             });
             (gh.join(), th.join(), eh.join())
         });
-        let g: GenomicsSummary = gr.map_err(|e| anyhow::anyhow!("Genomics thread panicked: {:?}", e))??;
-        let t: TranscriptomicsSummary = tr.map_err(|e| anyhow::anyhow!("Transcriptomics thread panicked: {:?}", e))??;
-        let e: EpigenomicsSummary = er.map_err(|e| anyhow::anyhow!("Epigenomics thread panicked: {:?}", e))??;
+        let g: GenomicsSummary =
+            gr.map_err(|e| anyhow::anyhow!("Genomics thread panicked: {:?}", e))??;
+        let t: TranscriptomicsSummary =
+            tr.map_err(|e| anyhow::anyhow!("Transcriptomics thread panicked: {:?}", e))??;
+        let e: EpigenomicsSummary =
+            er.map_err(|e| anyhow::anyhow!("Epigenomics thread panicked: {:?}", e))??;
         (g, t, e)
     };
 
@@ -123,8 +140,9 @@ pub fn run_pipeline(
         } else {
             (2800.0, "WGS (default)")
         };
+        // TMB counts SNV/MNP/indel alleles only; symbolic SVs and breakends excluded.
         genomics.tmb = Some(genomics_core::cancer::compute_tmb(
-            genomics.total_variants,
+            genomics.small_variants,
             genome_mb,
             genome_mb_source,
         ));
@@ -142,8 +160,9 @@ pub fn run_pipeline(
 
     // Optional: reference-guided microhomology HRD scoring
     if let (Some(ref ref_path), Some(_)) = (&cli.reference, &genomics.hrd) {
+        // Same variant set as the reference-free HRD score (all variants).
         match genomics_core::cancer::compute_hrd_score_with_reference(
-            &genomics.high_impact,
+            &genomics.all_variants,
             ref_path,
         ) {
             Ok(hrd) => {
@@ -204,12 +223,14 @@ pub fn run_pipeline(
         s.epigen_pct = 100.0;
     });
 
-    // Optional: DESeq2 normalization on raw count input
-    if cli.raw_counts {
-        log::info!("DESeq2 size-factor normalization requested (--raw-counts)");
+    if cli.raw_counts && run_t {
+        let n_sig = transcriptomics
+            .diff_expr
+            .as_ref()
+            .map_or(0, |de| de.iter().filter(|r| r.padj < 0.05).count());
         push_insight(
             &state,
-            "[INFO] DESeq2 normalization applied to raw count matrix".to_string(),
+            format!("[INFO] DESeq2 (negative-binomial Wald test): {n_sig} genes with padj < 0.05"),
         );
     }
 
@@ -540,7 +561,13 @@ pub fn run_pipeline(
     } else {
         set_phase(&state, Phase::Integration);
         log::info!("Running integration layer");
-        let result = run_integration(&genomics, &transcriptomics, &epigenomics, false)?;
+        let provided = Modalities {
+            genomics: run_g,
+            transcriptomics: run_t,
+            epigenomics: run_e,
+        };
+        let result =
+            run_integration_with(&genomics, &transcriptomics, &epigenomics, false, provided)?;
         complete_progress(&state, |s| {
             s.integration_pct = 100.0;
         });
@@ -739,10 +766,9 @@ fn push_integration_insights(i: &IntegrationSummary, state: &Option<SharedState>
 }
 
 fn truncate(s: &str, max: usize) -> &str {
-    if s.len() <= max {
-        s
-    } else {
-        &s[..max]
+    match s.char_indices().nth(max) {
+        Some((idx, _)) => &s[..idx],
+        None => s,
     }
 }
 
@@ -771,4 +797,18 @@ fn collect_mzml_dir(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
         .collect();
     paths.sort(); // deterministic order
     paths
+}
+
+#[cfg(test)]
+mod tests {
+    use super::truncate;
+
+    #[test]
+    fn truncate_respects_char_boundaries() {
+        // "≥" is 3 bytes; a byte-index slice at 2 would panic.
+        assert_eq!(truncate("a≥b", 2), "a≥");
+        assert_eq!(truncate("|log₂FC| ≥ 1", 5), "|log₂");
+        assert_eq!(truncate("short", 80), "short");
+        assert_eq!(truncate("", 3), "");
+    }
 }

@@ -1,0 +1,12 @@
+# bcftools 1.24
+# bcftools stats test_data/validation/bcftools_edge_cases.vcf | grep -E '^(SN|TSTV)'
+SN	0	number of samples:	0
+SN	0	number of records:	24
+SN	0	number of no-ALTs:	2
+SN	0	number of SNPs:	14
+SN	0	number of MNPs:	1
+SN	0	number of indels:	5
+SN	0	number of others:	2
+SN	0	number of multiallelic sites:	5
+SN	0	number of multiallelic SNP sites:	3
+TSTV	0	9	8	1.12	9	5	1.80

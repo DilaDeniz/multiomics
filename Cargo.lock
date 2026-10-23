@@ -162,7 +162,6 @@ dependencies = [
  "crossbeam-channel",
  "log",
  "memchr",
- "memmap2",
  "noodles-bam",
  "noodles-sam",
  "serde",
@@ -191,12 +190,15 @@ dependencies = [
  "criterion",
  "crossbeam-channel",
  "fast-float",
+ "flate2",
  "itoa",
  "log",
  "memchr",
+ "memmap2",
  "rayon",
  "ryu",
  "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -655,7 +657,6 @@ dependencies = [
  "crossbeam-channel",
  "log",
  "memchr",
- "memmap2",
  "noodles-bam",
  "noodles-sam",
  "rayon",
@@ -1428,7 +1429,6 @@ dependencies = [
  "integration_layer",
  "log",
  "memchr",
- "memmap2",
  "mimalloc",
  "ndarray",
  "num_cpus",
@@ -2562,6 +2562,7 @@ dependencies = [
  "noodles-sam",
  "rayon",
  "serde",
+ "serde_json",
 ]
 
 [[package]]

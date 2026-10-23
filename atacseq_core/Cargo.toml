@@ -10,7 +10,6 @@ biomics_core      = { path = "../biomics_core" }
 anyhow            = { workspace = true }
 serde             = { workspace = true }
 ahash             = { workspace = true, features = ["serde"] }
-memmap2           = { workspace = true }
 memchr            = { workspace = true }
 log               = { workspace = true }
 crossbeam-channel = { workspace = true }

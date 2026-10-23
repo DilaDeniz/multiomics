@@ -1,7 +1,6 @@
 use std::path::Path;
 
 use anyhow::{Context, Result};
-use memmap2::Mmap;
 
 use crate::types::MethylationRecord;
 use biomics_core::parse::{parse_f64, parse_u64, trim_bytes, ByteLines, TabFields};
@@ -14,18 +13,11 @@ use biomics_core::parse::{parse_f64, parse_u64, trim_bytes, ByteLines, TabFields
 /// - 6-column ENCODE bisulfite: `chrom  start  end  name  score  strand`
 ///   where `score` ∈ [0, 1000] → divide by 10 for percentage.
 ///
-/// `madvise(SEQUENTIAL)` is applied for kernel read-ahead.
+/// Plain files are memory-mapped; gzip/BGZF input is decompressed in memory.
 pub fn parse_bed(path: &Path) -> Result<Vec<MethylationRecord>> {
-    let file = std::fs::File::open(path)
-        .with_context(|| format!("Cannot open BED file '{}'", path.display()))?;
-
-    // SAFETY: the file is not modified while this process holds the Mmap.
-    let mmap = unsafe { Mmap::map(&file) }
-        .with_context(|| format!("Cannot mmap BED file '{}'", path.display()))?;
-
-    let _ = mmap.advise(memmap2::Advice::Sequential);
-
-    let data = mmap.as_ref();
+    let input = biomics_core::io::open_input(path)
+        .with_context(|| format!("Cannot read BED file '{}'", path.display()))?;
+    let data: &[u8] = &input;
     // Estimate: a typical 6-col BED line is ~40 bytes
     let mut records = Vec::with_capacity(data.len() / 40);
 
@@ -89,15 +81,13 @@ fn parse_bed_line(line: &[u8]) -> Option<MethylationRecord> {
         // 6-column ENCODE: score in [0, 1000]
         let score: f64 = parse_f64(trim_bytes(score_b))?;
         score / 10.0
-    } else if let Some(val_b) = col4 {
-        let val: f64 = parse_f64(trim_bytes(val_b))?;
+    } else {
+        let val: f64 = parse_f64(trim_bytes(col4?))?;
         if val > 1.0 {
             val.min(100.0)
         } else {
             val * 100.0
         }
-    } else {
-        return None;
     };
 
     Some(MethylationRecord {

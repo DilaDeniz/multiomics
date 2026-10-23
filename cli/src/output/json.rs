@@ -7,9 +7,13 @@ use serde::Serialize;
 
 use epigenomics_core::clock::MethylationAgeResult;
 use epigenomics_core::EpigenomicsSummary;
-use genomics_core::cancer::{HrdScore, KataegisLocus, LohChromosome, MsiResult, TmbResult, TumorPurityResult};
+use genomics_core::cancer::{
+    HrdScore, KataegisLocus, LohChromosome, MsiResult, TmbResult, TumorPurityResult,
+};
 use genomics_core::GenomicsSummary;
-use integration_layer::{EnrichmentResult, GeneParadox, GeneRegulatoryProfile, Insight, IntegrationSummary};
+use integration_layer::{
+    EnrichmentResult, GeneParadox, GeneRegulatoryProfile, Insight, IntegrationSummary,
+};
 use transcriptomics_core::TranscriptomicsSummary;
 
 /// MultiQC-compatible general stats for the top-level table.
@@ -39,9 +43,18 @@ pub struct JsonGenomicsSection {
     pub total_variants: u64,
     pub snp_count: u64,
     pub indel_count: u64,
+    pub mnp_count: u64,
+    pub other_count: u64,
+    pub multiallelic_sites: u64,
+    pub small_variants: u64,
+    pub transitions: u64,
+    pub transversions: u64,
     pub titv_ratio: f64,
     pub high_impact_count: usize,
     pub high_impact_genes: Vec<String>,
+    /// How high-impact genes were defined (SnpEff/VEP IMPACT=HIGH or QUAL>30 fallback).
+    pub impact_source: String,
+    pub annotated_variants: u64,
     pub unique_positions: u64,
     pub af_histogram: Vec<u64>,
     pub per_chrom: HashMap<String, ChromStats>,
@@ -203,9 +216,21 @@ pub fn build_multiqc_output(
             total_variants: genomics.total_variants,
             snp_count: genomics.snp_count,
             indel_count: genomics.indel_count,
+            mnp_count: genomics.mnp_count,
+            other_count: genomics.other_count,
+            multiallelic_sites: genomics.multiallelic_sites,
+            small_variants: genomics.small_variants,
+            transitions: genomics.transitions,
+            transversions: genomics.transversions,
             titv_ratio: genomics.titv_ratio,
-            high_impact_count: genomics.high_impact.len(),
+            high_impact_count: if genomics.annotated_variants > 0 {
+                genomics.impact_high_variants as usize
+            } else {
+                genomics.high_impact.len()
+            },
             high_impact_genes: genomics.high_impact_genes.clone(),
+            impact_source: genomics.impact_source.clone(),
+            annotated_variants: genomics.annotated_variants,
             unique_positions: genomics.unique_positions,
             af_histogram: genomics.af_histogram.clone(),
             per_chrom,

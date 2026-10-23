@@ -47,12 +47,9 @@ impl ProgressEvent {
 /// Falls back to `DEFAULT_CHUNK` for ZSTs or when the size would overflow.
 #[inline]
 fn chunk_size_for<T>() -> usize {
-    let record_size = std::mem::size_of::<T>();
-    if record_size == 0 {
-        DEFAULT_CHUNK
-    } else {
-        (TARGET_CHUNK_BYTES / record_size).max(1)
-    }
+    TARGET_CHUNK_BYTES
+        .checked_div(std::mem::size_of::<T>())
+        .map_or(DEFAULT_CHUNK, |n| n.max(1))
 }
 
 /// Execute a lock-free parallel fold over a pre-collected slice of records.

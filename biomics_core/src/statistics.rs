@@ -4,9 +4,15 @@
 // - Lanczos ln Γ — underpins Fisher's exact test
 // - Hypergeometric one-sided p-value — Fisher's exact test for pathway enrichment
 // - Benjamini-Hochberg FDR correction
-// - Regularised incomplete beta — underpins t-test p-values
+// - Regularised incomplete beta — underpins t-test and F-distribution values
+// - Regularised incomplete gamma — chi-squared tail probabilities
+// - Normal CDF / survival function accurate deep into the tails
+// - Digamma and trigamma functions
 // - Welch's two-sample t-test with Satterthwaite df
 // - Spearman rank correlation
+//
+// Every distribution function here is validated against SciPy in
+// biomics_core/tests/scipy_reference.rs.
 
 // ── Gamma function ────────────────────────────────────────────────────────────
 
@@ -138,7 +144,7 @@ pub fn t_pvalue(t: f64, df: f64) -> f64 {
 /// Regularised incomplete beta function I(x; a, b) via Lentz continued fractions.
 ///
 /// Switches tails at x = (a+1)/(a+b+2) for better convergence.
-fn regularised_incomplete_beta(x: f64, a: f64, b: f64) -> f64 {
+pub fn regularised_incomplete_beta(x: f64, a: f64, b: f64) -> f64 {
     if x <= 0.0 {
         return 0.0;
     }
@@ -168,8 +174,10 @@ fn regularised_incomplete_beta(x: f64, a: f64, b: f64) -> f64 {
 
 /// Lentz's continued fraction for the incomplete beta function.
 fn betacf(x: f64, a: f64, b: f64) -> f64 {
-    const MAX_ITER: usize = 200;
-    const EPS: f64 = 3.0e-7;
+    // Converges in O(sqrt(max(a, b))) iterations; a generous cap keeps very
+    // large Welch degrees of freedom (scRNA DE with 10^5 cells) converged.
+    const MAX_ITER: usize = 10_000;
+    const EPS: f64 = 1.0e-15;
     const FPMIN: f64 = 1.0e-300;
 
     let qab = a + b;
@@ -225,6 +233,221 @@ fn betacf(x: f64, a: f64, b: f64) -> f64 {
     }
 
     h
+}
+
+// ── Normal distribution ──────────────────────────────────────────────────────
+
+/// Complementary error function erfc(x), accurate to ~1e-15 relative.
+///
+/// Uses the Maclaurin series of erf for |x| < 2 and the Laplace continued
+/// fraction (evaluated with the modified Lentz method) in the tails, so values
+/// far below 1e-300 keep full relative precision until they underflow.
+pub fn erfc(x: f64) -> f64 {
+    if x.is_nan() {
+        return f64::NAN;
+    }
+    if x < 0.0 {
+        return 2.0 - erfc(-x);
+    }
+    if x < 2.0 {
+        // erf(x) = 2/√π Σ (−1)^n x^(2n+1) / (n! (2n+1))
+        let x2 = x * x;
+        let mut term = x;
+        let mut sum = x;
+        for n in 1..200 {
+            term *= -x2 / n as f64;
+            let delta = term / (2 * n + 1) as f64;
+            sum += delta;
+            if delta.abs() < 1e-17 * sum.abs() {
+                break;
+            }
+        }
+        return 1.0 - sum * std::f64::consts::FRAC_2_SQRT_PI;
+    }
+    // erfc(x) = e^{−x²}/√π · 1/(x + (1/2)/(x + 1/(x + (3/2)/(x + 2/(x + …)))))
+    const TINY: f64 = 1e-300;
+    let mut f = x;
+    let mut c = x;
+    let mut d = 0.0;
+    for k in 1..500 {
+        let a = k as f64 * 0.5;
+        d = x + a * d;
+        d = if d.abs() < TINY { TINY } else { d };
+        c = x + a / c;
+        c = if c.abs() < TINY { TINY } else { c };
+        d = 1.0 / d;
+        let delta = c * d;
+        f *= delta;
+        if (delta - 1.0).abs() < 1e-16 {
+            break;
+        }
+    }
+    (-x * x).exp() / (f * std::f64::consts::PI.sqrt())
+}
+
+/// Standard normal survival function P(Z > z).
+pub fn normal_sf(z: f64) -> f64 {
+    0.5 * erfc(z / std::f64::consts::SQRT_2)
+}
+
+/// Standard normal cumulative distribution function P(Z ≤ z).
+pub fn normal_cdf(z: f64) -> f64 {
+    normal_sf(-z)
+}
+
+// ── Digamma / trigamma ───────────────────────────────────────────────────────
+
+/// Digamma function ψ(x) = d/dx ln Γ(x) for x > 0.
+///
+/// Shifts the argument above 10 with ψ(x) = ψ(x+1) − 1/x, then applies the
+/// asymptotic expansion ln x − 1/(2x) − Σ B₂ₖ/(2k x²ᵏ).
+pub fn digamma(mut x: f64) -> f64 {
+    if x.is_nan() || x <= 0.0 {
+        return f64::NAN;
+    }
+    let mut acc = 0.0;
+    while x < 10.0 {
+        acc -= 1.0 / x;
+        x += 1.0;
+    }
+    let inv2 = 1.0 / (x * x);
+    let series = inv2
+        * (1.0 / 12.0
+            - inv2
+                * (1.0 / 120.0
+                    - inv2
+                        * (1.0 / 252.0
+                            - inv2
+                                * (1.0 / 240.0 - inv2 * (1.0 / 132.0 - inv2 * 691.0 / 32760.0)))));
+    acc + x.ln() - 0.5 / x - series
+}
+
+/// Trigamma function ψ₁(x) = d²/dx² ln Γ(x) for x > 0.
+///
+/// Shifts the argument above 10 with ψ₁(x) = ψ₁(x+1) + 1/x², then applies
+/// 1/x + 1/(2x²) + Σ B₂ₖ/x²ᵏ⁺¹.
+pub fn trigamma(mut x: f64) -> f64 {
+    if x.is_nan() || x <= 0.0 {
+        return f64::NAN;
+    }
+    let mut acc = 0.0;
+    while x < 10.0 {
+        acc += 1.0 / (x * x);
+        x += 1.0;
+    }
+    let inv = 1.0 / x;
+    let inv2 = inv * inv;
+    let series = inv2
+        * inv
+        * (1.0 / 6.0
+            - inv2
+                * (1.0 / 30.0
+                    - inv2
+                        * (1.0 / 42.0
+                            - inv2 * (1.0 / 30.0 - inv2 * (5.0 / 66.0 - inv2 * 691.0 / 2730.0)))));
+    acc + inv + 0.5 * inv2 + series
+}
+
+// ── Gamma / chi-squared ──────────────────────────────────────────────────────
+
+/// Regularised upper incomplete gamma function Q(a, x) = Γ(a, x) / Γ(a).
+///
+/// Power series for P(a, x) when x < a + 1, otherwise the Legendre continued
+/// fraction for Q (modified Lentz).
+pub fn regularised_gamma_q(a: f64, x: f64) -> f64 {
+    if x.is_nan() || a.is_nan() || a <= 0.0 {
+        return f64::NAN;
+    }
+    if x <= 0.0 {
+        return 1.0;
+    }
+    let ln_prefix = a * x.ln() - x - ln_gamma(a);
+    if x < a + 1.0 {
+        let mut term = 1.0 / a;
+        let mut sum = term;
+        let mut ap = a;
+        for _ in 0..10_000 {
+            ap += 1.0;
+            term *= x / ap;
+            sum += term;
+            if term.abs() < sum.abs() * 1e-17 {
+                break;
+            }
+        }
+        (1.0 - sum * ln_prefix.exp()).clamp(0.0, 1.0)
+    } else {
+        const TINY: f64 = 1e-300;
+        let mut b = x + 1.0 - a;
+        let mut c = 1.0 / TINY;
+        let mut d = 1.0 / b;
+        let mut h = d;
+        for i in 1..10_000 {
+            let an = -(i as f64) * (i as f64 - a);
+            b += 2.0;
+            d = an * d + b;
+            d = if d.abs() < TINY { TINY } else { d };
+            c = b + an / c;
+            c = if c.abs() < TINY { TINY } else { c };
+            d = 1.0 / d;
+            let delta = d * c;
+            h *= delta;
+            if (delta - 1.0).abs() < 1e-16 {
+                break;
+            }
+        }
+        (ln_prefix.exp() * h).clamp(0.0, 1.0)
+    }
+}
+
+/// Upper-tail chi-squared probability P(χ²(df) > x).
+pub fn chi2_sf(x: f64, df: f64) -> f64 {
+    if df <= 0.0 {
+        return f64::NAN;
+    }
+    regularised_gamma_q(df / 2.0, x / 2.0)
+}
+
+// ── F distribution ───────────────────────────────────────────────────────────
+
+/// F-distribution CDF P(F(d1, d2) ≤ x).
+pub fn f_cdf(x: f64, d1: f64, d2: f64) -> f64 {
+    if x <= 0.0 {
+        return 0.0;
+    }
+    if !x.is_finite() {
+        return 1.0;
+    }
+    regularised_incomplete_beta(d1 * x / (d1 * x + d2), d1 / 2.0, d2 / 2.0)
+}
+
+/// F-distribution quantile: the x with P(F(d1, d2) ≤ x) = p, by bisection.
+pub fn f_quantile(p: f64, d1: f64, d2: f64) -> f64 {
+    if !(0.0..1.0).contains(&p) || d1 <= 0.0 || d2 <= 0.0 {
+        return f64::NAN;
+    }
+    if p == 0.0 {
+        return 0.0;
+    }
+    let mut hi = 1.0;
+    while f_cdf(hi, d1, d2) < p {
+        hi *= 2.0;
+        if hi > 1e300 {
+            return f64::INFINITY;
+        }
+    }
+    let mut lo = 0.0;
+    for _ in 0..200 {
+        let mid = 0.5 * (lo + hi);
+        if f_cdf(mid, d1, d2) < p {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+        if hi - lo <= 1e-15 * hi {
+            break;
+        }
+    }
+    0.5 * (lo + hi)
 }
 
 // ── Welch's t-test ───────────────────────────────────────────────────────────
@@ -397,5 +620,31 @@ mod tests {
         assert!(t_pvalue(10.0, 100.0) < 1e-10);
         // symmetric
         assert!((t_pvalue(2.0, 30.0) - t_pvalue(-2.0, 30.0)).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_normal_tails() {
+        assert!((normal_cdf(0.0) - 0.5).abs() < 1e-16);
+        assert!((normal_cdf(1.959963984540054) - 0.975).abs() < 1e-15);
+        // 2*pnorm(-10) = 1.523970604832105e-23 (R / SciPy)
+        let p = 2.0 * normal_sf(10.0);
+        assert!((p / 1.523970604832105e-23 - 1.0).abs() < 1e-12, "{p}");
+    }
+
+    #[test]
+    fn test_digamma_trigamma_identities() {
+        // ψ(1) = −γ, ψ₁(1) = π²/6
+        assert!((digamma(1.0) + 0.577_215_664_901_532_9).abs() < 1e-14);
+        let pi2_6 = std::f64::consts::PI.powi(2) / 6.0;
+        assert!((trigamma(1.0) - pi2_6).abs() < 1e-14);
+        assert!((digamma(0.5) - (-1.963_510_026_021_423_5)).abs() < 1e-13);
+    }
+
+    #[test]
+    fn test_chi2_and_f() {
+        // P(χ²(1) > 3.841458820694124) = 0.05
+        assert!((chi2_sf(3.841_458_820_694_124, 1.0) - 0.05).abs() < 1e-13);
+        // qf(0.99, 2, 4) = 18 exactly (closed form for d1 = 2)
+        assert!((f_quantile(0.99, 2.0, 4.0) - 18.0).abs() < 1e-9);
     }
 }

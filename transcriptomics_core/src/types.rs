@@ -22,9 +22,10 @@ pub struct GeneStats {
 
 /// Differential expression result for one gene.
 ///
-/// For n=2 samples, `p_value` and `padj` are `f64::NAN` (no within-group
-/// variance to estimate). For n≥4 samples, Welch's t-test is used and BH
-/// FDR correction is applied across all tested genes.
+/// From [`crate::differential_expression`] (TPM input): Welch's t-test with BH
+/// correction for n ≥ 4 samples; `p_value`/`padj` are NaN for n < 4.
+/// From [`crate::deseq2_de_results`] (raw counts): DESeq2 Wald test; NaN marks
+/// all-zero genes, Cook's outliers and genes removed by independent filtering.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DiffExprResult {
     pub gene_id: String,

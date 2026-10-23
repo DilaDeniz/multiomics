@@ -25,7 +25,7 @@ pub const PHOSPHO_MASS: f64 = 79.966_330_9;
 pub const DEFAULT_MAX_PHOSPHO_SITES: usize = 2;
 
 /// Amino acids eligible for phosphorylation.
-const PHOSPHO_RESIDUES: [u8; 3] = [b'S', b'T', b'Y'];
+const PHOSPHO_RESIDUES: [u8; 3] = *b"STY";
 
 /// Generate all phosphorylated variants of a peptide up to `max_sites` phospho groups.
 ///

@@ -52,7 +52,7 @@ pub struct Cli {
     #[arg(long, value_name = "FILE")]
     pub fasta: Option<PathBuf>,
 
-    /// FDR threshold for proteomics reporting [default: 0.01]
+    /// FDR threshold for proteomics reporting
     #[arg(long, default_value_t = 0.01f64)]
     pub proteomics_fdr: f64,
 
@@ -69,12 +69,13 @@ pub struct Cli {
     #[arg(long, value_name = "FILE")]
     pub normal_bam: Option<PathBuf>,
 
-    /// Minimum tumor log-odds score for somatic calls (default: 6.3)
+    /// Minimum tumor log-odds score for somatic calls
     #[arg(long, default_value_t = 6.3)]
     pub somatic_min_lod: f64,
 
-    // ── Reference-guided alignment ────────────────────────────────────────────
-    /// Reference FASTA for aligning reads (enables --fastq processing)
+    // ── Reference-guided analyses ─────────────────────────────────────────────
+    /// Reference FASTA (GRCh38 recommended). Enables 96-channel COSMIC signature
+    /// deconvolution and microhomology-aware HRD scoring for --genomics
     #[arg(long, value_name = "FILE")]
     pub reference: Option<PathBuf>,
 
@@ -83,7 +84,7 @@ pub struct Cli {
     #[arg(long, value_name = "DIR")]
     pub scrna: Option<PathBuf>,
 
-    /// Number of UMAP neighbors (default: 15)
+    /// Number of UMAP neighbors
     #[arg(long, default_value_t = 15usize)]
     pub umap_neighbors: usize,
 
@@ -119,7 +120,8 @@ pub struct Cli {
     pub gmt: Option<PathBuf>,
 
     // ── Normalization ─────────────────────────────────────────────────────────
-    /// Treat --transcriptomics as raw counts; apply DESeq2 size-factor normalization
+    /// Treat --transcriptomics as raw integer counts and test differential
+    /// expression with DESeq2 (first ⌈n/2⌉ samples vs the rest)
     #[arg(long, default_value_t = false)]
     pub raw_counts: bool,
 
